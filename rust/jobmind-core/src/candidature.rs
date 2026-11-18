@@ -233,11 +233,24 @@ pub fn verifier(s: &Saisie, aujourdhui: Jour) -> Result<Fiche, String> {
     Ok(Fiche { entreprise, poste, ville, envoyee_le, moyen, source, lien, envoye, cv, notes })
 }
 
+/// Les jours possibles pour un entretien : d'un an en arrière à trois ans devant (le calendrier de l'écran ne montre
+/// que ceux-là, [`verifier_entretien`] refuse les autres).
+pub fn bornes_entretien(aujourdhui: Jour) -> (Jour, Jour) {
+    (aujourdhui.plus(-366), aujourdhui.plus(3 * 366))
+}
+
+/// Les jours que le calendrier de la date d'envoi laisse choisir : des trois dernières années à aujourd'hui (une date
+/// plus ancienne se tape encore à la main ; [`verifier`] refuse seulement une date après aujourd'hui).
+pub fn bornes_envoi(aujourdhui: Jour) -> (Jour, Jour) {
+    (aujourdhui.plus(-3 * 366), aujourdhui)
+}
+
 /// Vérifie un entretien tapé : un vrai jour (jamais plus d'un an en arrière), une heure si elle est donnée, un lieu
 /// d'une ligne.
 pub fn verifier_entretien(date: &str, heure: &str, lieu: &str, aujourdhui: Jour) -> Result<Entretien, String> {
     let jour = Jour::lire_saisie(date).ok_or("La date de l'entretien s'écrit comme 25/11/2026.")?;
-    if jour < aujourdhui.plus(-366) || jour > aujourdhui.plus(3 * 366) {
+    let (min, max) = bornes_entretien(aujourdhui);
+    if jour < min || jour > max {
         return Err("La date de l'entretien semble fausse.".into());
     }
     let heure = match heure.trim() {
@@ -346,5 +359,25 @@ mod tests {
         assert!(verifier_notes(&"x".repeat(4001)).is_err());
         assert_eq!(verifier_notes(" a\r\nb ").unwrap(), "a\nb");
         assert!(lien_valable("") && lien_valable("http://exemple.fr") && !lien_valable("https://"));
+    }
+
+    /// Le calendrier de l'écran écrit le jour cliqué comme « 05/01/2027 » ([`Jour::saisie`]) : chaque jour qu'il laisse
+    /// choisir passe la vérification, le jour d'avant le premier et celui d'après le dernier sont refusés.
+    #[test]
+    fn les_jours_du_calendrier_sont_acceptes() {
+        let (min, max) = bornes_entretien(auj());
+        assert_eq!((min.iso(), max.iso()), ("2025-11-17".to_string(), "2029-11-20".to_string()));
+        for j in [min, auj(), auj().plus(1), max] {
+            assert_eq!(verifier_entretien(&j.saisie(), "", "", auj()).unwrap().jour, j, "{}", j.saisie());
+        }
+        assert!(verifier_entretien(&min.plus(-1).saisie(), "", "", auj()).is_err());
+        assert!(verifier_entretien(&max.plus(1).saisie(), "", "", auj()).is_err());
+        let (min, max) = bornes_envoi(auj());
+        assert_eq!((min.iso(), max.iso()), ("2023-11-16".to_string(), "2026-11-18".to_string()));
+        let s = |d: Jour| Saisie { date: d.saisie(), ..saisie() };
+        for j in [min, auj().plus(-16), max] {
+            assert_eq!(verifier(&s(j), auj()).unwrap().envoyee_le, j, "{}", j.saisie());
+        }
+        assert!(verifier(&s(max.plus(1)), auj()).is_err());
     }
 }

@@ -12,7 +12,10 @@
 # l'ordre { kit: 'accueil', onglet } que seule la construction d'essai lit dans ordre.demande), « rubrique:<id> »
 # (une rubrique de Mon profil : cv, style, recherche, reglages), « candidature:<n> » (le dossier de la candidature n),
 # « ajouter » (le formulaire d'une nouvelle candidature), « modifier » (celui du dossier ouvert), « menu-statut » (le
-# menu des statuts du dossier ouvert), « entretien » (le petit formulaire de son entretien).
+# menu des statuts du dossier ouvert), « entretien » (le petit formulaire de son entretien), « calendrier » (le petit
+# calendrier de la date ouverte : celle du formulaire, sinon celle de l'entretien), « jour:<n> » (un clic sur le jour n
+# du mois en cours dans ce calendrier : le champ se remplit), « clic:<data-k> » (un clic sur cet élément de l'écran, par
+# exemple clic:f:enregistrer ou clic:e:ok). Chaque vue est capturée après son geste.
 # -Exemples : la base d'essai est remplie de candidatures inventées à des statuts variés (exemples.demande, lu par la
 # construction d'essai au démarrage). -Largeur et -Hauteur : la taille du panneau (944 x 608 : un panneau de 1180 x 760
 # vu à 125 % d'affichage).
@@ -159,6 +162,9 @@ try {
         elseif ($v -eq 'ajouter') { Ordre '{"kit":"accueil","ajouter":true}' }
         elseif ($v -eq 'modifier') { Ordre '{"kit":"accueil","modifier":true}' }
         elseif ($v -in 'menu-statut', 'entretien') { Ordre ('{"kit":"accueil","statut":"' + $v.Replace('menu-statut', 'menu') + '"}') }
+        elseif ($v -eq 'calendrier') { Ordre '{"kit":"accueil","calendrier":true}' }
+        elseif ($v -match '^jour:(\d{1,2})$') { Ordre ('{"kit":"accueil","cliquer":"cal:' + (Get-Date -Day ([int]$Matches[1]) -Format 'yyyy-MM-dd') + '"}') }
+        elseif ($v -match '^clic:([a-z]{1,4}:[a-z0-9-]{1,12})$') { Ordre ('{"kit":"accueil","cliquer":"' + $Matches[1] + '"}') }
         else { Echec "vue inconnue : $v"; continue }
         [void](Attendre { $false } 1500)
         Capturer $nom

@@ -17,13 +17,16 @@
 // - « Ajouter une candidature » ouvre le formulaire à droite ; « Enregistrer » envoie tout à Rust ('c-enregistrer'),
 //   qui répond par l'ordre { kit: 'accueil', enregistre: id } (le formulaire se ferme sur le dossier) ou par une
 //   bulle qui dit ce qui ne va pas (le formulaire reste ouvert). Un brouillon fermé par Retour est gardé ;
+// - les dates (la date d'envoi, celle de l'entretien) : le champ JJ/MM/AAAA, et un petit calendrier d'un mois (repris
+//   de Paymind) ouvert par l'agenda du champ ou un clic dedans ; un clic sur un jour remplit le champ. Rust vérifie ;
 // - Mon profil : ses rubriques ; Réglages montre le délai avant relance ('reglage-relance') ;
 // - Retour (Échap, B) ferme d'abord ce qui est ouvert (menu, question, formulaire), revient ensuite au premier
 //   onglet, puis à la console de Mindset ;
 // - les ordres de l'appli : { kit: 'accueil', onglet: id }, { rubrique: id }, { candidature: id } (le dossier
 //   annoncé par une bulle), { ajouter: true }, { modifier: true }, { enregistre: id } (le formulaire enregistré),
 //   { fait: id } (un statut changé : le menu ou le petit formulaire de l'entretien se referment), { statut: 'menu' }
-//   et { statut: 'entretien' } (le menu des statuts, le petit formulaire de l'entretien du dossier ouvert).
+//   et { statut: 'entretien' } (le menu des statuts, le petit formulaire de l'entretien du dossier ouvert) ; pour les
+//   captures, { calendrier: true } (le calendrier de la date ouverte) et { cliquer: data-k } (un clic sur cet élément).
 (() => {
   'use strict';
   const reduit = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -51,6 +54,8 @@
     poubelle: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
     lien: svg('<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'),
     bas: svg('<path d="M6 9l6 6 6-6"/>', 2.2),
+    gauche: svg('<path d="M15 5l-7 7 7 7"/>', 2.4),
+    droite: svg('<path d="M9 5l7 7-7 7"/>', 2.4),
   };
   const icone = (n) => (typeof n === 'string' && Object.hasOwn(ICONES, n) ? ICONES[n] : '');
   // La couleur de chaque statut, par son rôle dans le thème (jamais en dur : elle suit le thème de la suite)
@@ -73,6 +78,7 @@
   let pilule = 'envoye';  // la pilule montrée dans le dossier
   let menu = false;       // le menu des statuts ouvert
   let rdv = null;         // le petit formulaire de l'entretien : { date, heure, lieu }
+  let cal = null;         // le petit calendrier ouvert : { ou: 'f' (la date d'envoi) ou 'e' (l'entretien), a, m (0 à 11) }
   let confirme = false;   // « Supprimer ? » demandé
   let choisie = null;     // la ligne choisie à l'instant (avant que Rust ne renvoie le dossier)
   const notes = {};       // les notes tapées, par candidature (gardées si un état arrive pendant qu'on tape)
@@ -159,11 +165,122 @@
     return `<div class="jm-menu" role="menu">${statuts.map((x) => `<button type="button" role="menuitemradio" aria-checked="${x.id === f.statut}" class="jm-menu-l f${x.id === f.statut ? ' ici' : ''}" data-perso="statut-choix" data-id="${x.id}" data-k="m:${x.id}" style="--c:${couleurStatut(x.id)}"><i></i>${esc(texteSur(x.nom))}</button>`).join('')}</div>`;
   }
 
+  // ---------------------------------------------------------------- le petit calendrier des dates (repris de Paymind)
+  // La date d'envoi du formulaire ('f') et celle de l'entretien ('e') : le champ JJ/MM/AAAA reste (taper reste
+  // possible) ; l'agenda à sa droite, ou un clic dans le champ, ouvre le mois dessous. Un clic sur un jour écrit
+  // « 05/01/2027 » dans le champ. Les jours qui se cliquent, les mois et aujourd'hui viennent de Rust (textes.calendrier),
+  // qui vérifie de nouveau la date en enregistrant : c'est sa vérification qui compte.
+  const ISO = /^\d{4}-\d{2}-\d{2}$/;
+  const deux = (n) => String(n).padStart(2, '0');
+  const textesCal = () => { const k = textesC().calendrier; return k && typeof k === 'object' ? k : {}; };
+  const prefixe = (ou) => (ou === 'e' ? 'e' : 'f');
+  // Un jour tapé, pour le montrer seulement (comme Jour::lire_saisie de Rust) : « 2/11/2026 », « 02.11.26 », « 2026-11-02 »
+  function isoDe(t) {
+    const s = String(t || '').trim();
+    let a, m, j;
+    if (ISO.test(s)) [a, m, j] = s.split('-').map(Number);
+    else {
+      const p = s.split(/[/.-]/).map((x) => x.trim());
+      if (p.length !== 3 || !p.every((x) => /^\d+$/.test(x)) || p[0].length > 2 || p[1].length > 2 || !(p[2].length === 2 || p[2].length === 4)) return '';
+      j = +p[0]; m = +p[1]; a = p[2].length === 2 ? 2000 + +p[2] : +p[2];
+    }
+    if (a < 1900 || a > 9999 || m < 1 || m > 12 || j < 1 || j > new Date(Date.UTC(a, m, 0)).getUTCDate()) return '';
+    return `${a}-${deux(m)}-${deux(j)}`;
+  }
+  const saisieDe = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+  function bornesCal(ou) {
+    const b = textesCal()[ou === 'e' ? 'entretien' : 'envoi'] || {};
+    return { min: ISO.test(b.min || '') ? b.min : '1900-01-01', max: ISO.test(b.max || '') ? b.max : '9999-12-31' };
+  }
+  const valeurCal = (ou) => (ou === 'e' ? rdv?.date : form?.v?.date);
+  // (le calendrier n'est montré qu'avec son champ : le formulaire ouvert, ou le petit formulaire de l'entretien)
+  const calOuvert = (ou) => !!cal && cal.ou === ou && (ou === 'e' ? !!rdv : vueC === 'formulaire' && !!form);
+
+  // Le champ de la date : le texte, et l'agenda qui ouvre le calendrier
+  function champDate(ou, label, attrs, val, req) {
+    const { esc } = O;
+    const k = textesCal(), ouvert = calOuvert(ou), p = prefixe(ou);
+    return `<div class="jm-champ jm-date${ouvert ? ' ouvert' : ''}"><span>${label}</span><div class="jm-date-l">
+      <input class="f" ${attrs} data-champ="date" data-k="${p}:date" maxlength="12" autocomplete="off" spellcheck="false" placeholder="${esc(T('i_date'))}" value="${esc(val || '')}"${req ? ' aria-required="true"' : ''}>
+      <button type="button" class="jm-cal-b f" data-perso="cal-ouvrir" data-ou="${ou}" data-k="${p}:cal" aria-label="${esc(texteSur(k.ouvrir))}" title="${esc(texteSur(k.ouvrir))}" aria-expanded="${ouvert}">${icone('agenda')}</button></div></div>`;
+  }
+
+  // Le mois montré : les jours de ses bornes se cliquent, le jour du champ et aujourd'hui sont marqués
+  function calendrierHTML(ou) {
+    const { esc } = O;
+    const k = textesCal(), mois = Array.isArray(k.mois) ? k.mois : [];
+    const { min, max } = bornesCal(ou), choisi = isoDe(valeurCal(ou)), auj = ISO.test(k.aujourdhui || '') ? k.aujourdhui : '';
+    const { a, m } = cal, cle = `${a}-${deux(m + 1)}`, nomMois = texteSur(mois[m]);
+    const decale = (new Date(Date.UTC(a, m, 1)).getUTCDay() + 6) % 7, n = new Date(Date.UTC(a, m + 1, 0)).getUTCDate();
+    let jours = '<span class="jm-cal-vide"></span>'.repeat(decale);
+    for (let j = 1; j <= n; j += 1) {
+      const d = `${cle}-${deux(j)}`, cls = `${d === choisi ? ' oui' : ''}${d === auj ? ' auj' : ''}`;
+      jours += d >= min && d <= max
+        ? `<button type="button" class="jm-cal-d f${cls}" data-perso="cal-jour" data-ou="${ou}" data-v="${d}" data-k="cal:${d}" aria-label="${j} ${esc(nomMois)} ${a}" aria-pressed="${d === choisi}">${j}</button>`
+        : `<span class="jm-cal-d non${cls}">${j}</span>`;
+    }
+    const fleche = (sens, ok, ic, aide) => (ok
+      ? `<button type="button" class="jm-cal-fl f" data-perso="cal-mois" data-ou="${ou}" data-v="${sens}" data-k="cal:${sens < 0 ? 'avant' : 'apres'}" aria-label="${esc(texteSur(aide))}" title="${esc(texteSur(aide))}">${icone(ic)}</button>`
+      : `<span class="jm-cal-fl non" aria-hidden="true">${icone(ic)}</span>`);
+    const titre = texteSur(ou === 'e' ? k.titre_entretien : k.titre_envoi);
+    const tete = (Array.isArray(k.jours) ? k.jours : []).map((j) => `<span class="jm-cal-j">${esc(texteSur(j))}</span>`).join('');
+    // (il glisse en s'ouvrant seulement, pas à chaque mois changé)
+    const entree = cal.neuf === true && !reduit(); cal.neuf = false;
+    return `<div class="jm-cal${entree ? ' entree' : ''}" role="group" aria-label="${esc(titre)}">
+      <div class="jm-cal-titre">${esc(titre)}</div>
+      <div class="jm-cal-tete">${fleche(-1, cle > min.slice(0, 7), 'gauche', k.avant)}<b>${esc(nomMois)} ${a}</b>${fleche(1, cle < max.slice(0, 7), 'droite', k.apres)}</div>
+      <div class="jm-cal-grille">${tete}${jours}</div>
+      <div class="jm-cal-bas">${bouton('cal-fermer', 'cal:fermer', texteSur(k.fermer), '', 'discret', ` data-ou="${ou}"`)}</div></div>`;
+  }
+
+  // Ouvre le calendrier sur le mois du jour du champ (aujourd'hui s'il est vide, faux ou hors des bornes) ; le choix va
+  // sur ce jour, sauf ouvert par un clic dans le champ (on peut continuer à taper)
+  function ouvrirCal(ou, focusK) {
+    const { min, max } = bornesCal(ou), k = textesCal();
+    let d = isoDe(valeurCal(ou));
+    if (!d || d < min || d > max) {
+      const auj = ISO.test(k.aujourdhui || '') ? k.aujourdhui : min;
+      d = auj < min ? min : auj > max ? max : auj;
+    }
+    cal = { ou, a: +d.slice(0, 4), m: +d.slice(5, 7) - 1, neuf: true };
+    menu = false; confirme = false;
+    dessinerTout(focusK || `cal:${d}`);
+    montrerCal();
+  }
+
+  // Le champ et son calendrier, montrés ensemble dans le dossier (le champ d'abord, si tout ne tient pas)
+  function montrerCal() {
+    const box = hote.querySelector('.jm-dossier'), c = hote.querySelector('.jm-cal'), ch = hote.querySelector('.jm-date.ouvert');
+    if (!box || !c || !ch) return;
+    const b = box.getBoundingClientRect(), haut = ch.getBoundingClientRect().top - 8, bas = c.getBoundingClientRect().bottom + 8;
+    let dy = 0;
+    if (bas > b.bottom) dy = bas - b.bottom;
+    if (haut - dy < b.top) dy = haut - b.top;
+    if (dy) box.scrollTop += dy;
+  }
+
+  function fermerCal() {
+    const p = prefixe(cal?.ou);
+    cal = null;
+    dessinerTout(`${p}:cal`);
+  }
+
+  // Ce qui est tapé dans le champ, calendrier ouvert : il suit (le mois du jour tapé, ce jour marqué), sans tout redessiner
+  function suivreCal(ou) {
+    if (!calOuvert(ou)) return;
+    const d = isoDe(valeurCal(ou)), { min, max } = bornesCal(ou);
+    if (d && d >= min && d <= max) cal = { ou, a: +d.slice(0, 4), m: +d.slice(5, 7) - 1 };
+    const el = hote.querySelector('.jm-cal');
+    if (el) el.outerHTML = calendrierHTML(ou);
+  }
+
   function rdvHTML() {
     const { esc } = O;
     const champ = (k, label, indice, val, large) => `<label class="jm-champ${large ? ' large' : ''}"><span>${esc(label)}</span><input class="f" data-perso="rdv" data-champ="${k}" data-k="e:${k}" maxlength="${k === 'lieu' ? 120 : 12}" autocomplete="off" spellcheck="false" placeholder="${esc(indice)}" value="${esc(rdv[k] || '')}"></label>`;
+    const date = champDate('e', esc(T('entretien_date')), `data-perso="rdv" aria-label="${esc(T('entretien_date'))}"`, rdv.date, false);
     return `<div class="jm-rdv"><b class="jm-rdv-t">${icone('agenda')}${esc(T('entretien_titre'))}</b>
-      <div class="jm-rdv-champs">${champ('date', T('entretien_date'), T('i_date'), rdv.date)}${champ('heure', T('entretien_heure'), T('i_heure'), rdv.heure)}${champ('lieu', T('entretien_lieu'), T('i_lieu'), rdv.lieu, true)}</div>
+      <div class="jm-rdv-champs">${date}${champ('heure', T('entretien_heure'), T('i_heure'), rdv.heure)}
+        ${calOuvert('e') ? `<div class="jm-cal-place">${calendrierHTML('e')}</div>` : ''}${champ('lieu', T('entretien_lieu'), T('i_lieu'), rdv.lieu, true)}</div>
       <div class="jm-btns">${bouton('rdv-ok', 'e:ok', T('enregistrer'), 'coche', 'principal')}${bouton('rdv-non', 'e:non', T('annuler'), '', 'second')}</div></div>`;
   }
 
@@ -222,7 +339,8 @@
     const pastilles = moyens.map((m) => `<button type="button" role="radio" aria-checked="${v.moyen === m.id}" class="jm-puce f${v.moyen === m.id ? ' oui' : ''}" data-perso="moyen" data-id="${m.id}" data-k="f:moyen:${m.id}">${esc(texteSur(m.nom))}</button>`).join('');
     return `<form class="jm-form${O.anime ? ' entree' : ''}" novalidate>
       <h1>${esc(form.id ? T('modifier_titre') : T('nouvelle'))}</h1>${form.id ? '' : `<p class="jm-intro">${esc(T('intro'))}</p>`}
-      <div class="jm-grille">${champ('entreprise', true)}${champ('poste', true)}${champ('ville')}${champ('date', true)}
+      <div class="jm-grille">${champ('entreprise', true)}${champ('poste', true)}${champ('ville')}${champDate('f', esc(T('date')), `data-perso="champ" aria-label="${esc(T('date'))}"`, v.date, true)}
+        ${calOuvert('f') ? `<div class="jm-cal-place">${calendrierHTML('f')}</div>` : ''}
         <div class="jm-champ large"><span>${esc(T('moyen'))}</span><div class="jm-puces" role="radiogroup" aria-label="${esc(T('moyen'))}">${pastilles}</div></div>
         ${champ('source')}${champ('cv')}${champ('lien', false, true)}${zone('envoye', true)}${zone('notes')}</div>
       <p class="jm-err" role="alert"></p>
@@ -264,7 +382,8 @@
   // Ce qui est montré change de dossier : ses petites choses ouvertes se referment
   function suivreFiche() {
     const f = fiche(), id = f ? f.id : null;
-    if (id !== ficheVue) { ficheVue = id; pilule = 'envoye'; menu = false; rdv = null; confirme = false; }
+    if (id !== ficheVue) { ficheVue = id; pilule = 'envoye'; menu = false; rdv = null; confirme = false; if (cal?.ou === 'e') cal = null; }
+    if (cal && !calOuvert(cal.ou)) cal = null;
     if (choisie !== null && (id === choisie || !suiviDe()?.groupes?.some((g) => g?.lignes?.some((x) => x?.id === choisie)))) choisie = null;
   }
 
@@ -343,7 +462,7 @@
     } else {
       form = { id: null, v: brouillon ? { ...brouillon } : { ...Object.fromEntries(CHAMPS.map((k) => [k, ''])), date: texteSur(t.aujourdhui), moyen: 'mail' } };
     }
-    vueC = 'formulaire'; menu = false; rdv = null; confirme = false;
+    vueC = 'formulaire'; menu = false; rdv = null; confirme = false; cal = null;
     O.anime = !reduit();
     dessinerTout('f:entreprise');
   }
@@ -351,7 +470,7 @@
   // Ferme le formulaire ; une nouvelle candidature commencée est gardée en brouillon (sauf après l'enregistrement)
   function fermerFormulaire(garder) {
     if (form && !form.id) brouillon = garder && CHAMPS.some((k) => k !== 'date' && String(form.v[k] || '').trim()) ? { ...form.v } : null;
-    form = null; vueC = 'dossier';
+    form = null; vueC = 'dossier'; cal = null;
     const f = fiche();
     dessinerTout(f ? `c:${f.id}` : 'c:ajouter');
   }
@@ -461,6 +580,38 @@
       case 'supprimer': O.son?.ok?.(); confirme = true; dessinerTout('d:non'); hote.querySelector('.jm-suppr')?.scrollIntoView({ block: 'nearest' }); return true;
       case 'suppr-non': O.son?.retour?.(); confirme = false; dessinerTout('d:supprimer'); return true;
       case 'suppr-oui': if (f && confirme) { confirme = false; el.disabled = true; O.action('c-supprimer', { id: f.id }); } return true;
+      case 'cal-ouvrir': {
+        const ou = d.ou === 'e' ? 'e' : 'f';
+        if (ou === 'e' ? !rdv : !form) return true;
+        O.son?.tic?.();
+        if (calOuvert(ou)) fermerCal(); else ouvrirCal(ou);
+        return true;
+      }
+      case 'cal-mois': {
+        if (!cal || !calOuvert(cal.ou)) return true;
+        const sens = Number(d.v) < 0 ? -1 : 1, t = new Date(Date.UTC(cal.a, cal.m + sens, 1));
+        cal = { ou: cal.ou, a: t.getUTCFullYear(), m: t.getUTCMonth() };
+        O.son?.tic?.();
+        const k = el.dataset.k;
+        dessinerTout(k);
+        // (au bout des bornes, la flèche n'est plus là : le choix va sur le premier jour du mois)
+        if (!hote.querySelector(`[data-k="${CSS.escape(k)}"]`)) hote.querySelector('.jm-cal .jm-cal-d.f, .jm-cal .f')?.focus({ preventScroll: true });
+        return true;
+      }
+      case 'cal-jour': {
+        const ou = d.ou === 'e' ? 'e' : 'f', { min, max } = bornesCal(ou), iso = String(d.v || '');
+        if (!calOuvert(ou) || !ISO.test(iso) || iso < min || iso > max) return true;
+        if (ou === 'e') rdv.date = saisieDe(iso);
+        else {
+          form.v.date = saisieDe(iso);
+          const err = hote.querySelector('.jm-err'); if (err) err.textContent = '';
+        }
+        O.son?.ok?.();
+        cal = null;
+        dessinerTout(`${prefixe(ou)}:cal`);
+        return true;
+      }
+      case 'cal-fermer': O.son?.retour?.(); if (cal) fermerCal(); return true;
       case 'delai': { const n = Number(d.v); if (Number.isInteger(n) && !el.disabled) { O.son?.bascule?.(); O.action('reglage-relance', n); } return true; }
       default: return false;
     }
@@ -473,8 +624,10 @@
       form.v[d.champ] = el.value;
       el.closest('.jm-champ')?.classList.remove('faux');
       const err = hote.querySelector('.jm-err'); if (err) err.textContent = '';
+      if (d.champ === 'date') suivreCal('f');
     } else if (d.perso === 'rdv' && rdv && ['date', 'heure', 'lieu'].includes(d.champ)) {
       rdv[d.champ] = el.value;
+      if (d.champ === 'date') suivreCal('e');
     } else if (d.perso === 'notes') {
       const f = fiche(); if (f) notes[f.id] = el.value;
     }
@@ -492,10 +645,18 @@
     const el = e.target;
     if (el.dataset?.perso === 'notes') garderNotes(el);
   }
+  // Un clic dans le champ d'une date ouvre aussi son calendrier (le curseur reste dans le champ)
+  function surClic(e) {
+    const el = e.target, d = el.dataset || {};
+    if (el.tagName !== 'INPUT' || d.champ !== 'date' || (d.perso !== 'champ' && d.perso !== 'rdv')) return;
+    const ou = d.perso === 'rdv' ? 'e' : 'f';
+    if ((ou === 'e' ? rdv : form) && !calOuvert(ou)) ouvrirCal(ou, d.k);
+  }
   let ecoute = null;
   function ecouter(h) {
     if (ecoute === h) return;
     ecoute = h;
+    h.addEventListener('click', surClic);
     h.addEventListener('input', surSaisie);
     h.addEventListener('keydown', surTouche);
     h.addEventListener('pointerover', surSurvol);
@@ -525,6 +686,7 @@
     // Retour (Échap, B, le bouton du bas) : d'abord ce qui est ouvert, puis le premier onglet ; sinon le kit revient
     // au menu de Mindset
     retour() {
+      if (cal && calOuvert(cal.ou)) { fermerCal(); return true; }
       if (menu) { menu = false; dessinerTout('d:statut'); return true; }
       if (rdv) { rdv = null; dessinerTout('d:statut'); return true; }
       if (confirme) { confirme = false; dessinerTout('d:supprimer'); return true; }
@@ -570,6 +732,17 @@
       if (o.modifier === true) {
         if (onglet !== 'candidatures') montrer('candidatures');
         const f = fiche(); if (f) ouvrirFormulaire(f);
+        return;
+      }
+      // (pour les captures) le calendrier de la date ouverte : celle du formulaire, sinon celle de l'entretien
+      if (o.calendrier === true) {
+        if (onglet !== 'candidatures') return;
+        if (vueC === 'formulaire' && form) ouvrirCal('f'); else if (rdv) ouvrirCal('e');
+        return;
+      }
+      // (pour les captures) un clic sur un élément de l'écran, par son data-k (« cal:2026-11-10 », « f:enregistrer »)
+      if (typeof o.cliquer === 'string' && /^[a-z]{1,4}:[a-z0-9-]{1,12}$/.test(o.cliquer)) {
+        hote.querySelector(`#jm [data-k="${o.cliquer}"]`)?.click();
         return;
       }
       if (idSur(o.onglet)) montrer(o.onglet);

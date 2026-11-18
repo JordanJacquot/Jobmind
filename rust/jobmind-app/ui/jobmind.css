@@ -162,7 +162,7 @@ body { --jm: #FFC93C; --jm-anim: cubic-bezier(.2, .9, .3, 1); }
 .jm-rdv { margin-top: 18px; padding: 16px 18px; border-radius: 14px; background: var(--carte); border: 1px solid color-mix(in srgb, var(--S) 40%, transparent); }
 .jm-rdv-t { display: flex; align-items: center; gap: 8px; font-size: 15px; }
 .jm-rdv-t svg { width: 18px; height: 18px; color: var(--S); }
-.jm-rdv-champs { display: grid; grid-template-columns: 150px 120px minmax(0, 1fr); gap: 12px; margin-top: 12px; }
+.jm-rdv-champs { display: grid; grid-template-columns: 172px 120px minmax(0, 1fr); gap: 12px; margin-top: 12px; }
 .jm-rdv .jm-btns { margin-top: 14px; }
 
 /* ---------------------------------------------------------------- le formulaire */
@@ -187,6 +187,40 @@ body { --jm: #FFC93C; --jm-anim: cubic-bezier(.2, .9, .3, 1); }
 .jm-err { min-height: 20px; margin: 12px 0 0; font-size: 14px; color: var(--rouge); }
 .jm-form .jm-btns { margin-top: 6px; }
 
+/* ---------------------------------------------------------------- le petit calendrier des dates (repris de Paymind) */
+/* (l'agenda à droite du champ, puis le mois dessous : sous le champ dans le formulaire, sous les champs de l'entretien) */
+.jm-date-l { position: relative; }
+.jm-champ .jm-date-l input { padding-right: 48px; }
+.jm-cal-b { position: absolute; right: 4px; top: 4px; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px; color: var(--doux); transition: background 160ms ease, color 160ms ease; }
+.jm-cal-b svg { width: 19px; height: 19px; }
+.jm-cal-b:hover, .jm-cal-b:focus, .jm-date.ouvert .jm-cal-b { color: var(--jm); background: color-mix(in srgb, var(--jm) 13%, transparent); }
+.jm-cal-b.f:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--jm) 60%, transparent); }
+.jm-date.ouvert input { border-color: color-mix(in srgb, var(--jm) 50%, transparent); }
+.jm-cal-place { grid-column: 2; margin-top: -4px; }
+.jm-rdv-champs .jm-cal-place { grid-column: 1 / -1; margin-top: -2px; }
+.jm-cal { width: 100%; max-width: 330px; box-sizing: border-box; padding: 10px 12px 6px; border-radius: 16px; background: var(--carte2); border: 1px solid color-mix(in srgb, var(--jm) 35%, var(--ligne));
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.35); }
+.jm-cal.entree { animation: jm-entree 200ms var(--jm-anim); }
+.jm-cal-titre { margin-bottom: 6px; font-size: 13.5px; font-weight: 600; color: var(--doux); }
+.jm-cal-tete { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.jm-cal-tete b { font-size: 16px; font-weight: 800; }
+.jm-cal-tete b::first-letter { text-transform: uppercase; }
+.jm-cal-fl { width: 34px; height: 34px; flex: none; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--ligne); background: rgba(255, 255, 255, 0.04); color: var(--texte); transition: border-color 160ms ease, color 160ms ease; }
+.jm-cal-fl svg { width: 17px; height: 17px; }
+.jm-cal-fl:hover, .jm-cal-fl:focus { border-color: var(--jm); color: var(--jm); outline: none; }
+.jm-cal-fl.f:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--jm) 50%, transparent); }
+.jm-cal-fl.non { opacity: 0.3; }
+.jm-cal-grille { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+.jm-cal-j { padding: 2px 0 4px; text-align: center; font-size: 12px; color: var(--pale); }
+.jm-cal-d { height: 31px; padding: 0; border-radius: 10px; display: grid; place-items: center; font-size: 15px; font-weight: 700; color: var(--texte); font-variant-numeric: tabular-nums; background: transparent; border: 1px solid transparent; }
+button.jm-cal-d:hover, button.jm-cal-d:focus { border-color: var(--jm); background: rgba(255, 255, 255, 0.06); outline: none; }
+.jm-cal-d.non { color: var(--pale); opacity: 0.45; font-weight: 500; }
+.jm-cal-d.auj { color: var(--jm); border-color: color-mix(in srgb, var(--jm) 50%, transparent); }
+.jm-cal-d.oui { background: var(--jm); color: #1C1503; border-color: transparent; }
+button.jm-cal-d.oui:hover, button.jm-cal-d.oui:focus { background: color-mix(in srgb, var(--jm) 85%, #ffffff); box-shadow: 0 0 0 2px color-mix(in srgb, var(--jm) 45%, transparent); }
+.jm-cal-bas { display: flex; justify-content: flex-end; margin-top: 2px; }
+.jm-cal-bas .jm-bt { height: 30px; }
+
 /* ---------------------------------------------------------------- les réglages */
 .jm-carte-r { margin-top: 22px; padding: 20px 22px; border-radius: 16px; background: var(--carte); border: 1px solid color-mix(in srgb, var(--ligne) 80%, transparent); max-width: 680px; }
 .jm-r-tete { display: flex; gap: 16px; align-items: flex-start; }
@@ -202,7 +236,7 @@ body { --jm: #FFC93C; --jm-anim: cubic-bezier(.2, .9, .3, 1); }
 .jm-r-n b { font-size: 26px; font-weight: 800; color: var(--texte); font-variant-numeric: tabular-nums; }
 
 @media (prefers-reduced-motion: reduce) {
-  .jm.entree .jm-corps, .jm-vide.entree, .jm-d.entree, .jm-form.entree, .jm-reglages.entree, .jm-menu { animation: none; }
+  .jm.entree .jm-corps, .jm-vide.entree, .jm-d.entree, .jm-form.entree, .jm-reglages.entree, .jm-menu, .jm-cal { animation: none; }
 }
 /* Un panneau étroit (Mindset réduit, ou un portable à 125 %) : la liste se resserre, les boutons passent dessous */
 @media (max-width: 1040px) {

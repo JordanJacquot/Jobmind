@@ -13,7 +13,7 @@
 //!
 //! Tous les textes vont à la page tels quels (elle les échappe) : en français simple, sans tiret long ni demi-cadratin.
 
-use jobmind_core::candidature::{Candidature, Evenement, Moyen};
+use jobmind_core::candidature::{self, Candidature, Evenement, Moyen};
 use jobmind_core::suivi::{
     self, Action, DELAI_MAX, DELAI_MIN, Groupe, cadre_action, ligne_action, message_relance, ou_on_en_est,
     phrase_calme, situation,
@@ -147,7 +147,28 @@ fn textes(aujourdhui: Jour) -> Value {
     ];
     let mut m: serde_json::Map<String, Value> = paires.iter().map(|(k, v)| ((*k).to_string(), json!(v))).collect();
     m.insert("aujourdhui".into(), json!(aujourdhui.saisie()));
+    m.insert("calendrier".into(), calendrier(aujourdhui));
     Value::Object(m)
+}
+
+/// Le petit calendrier à cliquer des dates (la date d'envoi, celle de l'entretien) : ses textes, aujourd'hui, et les
+/// jours qu'il laisse choisir pour chacune (les mêmes que la vérification, qui reste la seule qui compte).
+fn calendrier(aujourdhui: Jour) -> Value {
+    let bornes = |(min, max): (Jour, Jour)| json!({ "min": min.iso(), "max": max.iso() });
+    json!({
+        "ouvrir": "Choisir dans le calendrier",
+        "fermer": "Fermer",
+        "avant": "Mois d'avant",
+        "apres": "Mois d'après",
+        "mois": (1..=12).filter_map(|m| Jour::nouveau(2000, m, 1)).map(Jour::nom_du_mois).collect::<Vec<_>>(),
+        // (du lundi au dimanche)
+        "jours": ["lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim."],
+        "aujourdhui": aujourdhui.iso(),
+        "envoi": bornes(candidature::bornes_envoi(aujourdhui)),
+        "entretien": bornes(candidature::bornes_entretien(aujourdhui)),
+        "titre_envoi": "Choisis le jour de l'envoi",
+        "titre_entretien": "Choisis le jour de l'entretien",
+    })
 }
 
 /// Le petit texte « Agent de quai, Woippy ».
@@ -553,6 +574,28 @@ mod tests {
         // Une candidature qui n'existe plus : aucun dossier
         let v = Vue { ouverte: Some(99), ..v };
         assert!(etat("0.1.0", &v)["accueil"]["perso"]["onglets"][0]["suivi"]["fiche"].is_null());
+    }
+
+    /// Le calendrier des dates : les mois en français, la semaine du lundi au dimanche, aujourd'hui, et les jours à
+    /// choisir de la date d'envoi (jusqu'à aujourd'hui) et de l'entretien (comme la vérification).
+    #[test]
+    fn le_calendrier_des_dates() {
+        let e = etat("0.1.0", &Vue::vide(auj()));
+        let k = &e["accueil"]["perso"]["onglets"][0]["suivi"]["textes"]["calendrier"];
+        let mois: Vec<&str> = k["mois"].as_array().unwrap().iter().map(|x| x.as_str().unwrap()).collect();
+        assert_eq!(mois.len(), 12);
+        assert_eq!((mois[0], mois[1], mois[7], mois[11]), ("janvier", "février", "août", "décembre"));
+        assert_eq!(k["jours"][0], "lun.");
+        assert_eq!(k["jours"][6], "dim.");
+        assert_eq!(k["aujourdhui"], "2026-11-18");
+        assert_eq!(k["envoi"], json!({ "min": "2023-11-16", "max": "2026-11-18" }));
+        assert_eq!(k["entretien"], json!({ "min": "2025-11-17", "max": "2029-11-20" }));
+        // (le champ garde son indice JJ/MM/AAAA : taper reste possible)
+        assert_eq!(e["accueil"]["perso"]["onglets"][0]["suivi"]["textes"]["i_date"], "JJ/MM/AAAA");
+        let js =
+            std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("ui").join("jobmind.js"))
+                .unwrap();
+        assert!(js.contains("function calendrierHTML("), "jobmind.js ne dessine pas le calendrier");
     }
 
     /// Règle de la suite : aucun tiret long ni demi-cadratin, aucun HTML (la page écrit les textes tels quels), des
