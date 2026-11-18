@@ -14,6 +14,6 @@
     "donnees": "%LOCALAPPDATA%\\Mindset\\Jobmind",
     "admin": false,
     "cache_depuis": "0.1.0",
-    "logo": "M16,28 L40,28 L47,36 L84,36 L84,74 L16,74 L16,28 M37,55 L46,64 L63,47",
-    "logo_epaisseur": 8
+    "logo": "M19,36 L81,36 L87,42 L87,76 L81,82 L19,82 L13,76 L13,42 L19,36 M38,36 L38,22 L62,22 L62,36 M13,54 L87,54 M50,54 L50,63",
+    "logo_epaisseur": 7
 }
