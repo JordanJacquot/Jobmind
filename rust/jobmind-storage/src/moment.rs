@@ -59,6 +59,16 @@ impl Moment {
             self.annee, self.mois, self.jour, self.heure, self.minute, self.seconde
         )
     }
+
+    /// Relit « 2026-11-14T14:05:00 » (rien si ce n'en est pas un).
+    pub fn lire_iso(t: &str) -> Option<Moment> {
+        let t = t.trim();
+        let (j, h) = t.split_once('T')?;
+        let jour = jobmind_core::Jour::lire_iso(j)?;
+        let h: Vec<u32> = h.split(':').map(|x| x.parse().ok()).collect::<Option<_>>()?;
+        let [heure, minute, seconde] = h[..] else { return None };
+        Moment::nouveau(jour.annee, jour.mois, jour.jour, heure, minute, seconde)
+    }
 }
 
 impl fmt::Display for Moment {
@@ -79,5 +89,10 @@ mod tests {
         assert!(Moment::nouveau(2026, 4, 31, 0, 0, 0).is_none());
         assert!(Moment::nouveau(2026, 13, 1, 0, 0, 0).is_none());
         assert!(Moment::nouveau(2026, 1, 1, 24, 0, 0).is_none());
+        let m = Moment::nouveau(2026, 11, 14, 9, 5, 7).unwrap();
+        assert_eq!(Moment::lire_iso(&m.iso()), Some(m));
+        for faux in ["", "2026-11-14", "2026-11-14T25:00:00", "2026-11-14T09:05", "hier"] {
+            assert_eq!(Moment::lire_iso(faux), None, "{faux}");
+        }
     }
 }

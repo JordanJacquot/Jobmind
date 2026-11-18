@@ -21,6 +21,12 @@ rusqlite = { version = "=0.43.0", features = ["bundled"] }
 thiserror = "=2.0.21"
 # Les statuts d'une candidature (la base n'accepte que ceux-là)
 jobmind-core = { path = "../jobmind-core" }
+# Les offres telles que les sources les donnent (étape 4), archivées ici
+jobmind-sources = { path = "../jobmind-sources" }
+
+[dev-dependencies]
+# Les tests : les réponses inventées d'Adzuna et de Jooble (le faux serveur de jobmind-sources)
+jobmind-sources = { path = "../jobmind-sources", features = ["faux"] }
 
 [lints]
 workspace = true

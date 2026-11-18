@@ -353,3 +353,106 @@ button.jm-cal-d.oui:hover, button.jm-cal-d.oui:focus { background: color-mix(in 
   .jm-p h1 { font-size: 26px; }
   .jm-parts, .jm-ouvoir, .jm-cle > .jm-btns, .jm-cle > .jm-suppr, .jm-grille.cle, .jm-cle > .jm-err { margin-left: 0; }
 }
+
+/* ---------------------------------------------------------------- Offres (étape 4) */
+/* La barre des filtres : une ligne pour le texte cherché et le lieu, une pour le contrat, le télétravail et les
+   listes ; discrète, sans cadre lourd (maquette C, onglet Offres). */
+.jm-barre { flex: none; display: flex; flex-direction: column; gap: 10px; padding: 12px 22px; border-bottom: 1px solid color-mix(in srgb, var(--ligne) 70%, transparent); }
+.jm-b-rang { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.jm-cherche { flex: 1 1 280px; min-width: 200px; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; border-radius: 12px; background: rgba(255, 255, 255, 0.05); color: var(--pale); border: 1px solid transparent; }
+.jm-cherche:focus-within { border-color: color-mix(in srgb, var(--jm) 45%, transparent); }
+.jm-cherche svg { width: 17px; height: 17px; flex: none; }
+.jm-cherche input { flex: 1; min-width: 0; height: 100%; border: 0; background: none; outline: none; font: inherit; font-size: 14.5px; color: var(--texte); }
+.jm-cherche input::placeholder { color: var(--pale); }
+.jm-b-lieu { flex: 0 1 auto; display: flex; align-items: center; gap: 4px; height: 40px; padding: 0 6px 0 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.05); color: var(--pale); border: 1px solid transparent; min-width: 0; }
+.jm-b-lieu.on { border-color: color-mix(in srgb, var(--jm) 40%, transparent); }
+.jm-b-lieu > svg { width: 17px; height: 17px; flex: none; }
+.jm-b-lieu select, .jm-b-lieu input, .jm-b-sel select { height: 32px; border: 0; border-radius: 8px; background: none; color: var(--texte); font: inherit; font-size: 14px; padding: 0 6px; outline: none; min-width: 0; }
+.jm-b-lieu select { max-width: 200px; cursor: pointer; }
+.jm-b-lieu select:focus, .jm-b-lieu input:focus, .jm-b-sel select:focus { background: rgba(255, 255, 255, 0.07); }
+.jm-b-lieu .jm-b-ville { width: 120px; background: rgba(255, 255, 255, 0.05); }
+.jm-b-lieu select option, .jm-b-sel select option, .jm-rch-choix select option { background: var(--carte2); color: var(--texte); }
+.jm-b-sel { position: relative; display: inline-flex; align-items: center; height: 34px; padding: 0 28px 0 8px; border-radius: 99px; background: rgba(255, 255, 255, 0.045); border: 1px solid transparent; color: var(--doux); }
+.jm-b-sel select { appearance: none; height: 30px; padding: 0 4px; font-size: 13.5px; font-weight: 600; color: inherit; cursor: pointer; }
+.jm-b-sel > svg { position: absolute; right: 9px; width: 14px; height: 14px; pointer-events: none; }
+.jm-b-sel.on { color: var(--jm); border-color: color-mix(in srgb, var(--jm) 45%, transparent); background: color-mix(in srgb, var(--jm) 9%, transparent); }
+.jm-b-sep { width: 1px; height: 22px; background: var(--ligne); margin: 0 2px; }
+.jm-puce.petite { height: 32px; padding: 0 12px; font-size: 13.5px; }
+.jm-puce.petite i { font-style: normal; font-weight: 700; color: var(--pale); }
+.jm-puce.petite.oui i { color: inherit; }
+.jm-compte { margin-left: auto; font-size: 13px; color: var(--pale); white-space: nowrap; }
+.jm-corps.offres { grid-template-columns: 340px minmax(0, 1fr); }
+
+/* La recherche choisie, « Chercher maintenant » et ce qu'elle a donné */
+.jm-rch { display: flex; flex-direction: column; gap: 8px; margin: 0 2px 12px 8px; padding: 0 0 14px; border-bottom: 1px solid color-mix(in srgb, var(--ligne) 60%, transparent); }
+.jm-rch-l { display: flex; align-items: flex-end; gap: 8px; }
+.jm-rch-choix { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.jm-rch-choix > span { font-size: 12.5px; font-weight: 600; color: var(--doux); }
+.jm-rch-choix select { width: 100%; height: 38px; padding: 0 10px; border-radius: 11px; border: 1px solid transparent; background: rgba(255, 255, 255, 0.055); font: inherit; font-size: 14.5px; font-weight: 600; color: var(--texte); outline: none; }
+.jm-rch-choix select:focus { border-color: color-mix(in srgb, var(--jm) 50%, transparent); }
+.jm-rch-sous { margin: 0; font-size: 13px; line-height: 1.4; color: var(--pale); }
+.jm-rch-fois { margin: 0; font-size: 12.5px; color: var(--pale); }
+.jm-rch-go { width: 100%; }
+.jm-attente.petite { margin-top: 0; padding: 9px 12px; font-size: 13px; gap: 10px; }
+.jm-attente.petite .jm-roue { width: 15px; height: 15px; }
+.jm-btns.serre { margin-top: 2px; }
+.jm-rond { width: 38px; height: 38px; flex: none; display: grid; place-items: center; border-radius: 11px; background: rgba(255, 255, 255, 0.05); color: var(--doux); transition: background 180ms ease, color 180ms ease; }
+.jm-rond svg { width: 18px; height: 18px; }
+.jm-rond:hover, .jm-rond:focus { background: rgba(255, 255, 255, 0.1); color: var(--texte); }
+.jm-rond.on { color: var(--jm); background: color-mix(in srgb, var(--jm) 13%, transparent); }
+.jm-rond.on svg { fill: color-mix(in srgb, var(--jm) 35%, transparent); }
+.jm-rond.f:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--jm) 60%, transparent); }
+.jm-annonce { display: flex; gap: 9px; align-items: flex-start; padding: 9px 11px; border-radius: 12px; font-size: 13px; line-height: 1.45; color: var(--doux); background: rgba(255, 255, 255, 0.035); }
+.jm-annonce > svg { width: 16px; height: 16px; flex: none; margin-top: 1px; color: var(--vert); }
+.jm-annonce.attention > svg, .jm-annonce.erreur > svg { color: var(--T); }
+.jm-annonce.erreur { background: color-mix(in srgb, var(--T) 9%, transparent); border: 1px solid color-mix(in srgb, var(--T) 30%, transparent); color: var(--texte); }
+.jm-annonce > div { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.jm-annonce .jm-bt.discret { height: 30px; margin-left: -10px; color: var(--jm); }
+
+/* Une offre de la liste */
+.jm-off .jm-c1 b { font-size: 14.5px; }
+.jm-o-m { display: inline-grid; place-items: center; flex: none; color: var(--jm); }
+.jm-o-m svg { width: 14px; height: 14px; }
+.jm-o-m.ok { color: var(--vert); }
+.jm-neuf { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--jm); }
+.jm-c3.pale { color: var(--pale); font-size: 12.5px; }
+.jm-vide-l.petit { font-size: 12.5px; margin-top: 10px; }
+
+/* L'offre ouverte */
+.jm-o-actions { display: flex; gap: 6px; flex: none; }
+.jm-o-src { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin-top: 10px; font-size: 14px; color: var(--pale); }
+/* La mention d'Adzuna (ses conditions : le mot « Adzuna » sur chaque annonce montrée, 116 x 23 px au moins, lié à
+   adzuna.fr) */
+.jm-adzuna { display: inline-flex; align-items: center; gap: 7px; min-width: 116px; height: 30px; padding: 0 12px; border-radius: 9px; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--ligne); color: var(--doux); }
+.jm-adzuna small { font-size: 12px; }
+.jm-adzuna b { font-size: 16px; font-weight: 800; letter-spacing: 0.2px; color: var(--texte); }
+.jm-adzuna:hover, .jm-adzuna:focus { background: rgba(255, 255, 255, 0.1); }
+.jm-adzuna.f:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--jm) 55%, transparent); }
+.jm-o-double { display: flex; align-items: center; gap: 8px; margin: 10px 0 0; font-size: 13.5px; color: var(--doux); }
+.jm-o-double svg { width: 15px; height: 15px; color: var(--jm); flex: none; }
+.jm-infos { display: flex; flex-wrap: wrap; gap: 10px 34px; margin-top: 22px; }
+.jm-infos div { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--pale); }
+.jm-infos b { font-size: 15px; font-weight: 650; color: var(--texte); }
+.jm-o-bts { margin-top: 22px; }
+.jm-action.calme-o { margin-top: 22px; }
+.jm-h2 { margin: 26px 0 10px; font-size: 13.5px; font-weight: 650; color: var(--doux); }
+.jm-o-texte { max-width: 720px; font-size: 15px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--texte); }
+
+/* Mes recherches */
+.jm-rc.choisie { border-color: color-mix(in srgb, var(--jm) 40%, transparent); }
+.jm-rc > .jm-btns, .jm-rc > .jm-suppr { margin: 12px 0 0 60px; }
+.jm-rc .jm-petit { margin-top: 4px; }
+.jm-rf { max-width: 720px; }
+.jm-rf-t { display: block; font-size: 16px; }
+.jm-rf .jm-grille { margin-top: 12px; }
+
+@media (max-width: 1040px) {
+  .jm-corps.offres { grid-template-columns: 300px minmax(0, 1fr); }
+  .jm-barre { padding: 10px 16px; }
+}
+@media (max-width: 900px) {
+  .jm-corps.offres { grid-template-columns: 270px minmax(0, 1fr); }
+  .jm-b-sep { display: none; }
+  .jm-b-lieu select { max-width: 150px; }
+  .jm-rc > .jm-btns, .jm-rc > .jm-suppr { margin-left: 0; }
+}

@@ -1,6 +1,7 @@
 ﻿# L'exe livré ne connaît pas la construction d'essai (option cargo « essai » de rust\jobmind-app) : ni le dossier de
 # données d'essai (JOBMIND_DONNEES), ni les autres variables de l'essai, ni la capture de la fenêtre, ni les candidatures
-# d'exemple des captures (exemples.demande, étape 2), ni l'import d'un CV sans la boîte « Ouvrir » (import.demande, étape 3). Le test cherche
+# d'exemple des captures (exemples.demande, étape 2), ni l'import d'un CV sans la boîte « Ouvrir » (import.demande, étape 3),
+# ni le faux serveur d'Adzuna et Jooble et ses offres inventées (reseau.essai, étape 4). Le test cherche
 # ces noms dans l'exe, en texte simple et en UTF-16 (sans rien lancer). Repris de Mindcare.
 #
 #   & '.\outils\verifier-sans-essai.ps1' -Exe <Mindset.exe>
@@ -13,7 +14,9 @@ if (-not (Test-Path -LiteralPath $Exe -PathType Leaf)) { Write-Host "Introuvable
 $octets = [IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $Exe).Path)
 # (chaque octet tel quel : les noms cherchés sont en ASCII)
 $simple = [Text.Encoding]::GetEncoding(28591).GetString($octets)
-$noms = 'JOBMIND_DONNEES', 'JOBMIND_ESSAI_LOCAL', 'JOBMIND_ESSAI_NOM', 'capture.demande', 'JobmindEssai-', 'exemples.demande', 'import.demande'
+$noms = 'JOBMIND_DONNEES', 'JOBMIND_ESSAI_LOCAL', 'JOBMIND_ESSAI_NOM', 'capture.demande', 'JobmindEssai-', 'exemples.demande', 'import.demande',
+    # (étape 4 : le faux serveur local d'Adzuna et Jooble, et le fichier qui change sa réponse)
+    'reseau.essai', 'faux-serveur', 'Comptoir Mosellan'
 $trouves = @()
 foreach ($n in $noms) {
     $large = ($n.ToCharArray() | ForEach-Object { "$_`0" }) -join ''

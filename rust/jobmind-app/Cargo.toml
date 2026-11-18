@@ -25,7 +25,8 @@ test = false
 # vrai Mindset du PC). L'exe livré (sans l'option) ne connaît rien de tout cela : outils\verifier-sans-essai.ps1
 # cherche ces noms dans l'exe de publication.
 [features]
-essai = []
+# (étape 4 : avec le faux serveur local qui imite Adzuna et Jooble ; aucune demande de l'essai ne part sur internet)
+essai = ["jobmind-sources/faux"]
 
 [dependencies]
 # Versions figées (« = ») : une nouvelle version n'entre que par un changement relu. Les mêmes que Mindcare.
@@ -45,6 +46,8 @@ jobmind-storage = { path = "../jobmind-storage" }
 jobmind-core = { path = "../jobmind-core" }
 # Le texte d'un CV en PDF ou en Word (étape 3), en Rust pur
 jobmind-lecture = { path = "../jobmind-lecture" }
+# Les offres d'Adzuna et de Jooble (étape 4), demandées sur un fil à part
+jobmind-sources = { path = "../jobmind-sources" }
 
 # Ce qui parle à Windows (verrou, signal, fenêtre, registre, heure, capture de l'essai ; étape 3 : le coffre des clés,
 # DPAPI, et la boîte « Ouvrir » pour choisir un CV, COM). La même version que wry, tao
@@ -80,6 +83,8 @@ tauri-build = { version = "=2.7.4", default-features = false }
 # Les tests des permissions : la même dépendance, plus l'option « test » de Tauri (son faux Windows : aucune vraie
 # fenêtre, aucune page chargée). Les options de développement n'entrent que dans les tests, jamais dans l'exe.
 tauri = { version = "=2.12.5", default-features = false, features = ["wry", "compression", "common-controls-v6", "custom-protocol", "test"] }
+# Les tests de l'onglet Offres : les réponses inventées d'Adzuna et de Jooble (le faux serveur de jobmind-sources)
+jobmind-sources = { path = "../jobmind-sources", features = ["faux"] }
 
 # Pas `workspace = true` : le module Windows (src\windows) a besoin d'autoriser le code « unsafe », que le reste du
 # dépôt interdit tout à fait (forbid). Ici, il est refusé partout (deny), sauf dans src\windows qui l'autorise.

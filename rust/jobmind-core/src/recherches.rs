@@ -1,0 +1,163 @@
+//! Les recherches gardées (étape 4 du plan) : un nom, des mots, un lieu. Elles viennent de « Ce que je cherche » (une
+//! par poste, [`depuis_profil`]) ou sont tapées à la main ([`verifier`]). « Chercher maintenant » envoie l'une d'elles
+//! aux sources, qui la reçoivent en mots ([`lieu_pour_source`]).
+
+use crate::candidature::{trop_long, une_ligne};
+use crate::lieux;
+use crate::recherche::{GenreLieu, Lieu, RAYON_MAX, Recherche, VILLE_MAX};
+
+/// Au plus ce nombre de recherches gardées.
+pub const NOMBRE_MAX: usize = 20;
+pub const NOM_MAX: usize = 60;
+pub const MOTS_MAX: usize = 120;
+
+/// Une recherche à garder, vérifiée.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NouvelleRecherche {
+    pub nom: String,
+    pub mots: String,
+    pub lieu: Lieu,
+}
+
+/// Ce que la page a envoyé, tel quel.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SaisieRechercheGardee {
+    pub nom: String,
+    pub mots: String,
+    pub lieu: String,
+    pub ville: String,
+    pub rayon: i64,
+    pub departement: String,
+    pub region: String,
+}
+
+/// Un nom de ville acceptable (comme « Ce que je cherche »).
+fn ville_valable(v: &str) -> bool {
+    v.chars().any(char::is_alphabetic)
+        && v.chars().all(|c| c.is_alphanumeric() || matches!(c, ' ' | '-' | '\'' | '\u{2019}' | '.' | '(' | ')'))
+}
+
+/// Vérifie une recherche tapée. Sans nom, elle prend ses mots. L'erreur est une phrase pour la bulle de l'écran.
+pub fn verifier(s: &SaisieRechercheGardee) -> Result<NouvelleRecherche, String> {
+    let mots = une_ligne(&s.mots);
+    if mots.is_empty() {
+        return Err("Écris ce que tu cherches, par exemple : agent de quai.".into());
+    }
+    if trop_long(&mots, MOTS_MAX) {
+        return Err(format!("Les mots sont trop longs ({MOTS_MAX} caractères au plus)."));
+    }
+    let nom = match une_ligne(&s.nom) {
+        n if n.is_empty() => mots.chars().take(NOM_MAX).collect(),
+        n if trop_long(&n, NOM_MAX) => return Err(format!("Le nom est trop long ({NOM_MAX} caractères au plus).")),
+        n => n,
+    };
+    let lieu = match GenreLieu::depuis_code(&s.lieu).ok_or("Choisis où chercher.")? {
+        GenreLieu::Ville => {
+            let v = une_ligne(&s.ville);
+            if v.is_empty() {
+                return Err("Écris la ville autour de laquelle chercher.".into());
+            }
+            if trop_long(&v, VILLE_MAX) || !ville_valable(&v) {
+                return Err("Le nom de la ville semble faux.".into());
+            }
+            let rayon = u32::try_from(s.rayon).ok().filter(|r| (1..=RAYON_MAX).contains(r));
+            Lieu::Ville { nom: v, rayon: rayon.ok_or(format!("Choisis une distance ({RAYON_MAX} km au plus)."))? }
+        }
+        GenreLieu::Departement => {
+            Lieu::Departement(lieux::departement(&s.departement).ok_or("Choisis un département dans la liste.")?)
+        }
+        GenreLieu::Region => Lieu::Region(lieux::region(&s.region).ok_or("Choisis une région dans la liste.")?),
+        GenreLieu::Partout => Lieu::Partout,
+    };
+    Ok(NouvelleRecherche { nom, mots, lieu })
+}
+
+/// Les recherches tirées de « Ce que je cherche » : une par poste, au lieu choisi.
+pub fn depuis_profil(r: &Recherche) -> Vec<NouvelleRecherche> {
+    r.postes
+        .iter()
+        .take(NOMBRE_MAX)
+        .map(|p| {
+            let mots: String = p.chars().take(MOTS_MAX).collect();
+            let mut nom: String = mots.chars().take(NOM_MAX).collect();
+            if let Some(c) = nom.chars().next() {
+                nom = c.to_uppercase().chain(nom.chars().skip(1)).collect();
+            }
+            NouvelleRecherche { nom, mots, lieu: r.lieu.clone() }
+        })
+        .collect()
+}
+
+/// Le lieu en mots pour une source, et le rayon : la ville et son rayon ; le nom du département ou de la région ;
+/// rien (partout en France).
+pub fn lieu_pour_source(l: &Lieu) -> (String, u32) {
+    match l {
+        Lieu::Ville { nom, rayon } => (nom.clone(), *rayon),
+        Lieu::Departement(d) => (d.nom.to_string(), 0),
+        Lieu::Region(r) => (r.nom.to_string(), 0),
+        Lieu::Partout => (String::new(), 0),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::recherche::{SaisieRecherche, verifier_recherche};
+
+    fn saisie() -> SaisieRechercheGardee {
+        SaisieRechercheGardee {
+            nom: String::new(),
+            mots: "  agent   de quai ".into(),
+            lieu: "ville".into(),
+            ville: "Metz".into(),
+            rayon: 30,
+            ..SaisieRechercheGardee::default()
+        }
+    }
+
+    #[test]
+    fn une_recherche_tapee() {
+        let r = verifier(&saisie()).unwrap();
+        assert_eq!((r.nom.as_str(), r.mots.as_str()), ("agent de quai", "agent de quai"));
+        assert_eq!(lieu_pour_source(&r.lieu), ("Metz".to_string(), 30));
+        let r = verifier(&SaisieRechercheGardee {
+            nom: "Quai".into(),
+            lieu: "departement".into(),
+            departement: "57".into(),
+            ..saisie()
+        })
+        .unwrap();
+        assert_eq!(r.nom, "Quai");
+        assert_eq!(lieu_pour_source(&r.lieu), ("Moselle".to_string(), 0));
+        let r = verifier(&SaisieRechercheGardee { lieu: "partout".into(), ..saisie() }).unwrap();
+        assert_eq!(lieu_pour_source(&r.lieu), (String::new(), 0));
+        for (s, attendu) in [
+            (SaisieRechercheGardee { mots: " ".into(), ..saisie() }, "Écris ce que"),
+            (SaisieRechercheGardee { mots: "x".repeat(130), ..saisie() }, "trop longs"),
+            (SaisieRechercheGardee { nom: "n".repeat(70), ..saisie() }, "nom est trop long"),
+            (SaisieRechercheGardee { lieu: "lune".into(), ..saisie() }, "où chercher"),
+            (SaisieRechercheGardee { ville: "<b>".into(), ..saisie() }, "semble faux"),
+            (SaisieRechercheGardee { rayon: 0, ..saisie() }, "distance"),
+            (SaisieRechercheGardee { lieu: "region".into(), region: "x".into(), ..saisie() }, "région"),
+        ] {
+            let e = verifier(&s).unwrap_err();
+            assert!(e.contains(attendu), "{e} / {attendu}");
+        }
+    }
+
+    #[test]
+    fn depuis_ce_que_je_cherche() {
+        let r = verifier_recherche(&SaisieRecherche {
+            postes: "agent de quai, cariste".into(),
+            lieu: "region".into(),
+            region: "grand_est".into(),
+            teletravail: "peu_importe".into(),
+            ..SaisieRecherche::default()
+        })
+        .unwrap();
+        let l = depuis_profil(&r);
+        assert_eq!(l.iter().map(|x| x.nom.as_str()).collect::<Vec<_>>(), ["Agent de quai", "Cariste"]);
+        assert_eq!(l[1].mots, "cariste");
+        assert_eq!(lieu_pour_source(&l[0].lieu), ("Grand Est".to_string(), 0));
+    }
+}

@@ -20,6 +20,12 @@
 # (étape 3 : un clic sur « Importer un fichier », puis la VRAIE boîte « Ouvrir » de Windows trouvée parmi les fenêtres de
 # l'essai, capturée dans <Prefixe>-<vue>-boite.png, le chemin tapé dans son champ et « Importer » cliqué). Chaque vue est
 # capturée après son geste ; un import attend la fin de sa lecture (journal : « Profil : CV ... importé » ou « fichier refusé »).
+# Étape 4 (l'onglet Offres, contre le faux serveur local qui imite Adzuna et Jooble, jamais internet) : « chercher »
+# (un clic sur « Chercher maintenant », puis attendre la fin de la recherche au journal), « offre:<n> » (l'offre n
+# ouverte), « recherches » (Mes recherches), « nouvelle-recherche » (son formulaire), « filtres:<champ>=<valeur>;... »
+# (des filtres posés, par exemple filtres:liste=favoris ou filtres:genre=ville;ville=Metz;rayon=10), « reseau:<mode> »
+# (la réponse du faux serveur pour la suite : normal, coupe, quota, refuse ; sans capture), « essayer:<adzuna|jooble> »
+# (« Essayer la clé » dans Mes clés, puis attendre sa réponse).
 # -Exemples : la base d'essai est remplie de candidatures inventées à des statuts variés (exemples.demande, lu par la
 # construction d'essai au démarrage). -Largeur et -Hauteur : la taille du panneau (944 x 608 : un panneau de 1180 x 760
 # vu à 125 % d'affichage).
@@ -215,6 +221,36 @@ try {
         elseif ($v -eq 'modifier') { Ordre '{"kit":"accueil","modifier":true}' }
         elseif ($v -in 'menu-statut', 'entretien') { Ordre ('{"kit":"accueil","statut":"' + $v.Replace('menu-statut', 'menu') + '"}') }
         elseif ($v -eq 'bas') { Ordre '{"kit":"accueil","defiler":"bas"}' }
+        # Étape 4 : l'onglet Offres
+        elseif ($v -match '^offre:(\d{1,6})$') { Ordre ('{"kit":"accueil","offre":' + $Matches[1] + '}') }
+        elseif ($v -eq 'recherches') { Ordre '{"kit":"accueil","offres":"recherches"}' }
+        elseif ($v -eq 'nouvelle-recherche') { Ordre '{"kit":"accueil","offres":"nouvelle"}' }
+        elseif ($v -match '^filtres:(.+)$') {
+            $f = [ordered]@{}
+            foreach ($p in ($Matches[1] -split ';')) {
+                $kv = $p -split '=', 2
+                if ($kv.Count -eq 2 -and $kv[0] -match '^[a-z_]{1,20}$' -and $kv[1] -match '^[\w \-]{0,40}$') {
+                    $f[$kv[0]] = if ($kv[0] -eq 'rayon') { [int]$kv[1] } else { $kv[1] }
+                }
+            }
+            Ordre ([ordered]@{ kit = 'accueil'; offres = 'filtres'; filtres = $f } | ConvertTo-Json -Compress)
+        }
+        elseif ($v -match '^reseau:(normal|coupe|quota|refuse)$') {
+            [IO.File]::WriteAllText((Join-Path $donnees 'reseau.essai'), $Matches[1], $sansBom)
+            Ok "faux serveur : $($Matches[1])"
+            continue
+        }
+        elseif ($v -eq 'chercher') {
+            $finies = (Compter ' finie (') + (Compter 'trop longue')
+            Ordre '{"kit":"accueil","cliquer":"or:chercher"}'
+            Verifier (Attendre { ((Compter ' finie (') + (Compter 'trop longue')) -gt $finies } 30000) 'Chercher maintenant : la recherche est finie (journal)'
+        }
+        elseif ($v -match '^essayer:(adzuna|jooble)$') {
+            $s = $Matches[1]
+            $essais = Compter "Clés : essai de la clé $s "
+            Ordre ('{"kit":"accueil","cliquer":"kt:' + $s + '"}')
+            Verifier (Attendre { (Compter "Clés : essai de la clé $s ") -ge $essais + 2 } 30000) "Essayer la clé $s : réponse (journal)"
+        }
         elseif ($v -eq 'calendrier') { Ordre '{"kit":"accueil","calendrier":true}' }
         elseif ($v -match '^jour:(\d{1,2})$') { Ordre ('{"kit":"accueil","cliquer":"cal:' + (Get-Date -Day ([int]$Matches[1]) -Format 'yyyy-MM-dd') + '"}') }
         elseif ($v -match '^clic:([a-z]{1,4}:[a-z0-9-]{1,12})$') { Ordre ('{"kit":"accueil","cliquer":"' + $Matches[1] + '"}') }

@@ -24,6 +24,10 @@
 //   diplôme, débutant, salaire : 'recherche-enregistrer'), Mon style (ajouter, lire, supprimer un texte), Mes clés
 //   (donner, remplacer, effacer : une clé tapée n'est gardée ici que le temps de l'envoyer) ; Réglages montre le délai
 //   avant relance ('reglage-relance') ;
+// - Offres (étape 4) : la barre des filtres ('o-filtres'), la recherche choisie et « Chercher maintenant »
+//   ('o-chercher' : Rust interroge Adzuna et Jooble sur un fil à part), la liste ('o-ouvrir'), l'offre ouverte
+//   (favori, plus tard, « Pas pour moi », « Voir sur le site », la mention « Adzuna », « J'ai postulé »), Mes recherches
+//   ('o-recherche', 'o-recherche-supprimer', 'o-depuis-profil') ; Mes clés : « Essayer la clé » ('cle-essayer') ;
 // - Retour (Échap, B) ferme d'abord ce qui est ouvert (menu, question, formulaire), revient ensuite au premier
 //   onglet, puis à la console de Mindset ;
 // - les ordres de l'appli : { kit: 'accueil', onglet: id }, { rubrique: id }, { candidature: id } (le dossier
@@ -67,6 +71,10 @@
     attention: svg('<path d="M12 4l9 16H3z"/><path d="M12 10v4.5M12 17.2v.1"/>'),
     cadenas: svg('<rect x="5" y="10.5" width="14" height="10" rx="2.2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>'),
     oeil: svg('<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>'),
+    ext: svg('<path d="M13.5 4.5h6v6M19.5 4.5l-8 8"/><path d="M17.5 13.5v4.5a1.5 1.5 0 0 1-1.5 1.5H6a1.5 1.5 0 0 1-1.5-1.5V8A1.5 1.5 0 0 1 6 6.5h4.5"/>'),
+    cacher: svg('<path d="M3.5 3.5l17 17"/><path d="M10 6a9.6 9.6 0 0 1 2-.2c6 0 9.5 6.2 9.5 6.2a16 16 0 0 1-2.6 3.3M6.6 6.9C4 8.6 2.5 12 2.5 12S6 18.5 12 18.5c1.6 0 3-.4 4.3-1.1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>'),
+    lieu: svg('<path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>'),
+    envoi: svg('<path d="M4 12l16-7.5-6 16-2.8-6.7z"/><path d="M11.2 13.8L20 4.5"/>'),
   };
   const icone = (n) => (typeof n === 'string' && Object.hasOwn(ICONES, n) ? ICONES[n] : '');
   // La couleur de chaque statut, par son rôle dans le thème (jamais en dur : elle suit le thème de la suite)
@@ -408,21 +416,27 @@
     const curseur = actif && /^(INPUT|TEXTAREA)$/.test(actif.tagName) ? [actif.selectionStart, actif.selectionEnd] : null;
     const hautD = hote.querySelector('.jm-dossier')?.scrollTop || 0, hautL = hote.querySelector('.jm-liste')?.scrollTop || 0;
     const memeOnglet = hote.querySelector('#jm')?.dataset.onglet === o.id;
-    let gauche, droite;
+    let gauche, droite, barre = '';
     const s = o.id === 'candidatures' ? suiviDe() : null;
+    const x = o.id === 'offres' ? offresDe() : null;
     if (s) {
       suivreFiche();
       gauche = listeCandidaturesHTML(o, s);
       droite = droiteCandidatures(o, s);
+    } else if (x) {
+      suivreOffres(x);
+      barre = barreOffresHTML(x);
+      gauche = listeOffresHTML(o, x);
+      droite = droiteOffres(x);
     } else {
       const r = rubriqueDe(o);
       gauche = listeHTML(o, r);
       droite = droiteRubrique(r, o);
     }
     hote.innerHTML = `<div class="jm${O.anime ? ' entree' : ''}" id="jm" data-onglet="${o.id}">
-        <nav class="jm-onglets" role="tablist" aria-label="Jobmind">${ongletsHTML(o)}</nav>
-        <div class="jm-corps">
-          <aside class="jm-liste${s ? ' suivi' : ''}" aria-label="${O.esc(texteSur(o.liste))}">${gauche}</aside>
+        <nav class="jm-onglets" role="tablist" aria-label="Jobmind">${ongletsHTML(o)}</nav>${barre}
+        <div class="jm-corps${x ? ' offres' : ''}">
+          <aside class="jm-liste${s || x ? ' suivi' : ''}" aria-label="${O.esc(texteSur(o.liste))}">${gauche}</aside>
           <section class="jm-dossier" aria-live="polite">${droite}</section>
         </div>
       </div>`;
@@ -648,6 +662,8 @@
       const f = fiche(); if (f) notes[f.id] = el.value;
     } else if (d.perso === 'p-champ') {
       saisieProfil(el, d);
+    } else if (typeof d.perso === 'string' && d.perso.startsWith('of-')) {
+      saisieOffres(el, d);
     }
   }
 
@@ -934,7 +950,9 @@
         } else {
           const bts = etat === 'absente'
             ? bouton('k-donner', `k:${s.id}`, t('donner'), 'cle', 'principal', ` data-id="${s.id}"`)
-            : bouton('k-donner', `k:${s.id}`, t('remplacer'), 'crayon', '', ` data-id="${s.id}"`) + bouton('k-effacer', `ke:${s.id}`, t('effacer'), 'poubelle', 'discret danger', ` data-id="${s.id}"`);
+            : bouton('k-donner', `k:${s.id}`, t('remplacer'), 'crayon', '', ` data-id="${s.id}"`)
+              + (s.essai === true && etat === 'gardee' ? bouton('k-essayer', `kt:${s.id}`, t('essayer'), 'coche', '', ` data-id="${s.id}"`) : '')
+              + bouton('k-effacer', `ke:${s.id}`, t('effacer'), 'poubelle', 'discret danger', ` data-id="${s.id}"`);
           h += `<div class="jm-btns">${bts}</div>`;
         }
       }
@@ -1026,7 +1044,8 @@
       case 'k-effacer': if (idSur(d.id)) { O.son?.ok?.(); cleConfirme = d.id; dessinerTout('k:non'); } return true;
       case 'k-effacer-non': { const id = cleConfirme; O.son?.retour?.(); cleConfirme = null; dessinerTout(id ? `ke:${id}` : undefined); return true; }
       case 'k-effacer-oui': if (idSur(cleConfirme)) { const service = cleConfirme; cleConfirme = null; el.disabled = true; O.action('cle-effacer', { service }); } return true;
-      default: return false;
+      case 'k-essayer': if (idSur(d.id) && !el.disabled) { O.son?.ok?.(); O.action('cle-essayer', { service: d.id }); } return true;
+      default: return validerOffres(el, d);
     }
   }
 
@@ -1073,6 +1092,357 @@
     return false;
   }
 
+  // ---------------------------------------------------------------- Offres (étape 4)
+  // La barre des filtres (texte cherché dans toutes les offres gardées, lieu, contrat, télétravail, toutes / favoris /
+  // plus tard / cachées), à gauche la recherche choisie, « Chercher maintenant » et la liste, à droite l'offre ouverte
+  // ou « Mes recherches ». Les filtres tapés restent ici et partent à Rust ('o-filtres', un peu après la frappe) ; Rust
+  // vérifie, filtre et renvoie la liste. Aucune adresse d'offre n'est ici : « Voir sur le site » la demande à Rust.
+  const offresDe = () => { const o = onglets().find((x) => x.id === 'offres'); return o?.offres && typeof o.offres === 'object' ? o.offres : null; };
+  const tO = (x) => { const t = objet(x?.textes); return (k) => texteSur(t[k]); };
+  const rchDossier = () => objet(rubriquesDe(ongletDe('profil')).find((r) => r.id === 'recherche')?.dossier);
+  const OF_CHAMPS = ['texte', 'genre', 'ville', 'rayon', 'departement', 'region', 'contrat', 'teletravail', 'liste'];
+  let ofFiltres = null;    // les filtres en cours de saisie (une copie de ceux reçus)
+  let ofMinuteur = 0;      // l'envoi des filtres, un peu après la frappe
+  let ofVue = 'offre';     // à droite : 'offre' ou 'recherches' (Mes recherches)
+  let ofForm = null;       // la recherche en cours d'écriture : { id (rien : nouvelle), v: { nom, mots, lieu, ville, rayon, departement, region } }
+  let ofConfirme = null;   // la recherche dont la suppression est demandée
+  let ofChoisie = null;    // l'offre choisie à l'instant (avant que Rust ne renvoie son dossier)
+  let ofVue1 = null;       // l'offre dessinée en dernier
+
+  function suivreOffres(x) {
+    if (!ofFiltres) {
+      const f = objet(x.filtres);
+      ofFiltres = Object.fromEntries(OF_CHAMPS.map((k) => [k, k === 'rayon' ? (Number.isInteger(f.rayon) ? f.rayon : 30) : texteSur(f[k])]));
+      if (!ofFiltres.genre) ofFiltres.genre = 'partout';
+      if (!ofFiltres.liste) ofFiltres.liste = 'toutes';
+    }
+    const id = numSur(x.fiche?.id) ? x.fiche.id : null;
+    if (ofChoisie !== null && (id === ofChoisie || !liste(x.lignes).some((l) => l?.id === ofChoisie))) ofChoisie = null;
+    if (id !== ofVue1) ofVue1 = id;
+  }
+
+  // Envoie les filtres à Rust (tout de suite, ou un peu après la frappe)
+  function envoyerFiltres(attendre) {
+    clearTimeout(ofMinuteur);
+    const partir = () => { if (ofFiltres) O.action('o-filtres', { ...ofFiltres, ville: String(ofFiltres.ville || '').slice(0, 60), texte: String(ofFiltres.texte || '').slice(0, 100) }); };
+    if (attendre) ofMinuteur = setTimeout(partir, 450); else partir();
+  }
+
+  const optionsHTML = (l, val, sur) => liste(l).filter((x) => sur(x?.id)).map((x) => `<option value="${x.id}"${String(x.id) === String(val) ? ' selected' : ''}>${O.esc(texteSur(x.nom))}</option>`).join('');
+  const choixSur = (t) => typeof t === 'string' && /^[a-z0-9_]{0,40}$/.test(t);
+
+  function barreOffresHTML(x) {
+    const { esc } = O, t = tO(x), f = ofFiltres, d = rchDossier();
+    let ou = '';
+    if (f.genre === 'ville') {
+      ou = `<input class="f jm-b-ville" data-perso="of-champ" data-champ="ville" data-k="of:ville" maxlength="60" autocomplete="off" spellcheck="false" placeholder="${esc(t('i_ville'))}" aria-label="${esc(t('ville'))}" value="${esc(f.ville)}">
+        <select class="f" data-perso="of-champ" data-champ="rayon" data-k="of:rayon" aria-label="${esc(t('rayon'))}">${liste(x.rayons).filter(Number.isInteger).map((n) => `<option value="${n}"${n === Number(f.rayon) ? ' selected' : ''}>${n} ${esc(t('km'))}</option>`).join('')}</select>`;
+    } else if (f.genre === 'departement') {
+      ou = `<select class="f" data-perso="of-champ" data-champ="departement" data-k="of:dep" aria-label="${esc(t('departement'))}"><option value="">${esc(t('choisir'))}</option>${optionsHTML(d.departements, f.departement, deptSur)}</select>`;
+    } else if (f.genre === 'region') {
+      ou = `<select class="f" data-perso="of-champ" data-champ="region" data-k="of:reg" aria-label="${esc(t('region'))}"><option value="">${esc(t('choisir'))}</option>${optionsHTML(d.regions, f.region, codeSurP)}</select>`;
+    }
+    const listes = liste(x.listes).filter((l) => codeSurP(l?.id)).map((l) => {
+      const oui = f.liste === l.id, n = Number.isInteger(l.nombre) && l.nombre > 0 ? ` <i>${l.nombre}</i>` : '';
+      return `<button type="button" role="radio" aria-checked="${oui}" class="jm-puce petite f${oui ? ' oui' : ''}" data-perso="of-liste" data-id="${l.id}" data-k="of:l-${l.id.replace('_', '-')}">${esc(texteSur(l.nom))}${n}</button>`;
+    }).join('');
+    return `<div class="jm-barre">
+      <div class="jm-b-rang">
+        <label class="jm-cherche">${icone('loupe')}<input class="f" data-perso="of-champ" data-champ="texte" data-k="of:texte" maxlength="100" autocomplete="off" spellcheck="false" placeholder="${esc(t('i_texte'))}" value="${esc(f.texte)}"></label>
+        <div class="jm-b-lieu${f.genre !== 'partout' ? ' on' : ''}">${icone('lieu')}<select class="f" data-perso="of-champ" data-champ="genre" data-k="of:genre" aria-label="${esc(t('lieu'))}">${optionsHTML(x.lieux, f.genre, codeSurP)}</select>${ou}</div>
+      </div>
+      <div class="jm-b-rang">
+        <span class="jm-b-sel${f.contrat ? ' on' : ''}"><select class="f" data-perso="of-champ" data-champ="contrat" data-k="of:contrat" aria-label="${esc(t('contrat'))}">${optionsHTML(x.contrats, f.contrat, choixSur)}</select>${icone('bas')}</span>
+        <span class="jm-b-sel${f.teletravail && f.teletravail !== 'peu_importe' ? ' on' : ''}"><select class="f" data-perso="of-champ" data-champ="teletravail" data-k="of:tele" aria-label="${esc(t('teletravail'))}">${optionsHTML(x.teles, f.teletravail || 'peu_importe', codeSurP)}</select>${icone('bas')}</span>
+        <span class="jm-b-sep" aria-hidden="true"></span>
+        <div class="jm-puces" role="radiogroup">${listes}</div>
+        <span class="jm-compte">${esc(texteSur(x.compte))}</span>
+      </div></div>`;
+  }
+
+  function listeOffresHTML(o, x) {
+    const { esc } = O, t = tO(x);
+    const recherches = liste(x.recherches).filter((r) => numSur(r?.id));
+    const enCours = typeof x.en_cours === 'string' && x.en_cours;
+    let h = '<div class="jm-rch">';
+    if (recherches.length) {
+      h += `<div class="jm-rch-l"><label class="jm-rch-choix"><span>${esc(t('mes_recherches'))}</span><select class="f" data-perso="of-recherche" data-k="or:choix">${recherches.map((r) => `<option value="${r.id}"${r.id === x.recherche ? ' selected' : ''}>${esc(texteSur(r.nom))}</option>`).join('')}</select></label>
+          <button type="button" class="jm-rond f${ofVue === 'recherches' ? ' on' : ''}" data-perso="of-gerer" data-k="or:gerer" title="${esc(t('gerer'))}" aria-label="${esc(t('gerer'))}">${icone('reglages')}</button></div>`;
+      if (x.recherche_sous) h += `<p class="jm-rch-sous">${esc(texteSur(x.recherche_sous))}</p>`;
+      h += `<button type="button" class="jm-bt principal jm-rch-go f" data-perso="of-chercher" data-k="or:chercher"${enCours ? ' disabled' : ''}>${icone('loupe')}<span>${esc(t('chercher'))}</span></button>`;
+      if (enCours) h += `<div class="jm-attente petite" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(enCours)}</span></div>`;
+      // (ce qu'a donné la dernière fois : l'annonce le dit déjà quand elle est là)
+      else if (x.recherche_fois && !texteSur(x.annonce?.texte)) h += `<p class="jm-rch-fois">${esc(texteSur(x.recherche_fois))}</p>`;
+    } else {
+      h += `<p class="jm-rch-sous">${esc(t('sans_recherche'))}</p><div class="jm-btns serre">${bouton('of-nouvelle', 'or:nouvelle', t('nouvelle'), 'plus', '')}</div>`;
+    }
+    const a = x.annonce && typeof x.annonce === 'object' ? x.annonce : null;
+    if (a && !enCours && texteSur(a.texte)) {
+      const g = ['ok', 'attention', 'erreur'].includes(a.genre) ? a.genre : 'ok';
+      h += `<div class="jm-annonce ${g}" role="status">${icone(g === 'ok' ? 'coche' : 'attention')}<div><span>${esc(texteSur(a.texte))}</span>${a.cles === true ? bouton('of-cles', 'or:cles', t('ouvrir_cles'), 'cle', 'discret') : ''}</div></div>`;
+    }
+    h += '</div>';
+    const lignes = liste(x.lignes).filter((l) => numSur(l?.id));
+    const ouverte = ofChoisie ?? x.fiche?.id;
+    if (lignes.length) h += `<div class="jm-liste-tete"><span class="jm-liste-t">${esc(t('liste_t'))}</span></div>`;
+    for (const l of lignes) {
+      const sel = l.id === ouverte && ofVue === 'offre';
+      const marques = (l.postule === true ? `<span class="jm-o-m ok" title="${esc(t('postule'))}">${icone('coche')}</span>` : '')
+        + (l.favori === true ? `<span class="jm-o-m" title="${esc(t('favori'))}">${icone('etoile')}</span>` : '')
+        + (l.plus_tard === true ? `<span class="jm-o-m" title="${esc(t('plus_tard'))}">${icone('horloge')}</span>` : '')
+        + (l.nouvelle === true ? `<span class="jm-neuf" title="${esc(t('nouvelle_l'))}"></span>` : '');
+      h += `<button type="button" class="jm-cand jm-off f${sel ? ' sel' : ''}${l.cachee === true ? ' fini' : ''}" data-perso="of-ouvrir" data-id="${l.id}" data-k="ol:${l.id}" aria-current="${sel}">
+        <span class="jm-c1"><b>${esc(texteSur(l.titre))}</b>${marques}</span>
+        <span class="jm-c2">${esc(texteSur(l.sous))}</span><span class="jm-c3 pale">${esc(texteSur(l.l3))}</span></button>`;
+    }
+    if (!lignes.length && texteSur(x.vide_liste)) h += `<p class="jm-vide-l">${esc(texteSur(x.vide_liste))}</p>`;
+    if (x.plus) h += `<p class="jm-vide-l petit">${esc(texteSur(x.plus))}</p>`;
+    return h;
+  }
+
+  function ficheOffreHTML(x, f) {
+    const { esc } = O, t = tO(x);
+    const rond = (perso, k, ic, aide, on) => `<button type="button" class="jm-rond f${on ? ' on' : ''}" data-perso="${perso}" data-k="${k}" title="${esc(aide)}" aria-label="${esc(aide)}" aria-pressed="${!!on}">${icone(ic)}</button>`;
+    let h = `<div class="jm-d jm-of${O.anime ? ' entree' : ''}"><div class="jm-d-tete"><div class="jm-d-titres"><h1>${esc(texteSur(f.titre))}</h1><div class="jm-d-sous">${esc(texteSur(f.sous))}</div></div>
+      <div class="jm-o-actions">${rond('of-favori', 'ov:favori', 'etoile', t('favori'), f.favori === true)}${rond('of-tard', 'ov:tard', 'horloge', t('plus_tard'), f.plus_tard === true)}</div></div>`;
+    h += `<div class="jm-o-src"><span>${esc(texteSur(f.sources))}</span>`;
+    if (f.adzuna === true) h += `<button type="button" class="jm-adzuna f" data-perso="of-adzuna" data-k="ov:adzuna" title="${esc(t('adzuna_aide'))}"><small>${esc(t('par'))}</small><b>${esc(t('adzuna'))}</b></button>`;
+    h += '</div>';
+    if (f.double === true) h += `<p class="jm-o-double">${icone('copie')}<span>${esc(t('doublon'))}</span></p>`;
+    h += `<div class="jm-infos">${liste(f.infos).map((i) => `<div><span>${esc(texteSur(i?.nom))}</span><b>${esc(texteSur(i?.valeur))}</b></div>`).join('')}</div>`;
+    const liens = liste(f.liens).filter((l) => codeSurP(l?.source));
+    const voir = liens.map((l, i) => bouton('of-voir', `ov:voir-${l.source}`, texteSur(l.nom), 'ext', i ? '' : 'principal', ` data-source="${l.source}"`)).join('');
+    if (numSur(f.candidature)) {
+      h += `<div class="jm-action calme-o"><span class="jm-a-ic">${icone('coche')}</span><div class="jm-a-txt"><b>${esc(t('postule_deja'))}</b></div><div class="jm-a-bts">${bouton('of-candidature', 'ov:cand', t('voir_candidature'), 'dossier', '')}</div></div>`;
+      if (voir) h += `<div class="jm-btns">${voir}</div>`;
+    } else {
+      h += `<div class="jm-btns jm-o-bts">${voir}${bouton('of-postule', 'ov:postule', t('postule'), 'envoi', '')}</div>`;
+    }
+    const texte = texteSur(f.texte);
+    h += `<h2 class="jm-h2">${esc(t('texte_t'))}</h2>`;
+    h += texte ? `<div class="jm-o-texte" data-brut>${esc(texte)}</div><p class="jm-petit">${esc(texteSur(f.note))}</p>` : `<p class="jm-panneau-vide">${esc(texteSur(f.texte_vide))}</p>`;
+    h += `<p class="jm-petit">${esc(texteSur(f.gardee))}</p>`;
+    h += `<div class="jm-d-bas">${f.cachee === true ? bouton('of-cacher', 'ov:cacher', t('decacher'), 'oeil', 'discret') : bouton('of-cacher', 'ov:cacher', t('cacher'), 'cacher', 'discret')}</div>`;
+    return `${h}</div>`;
+  }
+
+  function videOffresHTML(x) {
+    const { esc } = O, t = tO(x), v = objet(x.vide);
+    const b = { cles: ['of-cles', 'ov:cles', t('ouvrir_cles'), 'cle'], profil: ['of-profil', 'ov:profil', t('depuis_profil'), 'cible'],
+      nouvelle: ['of-nouvelle', 'ov:nouvelle', t('nouvelle'), 'plus'], chercher: ['of-chercher', 'ov:chercher', t('chercher'), 'loupe'],
+      filtres: ['of-retirer', 'ov:retirer', t('retirer'), 'reglages'] }[v.bouton];
+    const enCours = typeof x.en_cours === 'string' && x.en_cours;
+    return `<div class="jm-vide${anime()}"><div class="jm-v-ic plasma-bord">${icone(v.icone)}</div><h1>${esc(texteSur(v.titre))}</h1>
+      <p>${esc(texteSur(v.texte))}</p>
+      ${b ? bouton(b[0], b[1], b[2], b[3], 'principal grand', enCours && b[0] === 'of-chercher' ? ' disabled' : '') : ''}
+      ${v.bouton === 'profil' ? `<div class="jm-btns centre">${bouton('of-nouvelle', 'ov:nouvelle2', t('nouvelle'), 'plus', 'second')}</div>` : ''}
+      ${v.note ? `<p class="jm-note">${esc(texteSur(v.note))}</p>` : ''}</div>`;
+  }
+
+  // Mes recherches : chacune avec « Chercher maintenant », « Modifier », « Supprimer » ; le formulaire en haut
+  function rechercheFormHTML(x) {
+    const { esc } = O, t = tO(x), v = ofForm.v, d = rchDossier();
+    const champ = (k, label, indice, val, max, aide) => `<label class="jm-champ"><span>${label}</span><input class="f" data-perso="of-form" data-champ="${k}" data-k="rf:${k}" maxlength="${max}" autocomplete="off" spellcheck="false" placeholder="${esc(indice)}" value="${esc(val || '')}">${aide ? `<small class="jm-aide">${esc(aide)}</small>` : ''}</label>`;
+    const lieux = liste(d.lieux).filter((l) => codeSurP(l?.id));
+    let ou = '';
+    if (v.lieu === 'ville') {
+      ou = `${champ('ville', esc(t('ville')), t('i_ville'), v.ville, 60)}
+        <div class="jm-champ"><span>${esc(t('rayon'))}</span><div class="jm-puces">${liste(d.rayons).filter(Number.isInteger).map((n) => `<button type="button" role="radio" aria-checked="${n === v.rayon}" class="jm-puce f${n === v.rayon ? ' oui' : ''}" data-perso="of-form-rayon" data-v="${n}" data-k="rf:r-${n}">${n} ${esc(t('km'))}</button>`).join('')}</div></div>`;
+    } else if (v.lieu === 'departement') {
+      ou = `<label class="jm-champ large"><span>${esc(t('departement'))}</span><select class="f" data-perso="of-form" data-champ="departement" data-k="rf:dep"><option value="">${esc(t('choisir'))}</option>${optionsHTML(d.departements, v.departement, deptSur)}</select></label>`;
+    } else if (v.lieu === 'region') {
+      ou = `<label class="jm-champ large"><span>${esc(t('region'))}</span><select class="f" data-perso="of-form" data-champ="region" data-k="rf:reg"><option value="">${esc(t('choisir'))}</option>${optionsHTML(d.regions, v.region, codeSurP)}</select></label>`;
+    }
+    return `<form class="jm-cle jm-rf" novalidate><b class="jm-rf-t">${esc(ofForm.id ? t('form_modifier') : t('form_nouvelle'))}</b>
+      <div class="jm-grille">${champ('mots', esc(t('mots')), t('i_mots'), v.mots, 120, t('mots_aide'))}${champ('nom', `${esc(t('nom'))} <small>${esc(t('facultatif'))}</small>`, t('i_nom'), v.nom, 60)}
+        <div class="jm-champ large"><span>${esc(t('lieu'))}</span><div class="jm-puces" role="radiogroup">${lieux.map((l, i) => `<button type="button" role="radio" aria-checked="${l.id === v.lieu}" class="jm-puce f${l.id === v.lieu ? ' oui' : ''}" data-perso="of-form-lieu" data-id="${l.id}" data-k="rf:l${i}">${esc(texteSur(l.nom))}</button>`).join('')}</div></div>
+        ${ou}</div>
+      <p class="jm-err" role="alert"></p>
+      <div class="jm-btns">${bouton('of-form-ok', 'rf:ok', t('enregistrer'), 'coche', 'principal')}${bouton('of-form-non', 'rf:non', t('annuler'), '', 'second')}</div></form>`;
+  }
+
+  function gestionHTML(x) {
+    const { esc } = O, t = tO(x), g = objet(x.gestion);
+    const l = liste(g.liste).filter((r) => numSur(r?.id));
+    const enCours = typeof x.en_cours === 'string' && x.en_cours;
+    let h = `<div class="jm-p${anime()}"><h1>${esc(texteSur(g.titre))}</h1><p class="jm-intro">${esc(texteSur(g.intro))}</p>
+      <div class="jm-outils">${bouton('of-nouvelle', 'og:nouvelle', t('nouvelle'), 'plus', '', g.plein === true || ofForm ? ' disabled' : '')}${g.profil === true ? bouton('of-profil', 'og:profil', t('depuis_profil'), 'cible', '', g.plein === true ? ' disabled' : '') : ''}${bouton('of-fermer', 'og:fermer', t('fermer'), 'gauche', 'discret')}${g.plein === true ? `<span>${esc(t('plein'))}</span>` : ''}</div>`;
+    if (ofForm && !ofForm.id) h += rechercheFormHTML(x);
+    for (const r of l) {
+      if (ofForm && ofForm.id === r.id) { h += rechercheFormHTML(x); continue; }
+      h += `<section class="jm-cle jm-rc${r.id === x.recherche ? ' choisie' : ''}"><div class="jm-r-tete"><span class="jm-a-ic">${icone('cible')}</span><div class="jm-cle-t"><div class="jm-cle-l1"><b>${esc(texteSur(r.nom))}</b></div><p>${esc(texteSur(r.sous))}</p><p class="jm-petit">${esc(texteSur(r.derniere))}</p></div></div>`;
+      if (ofConfirme === r.id) {
+        h += `<div class="jm-suppr"><p>${esc(texteSur(r.question))}</p><div class="jm-btns">${bouton('of-suppr-oui', 'og:oui', t('oui'), 'poubelle', 'danger', ` data-id="${r.id}"`)}${bouton('of-suppr-non', 'og:non', t('non'), '', 'second')}</div></div>`;
+      } else {
+        h += `<div class="jm-btns">${bouton('of-chercher', `og:c-${r.id}`, t('chercher'), 'loupe', 'principal', ` data-id="${r.id}"${enCours ? ' disabled' : ''}`)}${bouton('of-modifier', `og:m-${r.id}`, t('modifier'), 'crayon', '', ` data-id="${r.id}"`)}${bouton('of-supprimer', `og:s-${r.id}`, t('supprimer'), 'poubelle', 'discret danger', ` data-id="${r.id}"`)}</div>`;
+      }
+      h += '</section>';
+    }
+    return `${h}</div>`;
+  }
+
+  function droiteOffres(x) {
+    if (ofVue === 'recherches') return gestionHTML(x);
+    const f = x.fiche && typeof x.fiche === 'object' && numSur(x.fiche.id) ? x.fiche : null;
+    if (f) return ficheOffreHTML(x, f);
+    return videOffresHTML(x);
+  }
+
+  function ouvrirFormRecherche(id) {
+    const x = offresDe(); if (!x) return;
+    const g = objet(x.gestion);
+    const r = numSur(id) ? liste(g.liste).find((y) => y?.id === id) : null;
+    const v = objet(r?.valeurs);
+    ofForm = r
+      ? { id: r.id, v: { nom: texteSur(v.nom), mots: texteSur(v.mots), lieu: codeSurP(v.lieu) ? v.lieu : 'ville', ville: texteSur(v.ville), rayon: Number.isInteger(v.rayon) ? v.rayon : 30, departement: texteSur(v.departement), region: texteSur(v.region) } }
+      : { id: null, v: { nom: '', mots: '', lieu: 'ville', ville: '', rayon: 30, departement: '', region: '' } };
+    ofVue = 'recherches'; ofConfirme = null;
+    O.anime = !reduit();
+    dessinerTout('rf:mots');
+  }
+
+  function enregistrerRecherche() {
+    if (!ofForm) return;
+    const err = hote.querySelector('.jm-rf .jm-err');
+    if (!String(ofForm.v.mots || '').trim()) {
+      hote.querySelector('[data-k="rf:mots"]')?.closest('.jm-champ')?.classList.add('faux');
+      if (err) err.textContent = 'Écris ce que tu cherches, par exemple : agent de quai.';
+      hote.querySelector('[data-k="rf:mots"]')?.focus({ preventScroll: false });
+      O.son?.retour?.();
+      return;
+    }
+    if (Date.now() < envoiJusqua) return;
+    envoiJusqua = Date.now() + 800;
+    const v = ofForm.v;
+    const m = { nom: String(v.nom || '').slice(0, 60), mots: String(v.mots).slice(0, 120), lieu: v.lieu, ville: String(v.ville || '').slice(0, 60), rayon: v.rayon, departement: v.departement, region: v.region };
+    if (numSur(ofForm.id)) m.id = ofForm.id;
+    O.son?.ok?.();
+    O.action('o-recherche', m);
+  }
+
+  // Un élément de l'onglet Offres (clic, A ou Entrée) ; vrai s'il en était un
+  function validerOffres(el, d) {
+    const x = offresDe(), f = x?.fiche;
+    switch (d.perso) {
+      case 'of-champ':   // (Entrée dans le texte cherché ou la ville : les filtres partent tout de suite)
+        if (el.tagName === 'INPUT') envoyerFiltres(false);
+        return true;
+      case 'of-liste': if (ofFiltres && codeSurP(d.id) && ofFiltres.liste !== d.id) { ofFiltres.liste = d.id; O.son?.bascule?.(); envoyerFiltres(false); } return true;
+      case 'of-retirer':
+        ofFiltres = { texte: '', genre: 'partout', ville: '', rayon: 30, departement: '', region: '', contrat: '', teletravail: 'peu_importe', liste: 'toutes' };
+        O.son?.ok?.(); envoyerFiltres(false); return true;
+      case 'of-ouvrir': {
+        const id = Number(d.id);
+        if (!numSur(id)) return true;
+        O.son?.ok?.(); ofVue = 'offre'; ofForm = null; ofConfirme = null;
+        if (f?.id !== id) { ofChoisie = id; O.anime = !reduit(); }
+        O.action('o-ouvrir', { id });
+        dessinerTout(`ol:${id}`);
+        return true;
+      }
+      case 'of-recherche': return true;
+      case 'of-chercher': {
+        if (el.disabled) return true;
+        const id = Number(d.id);
+        O.son?.ok?.();
+        O.action('o-chercher', numSur(id) ? { id } : {});
+        return true;
+      }
+      case 'of-gerer': O.son?.tic?.(); ofVue = ofVue === 'recherches' ? 'offre' : 'recherches'; ofForm = null; ofConfirme = null; O.anime = !reduit(); dessinerTout('or:gerer'); return true;
+      case 'of-fermer': O.son?.retour?.(); ofVue = 'offre'; ofForm = null; ofConfirme = null; O.anime = !reduit(); dessinerTout('or:gerer'); return true;
+      case 'of-nouvelle': if (!el.disabled) { O.son?.ok?.(); ouvrirFormRecherche(null); } return true;
+      case 'of-modifier': { const id = Number(d.id); if (numSur(id)) { O.son?.ok?.(); ouvrirFormRecherche(id); } return true; }
+      case 'of-profil': if (!el.disabled) { O.son?.ok?.(); O.action('o-depuis-profil'); } return true;
+      case 'of-supprimer': { const id = Number(d.id); if (numSur(id)) { O.son?.ok?.(); ofConfirme = id; dessinerTout('og:non'); } return true; }
+      case 'of-suppr-non': { const id = ofConfirme; O.son?.retour?.(); ofConfirme = null; dessinerTout(id ? `og:s-${id}` : undefined); return true; }
+      case 'of-suppr-oui': if (numSur(ofConfirme)) { const id = ofConfirme; ofConfirme = null; el.disabled = true; O.action('o-recherche-supprimer', { id }); } return true;
+      case 'of-form': {   // (Entrée : le champ suivant)
+        if (el.tagName !== 'INPUT') return true;
+        const els = [...hote.querySelectorAll('.jm-rf .f')], i = els.indexOf(el);
+        els[i + 1]?.focus({ preventScroll: false });
+        return true;
+      }
+      case 'of-form-lieu': if (ofForm && codeSurP(d.id)) { ofForm.v.lieu = d.id; O.son?.bascule?.(); dessinerTout(el.dataset.k); } return true;
+      case 'of-form-rayon': { const n = Number(d.v); if (ofForm && Number.isInteger(n)) { ofForm.v.rayon = n; O.son?.bascule?.(); dessinerTout(el.dataset.k); } return true; }
+      case 'of-form-ok': enregistrerRecherche(); return true;
+      case 'of-form-non': O.son?.retour?.(); ofForm = null; dessinerTout('og:nouvelle'); return true;
+      case 'of-cles': O.son?.ok?.(); montrer('profil', 'r:cles'); ouvrirRubrique('cles'); return true;
+      case 'of-favori': if (f && numSur(f.id)) { O.son?.bascule?.(); O.action('o-favori', { id: f.id }); } return true;
+      case 'of-tard': if (f && numSur(f.id)) { O.son?.bascule?.(); O.action('o-plus-tard', { id: f.id }); } return true;
+      case 'of-cacher': if (f && numSur(f.id)) { O.son?.ok?.(); O.action('o-cacher', { id: f.id }); } return true;
+      case 'of-voir': if (f && numSur(f.id) && codeSurP(d.source)) { O.son?.ok?.(); O.action('o-voir', { id: f.id, source: d.source }); } return true;
+      case 'of-adzuna': O.son?.ok?.(); O.action('o-adzuna'); return true;
+      case 'of-postule': if (f && numSur(f.id) && !el.disabled) { el.disabled = true; O.son?.ok?.(); O.action('o-postule', { id: f.id }); } return true;
+      case 'of-candidature': if (f && numSur(f.candidature)) { O.son?.ok?.(); montrer('candidatures'); ouvrirCandidature(f.candidature); } return true;
+      default: return false;
+    }
+  }
+
+  // Ce qui se tape ou se choisit dans l'onglet Offres : gardé ici, puis envoyé
+  function saisieOffres(el, d) {
+    if (d.perso === 'of-champ' && ofFiltres && OF_CHAMPS.includes(d.champ)) {
+      const v = d.champ === 'rayon' ? Number(el.value) : String(el.value);
+      ofFiltres[d.champ] = v;
+      // (un autre genre de lieu : les autres valeurs du lieu partent)
+      if (d.champ === 'genre') { ofFiltres.departement = ''; ofFiltres.region = ''; }
+      const frappe = d.champ === 'texte' || d.champ === 'ville';
+      if (!frappe) O.son?.bascule?.();
+      envoyerFiltres(frappe);
+      if (d.champ === 'genre') dessinerTout(d.k);
+      return true;
+    }
+    if (d.perso === 'of-recherche') {
+      const id = Number(el.value);
+      if (numSur(id)) { O.son?.bascule?.(); O.action('o-choisir', { id }); }
+      return true;
+    }
+    if (d.perso === 'of-form' && ofForm && ['nom', 'mots', 'ville', 'departement', 'region'].includes(d.champ)) {
+      ofForm.v[d.champ] = el.value;
+      el.closest('.jm-champ')?.classList.remove('faux');
+      const err = hote.querySelector('.jm-rf .jm-err'); if (err) err.textContent = '';
+      return true;
+    }
+    return false;
+  }
+
+  // Retour dans l'onglet Offres : ferme d'abord ce qui est ouvert ; vrai si quelque chose l'était
+  function retourOffres() {
+    if (onglet !== 'offres') return false;
+    if (ofConfirme) { const id = ofConfirme; ofConfirme = null; dessinerTout(`og:s-${id}`); return true; }
+    if (ofForm) { ofForm = null; dessinerTout('og:nouvelle'); return true; }
+    if (ofVue === 'recherches') { ofVue = 'offre'; dessinerTout('or:gerer'); return true; }
+    return false;
+  }
+
+  // Les ordres de l'appli pour l'onglet Offres ; vrai si c'en était un
+  function ordreOffres(o) {
+    if (o.recherche_offres !== undefined) {
+      ofForm = null;
+      if (onglet === 'offres') dessinerTout(ofVue === 'recherches' ? 'og:nouvelle' : 'or:chercher');
+      return true;
+    }
+    if (numSur(o.recherche_supprimee)) { ofConfirme = null; if (onglet === 'offres') dessinerTout('og:nouvelle'); return true; }
+    // (pour les captures) une offre ouverte, Mes recherches
+    if (numSur(o.offre)) {
+      if (onglet !== 'offres') montrer('offres');
+      ofVue = 'offre'; ofChoisie = o.offre; O.action('o-ouvrir', { id: o.offre }); dessinerTout(`ol:${o.offre}`);
+      return true;
+    }
+    if (o.offres === 'recherches' || o.offres === 'nouvelle') {
+      if (onglet !== 'offres') montrer('offres');
+      if (o.offres === 'nouvelle') ouvrirFormRecherche(null); else { ofVue = 'recherches'; dessinerTout('or:gerer'); }
+      return true;
+    }
+    if (o.offres === 'filtres') {
+      // (pour les captures) des filtres posés comme si Jordan les avait choisis
+      const f = objet(o.filtres);
+      if (ofFiltres) for (const k of OF_CHAMPS) if (Object.hasOwn(f, k)) ofFiltres[k] = k === 'rayon' ? Number(f[k]) : String(f[k]);
+      envoyerFiltres(false);
+      return true;
+    }
+    return false;
+  }
+
   // ---------------------------------------------------------------- avec le kit
   window.kitAccueil = Object.freeze({
     // L'accueil dessiné (à chaque nouvel état et à chaque retour sur l'accueil), sur l'onglet montré
@@ -1101,6 +1471,7 @@
       if (confirme) { confirme = false; dessinerTout('d:supprimer'); return true; }
       if (vueC === 'formulaire') { fermerFormulaire(true); return true; }
       if (retourProfil()) return true;
+      if (retourOffres()) return true;
       const premier = onglets()[0];
       if (premier && onglet !== premier.id) { montrer(premier.id); return true; }
       return false;
@@ -1109,6 +1480,7 @@
     ordre(o) {
       if (!hote || !P) return;
       if (ordreProfil(o)) return;
+      if (ordreOffres(o)) return;
       if (idSur(o.rubrique)) {
         const avec = onglets().find((x) => rubriquesDe(x).some((r) => r.id === o.rubrique));
         if (avec) { montrer(avec.id, `r:${o.rubrique}`); ouvrirRubrique(o.rubrique); }

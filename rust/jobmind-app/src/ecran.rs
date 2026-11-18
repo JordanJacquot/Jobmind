@@ -14,6 +14,9 @@
 //! Étape 3 : Mon profil montre ses rubriques Mon CV, Ce que je cherche, Mon style et Mes clés (vue_profil.rs), puis
 //! Réglages.
 //!
+//! Étape 4 : l'onglet Offres (vue_offres.rs) : les filtres, les recherches gardées et « Chercher maintenant », la liste
+//! des offres gardées, l'offre ouverte.
+//!
 //! Tous les textes vont à la page tels quels (elle les échappe) : en français simple, sans tiret long ni demi-cadratin.
 
 use jobmind_core::candidature::{self, Candidature, Evenement, Moyen};
@@ -24,6 +27,7 @@ use jobmind_core::suivi::{
 use jobmind_core::{Jour, Statut};
 use serde_json::{Value, json};
 
+use crate::offres::VueOffres;
 use crate::vue_profil::{self, VIDE, VueProfil};
 
 /// Les onglets, dans l'ordre.
@@ -48,12 +52,22 @@ pub struct Vue<'a> {
     pub aujourdhui: Jour,
     /// Mon profil (étape 3) : les CV, ce que je cherche, les textes pour le style, les clés
     pub profil: &'a VueProfil,
+    /// L'onglet Offres (étape 4) : la liste filtrée, l'offre ouverte, les recherches gardées
+    pub offres: &'a VueOffres,
 }
 
 impl Vue<'_> {
     /// Rien encore (les tests, une base qui ne s'ouvre pas).
     pub fn vide(aujourdhui: Jour) -> Vue<'static> {
-        Vue { candidatures: &[], ouverte: None, frise: &[], delai: suivi::DELAI_DEFAUT, aujourdhui, profil: &VIDE }
+        Vue {
+            candidatures: &[],
+            ouverte: None,
+            frise: &[],
+            delai: suivi::DELAI_DEFAUT,
+            aujourdhui,
+            profil: &VIDE,
+            offres: &crate::offres::VIDE,
+        }
     }
 }
 
@@ -352,21 +366,7 @@ pub fn accueil(v: &Vue) -> Value {
     json!({
         "onglets": [
             onglet_candidatures(v),
-            {
-                "id": OFFRES,
-                "nom": "Offres",
-                "nombre": 0,
-                "liste": "Les offres",
-                "vide": "Aucune offre gardée.",
-                "rubriques": [],
-                "dossier": dossier_vide(
-                    "loupe",
-                    AUCUNE_OFFRE,
-                    "Jobmind rassemblera ici les offres de plusieurs sites, sans doublons, triées pour garder les \
-                     plus intéressantes pour toi.",
-                    "Chaque offre gardée reste lisible sur ce PC, même si elle disparaît du site.",
-                ),
-            },
+            crate::vue_offres::onglet(v.offres, v.aujourdhui),
             {
                 "id": PROFIL,
                 "nom": "Mon profil",
@@ -397,6 +397,7 @@ pub fn etat(version: &str, v: &Vue) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::offres::VIDE as OVIDE;
     use jobmind_core::candidature::Entretien;
     use jobmind_core::{Heure, Moyen};
 
@@ -501,7 +502,15 @@ mod tests {
         let l = exemples();
         let frise =
             [Evenement { jour: Jour::nouveau(2026, 11, 2).unwrap(), statut: Statut::Envoyee, texte: String::new() }];
-        let v = Vue { candidatures: &l, ouverte: Some(1), frise: &frise, delai: 14, aujourdhui: auj(), profil: &VIDE };
+        let v = Vue {
+            candidatures: &l,
+            ouverte: Some(1),
+            frise: &frise,
+            delai: 14,
+            aujourdhui: auj(),
+            profil: &VIDE,
+            offres: &OVIDE,
+        };
         let e = etat("0.1.0", &v);
         let o = &e["accueil"]["perso"]["onglets"][0];
         // Deux choses à faire : l'entretien du 20, puis la relance de Transports Moselle Fret
@@ -596,7 +605,7 @@ mod tests {
         let l = exemples();
         let p = crate::vue_profil::tests::exemple();
         for (ouverte, profil) in [(None, &VIDE), (Some(1), &p), (Some(2), &VIDE), (Some(3), &p), (Some(4), &VIDE)] {
-            let v = Vue { candidatures: &l, ouverte, frise: &[], delai: 14, aujourdhui: auj(), profil };
+            let v = Vue { candidatures: &l, ouverte, frise: &[], delai: 14, aujourdhui: auj(), profil, offres: &OVIDE };
             let mut t = Vec::new();
             textes_de(&etat("0.1.0", &v), &mut t);
             for t in t {
@@ -647,7 +656,8 @@ mod tests {
             [Evenement { jour: Jour::nouveau(2026, 11, 2).unwrap(), statut: Statut::Envoyee, texte: String::new() }];
         let p = crate::vue_profil::tests::exemple();
         for (ouverte, profil) in [(None, &VIDE), (Some(1), &p), (Some(2), &VIDE), (Some(3), &p), (Some(4), &VIDE)] {
-            let v = Vue { candidatures: &l, ouverte, frise: &frise, delai: 14, aujourdhui: auj(), profil };
+            let v =
+                Vue { candidatures: &l, ouverte, frise: &frise, delai: 14, aujourdhui: auj(), profil, offres: &OVIDE };
             verifier(&etat("0.1.0", &v), &noms, "etat");
         }
     }
@@ -675,8 +685,15 @@ mod tests {
             }
         }
         for id in 1..=4 {
-            let v =
-                Vue { candidatures: &l, ouverte: Some(id), frise: &[], delai: 14, aujourdhui: auj(), profil: &VIDE };
+            let v = Vue {
+                candidatures: &l,
+                ouverte: Some(id),
+                frise: &[],
+                delai: 14,
+                aujourdhui: auj(),
+                profil: &VIDE,
+                offres: &OVIDE,
+            };
             let f = &etat("0.1.0", &v)["accueil"]["perso"]["onglets"][0]["suivi"]["fiche"];
             for x in [&f["action"]["icone"], &f["calme"]["icone"]] {
                 if let Some(i) = x.as_str() {
@@ -710,7 +727,15 @@ mod tests {
         // L'état entier reste léger (envoyé à chaque changement ; la liste des départements compte pour 6 Ko)
         assert!(etat("0.1.0", &Vue::vide(auj())).to_string().len() < 40_000);
         assert!(e.to_string().len() < 60_000);
-        let v = Vue { candidatures: &l, ouverte: Some(1), frise: &[], delai: 14, aujourdhui: auj(), profil: &VIDE };
+        let v = Vue {
+            candidatures: &l,
+            ouverte: Some(1),
+            frise: &[],
+            delai: 14,
+            aujourdhui: auj(),
+            profil: &VIDE,
+            offres: &OVIDE,
+        };
         assert!(etat("0.1.0", &v).to_string().len() < 40_000);
     }
 }

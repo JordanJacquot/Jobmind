@@ -16,6 +16,9 @@
 //!    dues (une relance devenue à faire, un entretien demain) ; à minuit, la liste refaite. Mon profil (étape 3) : un
 //!    geste du profil passe par crate::profil ; « Importer un fichier » ouvre la boîte « Ouvrir » de Windows sur un fil
 //!    à part, qui lit ensuite le fichier et rapporte chaque étape au fil de la fenêtre (lecture abandonnée après 60 s).
+//!    Offres (étape 4) : « Chercher maintenant » et « Essayer la clé » tournent sur un fil à part (les clés lues au
+//!    dernier moment, données à ce fil seulement), qui rapporte au fil de la fenêtre (abandonné après 90 s) ; « Voir
+//!    sur le site » ouvre le navigateur par défaut (jamais dans la construction d'essai, qui parle à un faux serveur).
 //!    L'échelle de la page dans un panneau de Mindset plus petit que la fenêtre suit chaque nouvelle
 //!    taille (`Resized`), et chaque pas. La croix et `WM_CLOSE` (le bouton « Fermer » de Mindset) quittent.
 //! 5. La fin : la relance si le thème a changé, puis `std::process::exit` (aucun fil ne garde le processus en vie sans
@@ -31,6 +34,8 @@ use std::thread::LocalKey;
 use std::time::{Duration, Instant};
 
 use jobmind_core::Jour;
+use jobmind_core::cle::Service;
+use jobmind_sources::{ErreurSource, JobSource};
 use jobmind_storage::bulles::Demande;
 use jobmind_storage::cles::Cles;
 use jobmind_storage::{Donnees, Journal};
@@ -43,6 +48,7 @@ use suite_commun::themes;
 use tauri::{App, AppHandle, Manager, Window, WindowEvent};
 
 use crate::fenetre::{LABEL, TAILLE_MIN, creer_principale};
+use crate::offres::{self, Offres, Retour, Tache};
 use crate::pont::MessagePage;
 use crate::profil::{self, Contexte, Import, Profil};
 use crate::suivi::{self, Fait, Suivi};
@@ -61,6 +67,8 @@ const RELEVE: Duration = Duration::from_millis(500);
 const VERIFICATION: Duration = Duration::from_secs(30);
 /// La lecture d'un fichier de CV choisi : abandonnée après ce temps (un fichier qui ferait tourner la lecture sans fin).
 const LECTURE_MAX: Duration = Duration::from_secs(60);
+/// Une recherche d'offres : abandonnée après ce temps (chaque demande a déjà son délai de 25 s).
+const RESEAU_MAX: Duration = Duration::from_secs(90);
 
 /// Tout ce que l'appli garde pendant qu'elle tourne, sur le fil de la fenêtre.
 struct Etat {
@@ -85,6 +93,13 @@ struct Etat {
     cles: Cles,
     /// La lecture du fichier de CV choisi a commencé à ce moment
     lecture_depuis: Option<Instant>,
+    /// L'onglet Offres : l'offre ouverte, les filtres, la recherche en cours
+    offres: Offres,
+    /// La recherche d'offres en cours a commencé à ce moment
+    reseau_depuis: Option<Instant>,
+    /// Construction d'essai : le faux serveur local qui imite Adzuna et Jooble, et son mode
+    #[cfg(feature = "essai")]
+    faux: Option<(jobmind_sources::faux::FauxServeur, FauxMode)>,
     /// Le jour de la liste montrée : un nouveau jour, elle est refaite
     jour: Jour,
     /// Tauri, une fois la fenêtre créée : l'état renvoyé à la page après un geste
@@ -101,6 +116,10 @@ struct Etat {
 thread_local! {
     static ETAT: RefCell<Option<Etat>> = const { RefCell::new(None) };
 }
+
+/// Construction d'essai : le mode du faux serveur (normal, trop de demandes, clé refusée).
+#[cfg(feature = "essai")]
+type FauxMode = std::sync::Arc<std::sync::Mutex<jobmind_sources::faux::Mode>>;
 
 /// Le dossier du programme (celui de Mindset.exe et Jobmind.exe).
 fn dossier_programme() -> Option<String> {
@@ -241,14 +260,34 @@ pub fn lancer() -> ! {
     #[cfg(feature = "essai")]
     crate::essai::exemples_demandes(&l.dossier_donnees, d.base.as_ref(), &mut cles, heure::maintenant(), &journal);
     // L'état de départ : le suivi et le profil d'après la base
+    // (construction d'essai : le faux serveur local d'Adzuna et Jooble ; aucune demande de l'essai ne sort du PC)
+    #[cfg(feature = "essai")]
+    let faux = {
+        let mode: FauxMode = std::sync::Arc::new(std::sync::Mutex::new(jobmind_sources::faux::Mode::Normal));
+        match jobmind_sources::faux::FauxServeur::demarrer(jobmind_sources::faux::imitation(mode.clone())) {
+            Ok(s) => {
+                journal.ecrire("Essai : faux serveur d'Adzuna et Jooble prêt (127.0.0.1)");
+                Some((s, mode))
+            }
+            Err(e) => {
+                journal.ecrire(&format!("Essai : faux serveur non lancé ({e})"));
+                None
+            }
+        }
+    };
     let jour = heure::maintenant().jour();
     let mut suivi = Suivi::default();
     let mut profil = Profil::default();
+    let mut offres = Offres::default();
     let (vue_profil, raison) = profil.vue(d.base.as_ref(), Some(&cles));
     if let Some(r) = raison {
         journal.ecrire(&r);
     }
-    let (depart, raison) = suivi.etat_avec(VERSION, d.base.as_ref(), jour, &vue_profil);
+    let (vue_offres, raison) = offres.vue(d.base.as_ref(), Some(&cles));
+    if let Some(r) = raison {
+        journal.ecrire(&r);
+    }
+    let (depart, raison) = suivi.etat_complet(VERSION, d.base.as_ref(), jour, &vue_profil, &vue_offres);
     if let Some(r) = raison {
         journal.ecrire(&r);
     }
@@ -287,6 +326,10 @@ pub fn lancer() -> ! {
             profil,
             cles,
             lecture_depuis: None,
+            offres,
+            reseau_depuis: None,
+            #[cfg(feature = "essai")]
+            faux,
             jour,
             app: None,
             releve: Instant::now(),
@@ -408,6 +451,7 @@ fn tour(app: &AppHandle) {
             etat.nouveau_jour(app);
             etat.bulles(app);
             etat.lecture_trop_longue(app);
+            etat.reseau_trop_long(app);
         }
         #[cfg(feature = "essai")]
         {
@@ -455,6 +499,26 @@ fn fil_import(app: AppHandle, h: usize, jeton: u64, chemin: Option<PathBuf>) {
     rapporter(&app, RetourImport::Fini(Box::new(lu)));
 }
 
+/// Rapporte le résultat du fil des recherches au fil de la fenêtre (occupé : réessayé juste après).
+fn rapporter_reseau(app: &AppHandle, r: Retour) {
+    let a = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let pour_etat = a.clone();
+        let reste = ETAT.with(move |e| match e.try_borrow_mut() {
+            Ok(mut e) => {
+                if let Some(etat) = e.as_mut() {
+                    etat.retour_reseau(&pour_etat, r);
+                }
+                None
+            }
+            Err(_) => Some(r),
+        });
+        if let Some(r) = reste {
+            rapporter_reseau(&a, r);
+        }
+    });
+}
+
 /// Rapporte une étape de l'import au fil de la fenêtre (occupé : réessayé juste après).
 fn rapporter(app: &AppHandle, r: RetourImport) {
     let a = app.clone();
@@ -484,7 +548,9 @@ impl Etat {
             MessagePage::Menu if self.vie.dans_mindset() => {
                 crate::pont::demander_menu(&self.dossier_mindset, &mut self.systeme, &mut self.disque)
             }
-            MessagePage::Action { id, valeur, .. } if suivi::est_geste(id) || profil::est_geste(id) => {
+            MessagePage::Action { id, valeur, .. }
+                if suivi::est_geste(id) || profil::est_geste(id) || offres::est_geste(id) =>
+            {
                 self.geste(id, valeur);
                 return;
             }
@@ -493,13 +559,17 @@ impl Etat {
         self.journal.ecrire(&court(&ligne));
     }
 
-    /// L'état de la page d'après la base et les clés : le suivi et le profil.
+    /// L'état de la page d'après la base et les clés : le suivi, les offres et le profil.
     fn etat_page(&mut self, d: &Donnees) -> Value {
         let (vue, raison) = self.profil.vue(d.base.as_ref(), Some(&self.cles));
         if let Some(r) = raison {
             self.journal.ecrire(&r);
         }
-        let (e, raison) = self.suivi.etat_avec(VERSION, d.base.as_ref(), self.jour, &vue);
+        let (vue_offres, raison) = self.offres.vue(d.base.as_ref(), Some(&self.cles));
+        if let Some(r) = raison {
+            self.journal.ecrire(&r);
+        }
+        let (e, raison) = self.suivi.etat_complet(VERSION, d.base.as_ref(), self.jour, &vue, &vue_offres);
         if let Some(r) = raison {
             self.journal.ecrire(&r);
         }
@@ -531,6 +601,15 @@ impl Etat {
         if fait.importer {
             self.lancer_import(app, None);
         }
+        if let Some(k) = fait.candidature {
+            self.suivi.ouverte = Some(k);
+        }
+        if let Some(t) = fait.reseau {
+            self.lancer_reseau(app, t);
+        }
+        if let Some(l) = &fait.lien {
+            self.ouvrir_lien(l);
+        }
         if fait.change {
             let e = self.etat_page(d);
             page.changer(e);
@@ -551,6 +630,10 @@ impl Etat {
         self.faire(&app, |etat, d| {
             let maintenant = heure::maintenant();
             etat.jour = maintenant.jour();
+            if offres::est_geste(id) {
+                let ctx = offres::Contexte { base: d.base.as_ref(), cles: Some(&etat.cles) };
+                return etat.offres.geste(&ctx, id, valeur, maintenant);
+            }
             if profil::est_geste(id) {
                 let dossier = d.dossier().to_path_buf();
                 let mut ctx = Contexte { base: d.base.as_ref(), dossier: &dossier, cles: Some(&mut etat.cles) };
@@ -605,6 +688,114 @@ impl Etat {
             self.lecture_depuis = None;
             self.faire(app, |etat, _| etat.profil.import_trop_long());
         }
+    }
+
+    /// Lance le fil des recherches d'offres : les clés lues ici, au dernier moment, et données seulement à ce fil (jamais
+    /// au journal ni à la page). Une clé qui ne se lit plus : cette source répond « clé manquante » sans rien demander.
+    fn lancer_reseau(&mut self, app: &AppHandle, t: Tache) {
+        let (jeton, recherche, services) = match t {
+            Tache::Chercher { jeton, recherche, services, .. } => (jeton, recherche, services),
+            Tache::Essayer { jeton, service } => (
+                jeton,
+                jobmind_sources::Recherche { mots_cles: "emploi".into(), lieu: String::new(), rayon_km: 0, nombre: 1 },
+                vec![service],
+            ),
+        };
+        let (adzuna, jooble, https) = self.adresses();
+        let demandes: Vec<(Service, Option<Vec<String>>)> =
+            services.iter().map(|s| (*s, offres::cles_claires(&self.cles, *s))).collect();
+        let a = app.clone();
+        let r = std::thread::Builder::new().name("offres-reseau".into()).spawn(move || {
+            let http = jobmind_sources::http::HttpUreq::nouveau(https);
+            let mut resultats = Vec::new();
+            for (s, cles) in demandes {
+                let r = match (s, cles.as_deref()) {
+                    (Service::Adzuna, Some([id, cle])) => {
+                        jobmind_sources::adzuna::Adzuna::nouvelle(&http, &adzuna, id, cle).chercher(&recherche)
+                    }
+                    (Service::Jooble, Some([cle])) => {
+                        jobmind_sources::jooble::Jooble::nouvelle(&http, &jooble, cle).chercher(&recherche)
+                    }
+                    _ => Err(ErreurSource::CleManquante(offres::nom_source(s.code()).into())),
+                };
+                resultats.push((s, r));
+            }
+            rapporter_reseau(&a, Retour { jeton, resultats });
+        });
+        match r {
+            Ok(_) => self.reseau_depuis = Some(Instant::now()),
+            Err(e) => {
+                // (appelé pendant un geste : l'état est renvoyé à la page juste après)
+                self.journal.ecrire(&format!("Offres : fil des recherches non lancé ({e})"));
+                let _ = self.offres.trop_long();
+            }
+        }
+    }
+
+    /// Les adresses d'Adzuna et de Jooble, et « https seulement » : les vraies.
+    #[cfg(not(feature = "essai"))]
+    fn adresses(&self) -> (String, String, bool) {
+        (jobmind_sources::adzuna::ADRESSE.into(), jobmind_sources::jooble::ADRESSE.into(), true)
+    }
+
+    /// Construction d'essai : le faux serveur local, jamais internet. `reseau.essai` dans le dossier de données change
+    /// sa réponse : « coupe » (personne n'écoute : le réseau coupé), « quota », « refuse » (clé refusée), autre chose :
+    /// normale.
+    #[cfg(feature = "essai")]
+    fn adresses(&self) -> (String, String, bool) {
+        use jobmind_sources::faux::Mode;
+        let voulu = std::fs::read_to_string(self.dossier.join(crate::essai::RESEAU)).unwrap_or_default();
+        let voulu = voulu.trim_start_matches('\u{feff}').trim().to_string();
+        let base = match &self.faux {
+            Some((s, mode)) => {
+                if let Ok(mut m) = mode.lock() {
+                    *m = match voulu.as_str() {
+                        "quota" => Mode::Quota,
+                        "refuse" => Mode::CleRefusee,
+                        _ => Mode::Normal,
+                    };
+                }
+                s.adresse()
+            }
+            None => "http://127.0.0.1:9".into(),
+        };
+        // (le port 9 de la machine : personne n'y écoute)
+        let base = if voulu == "coupe" { "http://127.0.0.1:9".to_string() } else { base };
+        self.journal.ecrire(&format!(
+            "Essai : recherche envoyée au faux serveur ({})",
+            if voulu.is_empty() { "normal" } else { &voulu }
+        ));
+        (format!("{base}/v1/api/jobs/fr/search"), format!("{base}/api/"), false)
+    }
+
+    /// Le résultat du fil des recherches.
+    fn retour_reseau(&mut self, app: &AppHandle, r: Retour) {
+        if self.offres.jeton_en_cours() == Some(r.jeton) {
+            self.reseau_depuis = None;
+        }
+        self.faire(app, |etat, d| etat.offres.fini(d.base.as_ref(), r, heure::maintenant()));
+    }
+
+    /// Une recherche qui dure trop longtemps : abandonnée (un résultat qui arriverait ensuite est laissé).
+    fn reseau_trop_long(&mut self, app: &AppHandle) {
+        if self.reseau_depuis.is_some_and(|t| t.elapsed() > RESEAU_MAX) {
+            self.reseau_depuis = None;
+            self.faire(app, |etat, _| etat.offres.trop_long());
+        }
+    }
+
+    /// « Voir sur le site » : le navigateur par défaut de Windows (l'adresse est déjà vérifiée : http ou https).
+    #[cfg(not(feature = "essai"))]
+    fn ouvrir_lien(&self, url: &str) {
+        let j = self.journal.clone();
+        crate::windows::lien::ouvrir(url, move |t| j.ecrire(t));
+    }
+
+    /// Construction d'essai : le vrai navigateur n'est jamais ouvert ; la demande est seulement notée (l'hôte).
+    #[cfg(feature = "essai")]
+    fn ouvrir_lien(&self, url: &str) {
+        self.journal
+            .ecrire(&format!("Essai : navigateur demandé pour {} (pas ouvert)", jobmind_core::offre::hote(url)));
     }
 
     /// L'état renvoyé à la page d'après la base (et la carte de Mindset réécrite si elle a changé). Faux si les données

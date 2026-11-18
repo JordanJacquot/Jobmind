@@ -18,6 +18,7 @@ use jobmind_storage::{Base, Moment, bulles};
 use serde_json::{Value, json};
 
 use crate::ecran::{self, Vue};
+use crate::offres::VueOffres;
 use crate::vue_profil::{VIDE, VueProfil};
 
 /// Les ids des gestes du suivi (les actions de la page).
@@ -56,6 +57,12 @@ pub struct Fait {
     pub change: bool,
     /// Mon profil : ouvrir la boîte « Ouvrir » de Windows pour choisir un CV (crate::profil, `IMPORTER`)
     pub importer: bool,
+    /// Offres (étape 4) : la tâche du fil des recherches (« Chercher maintenant », « Essayer la clé »)
+    pub reseau: Option<crate::offres::Tache>,
+    /// Offres : une adresse à ouvrir dans le navigateur (déjà vérifiée : http ou https)
+    pub lien: Option<String>,
+    /// Offres : la candidature à ouvrir dans l'onglet Candidatures (« J'ai postulé »)
+    pub candidature: Option<i64>,
 }
 
 impl Fait {
@@ -95,7 +102,19 @@ impl Suivi {
         aujourdhui: Jour,
         profil: &VueProfil,
     ) -> (Value, Option<String>) {
-        let vide = Vue { profil, ..Vue::vide(aujourdhui) };
+        self.etat_complet(version, base, aujourdhui, profil, &crate::offres::VIDE)
+    }
+
+    /// [`Suivi::etat`], avec ce que Mon profil et l'onglet Offres montrent.
+    pub fn etat_complet(
+        &mut self,
+        version: &str,
+        base: Option<&Base>,
+        aujourdhui: Jour,
+        profil: &VueProfil,
+        offres: &VueOffres,
+    ) -> (Value, Option<String>) {
+        let vide = Vue { profil, offres, ..Vue::vide(aujourdhui) };
         let Some(b) = base else { return (ecran::etat(version, &vide), None) };
         let c = b.connexion();
         let lu = candidatures::lister(c).and_then(|(l, n)| Ok((l, n, candidatures::delai_relance(c)?)));
@@ -112,7 +131,7 @@ impl Suivi {
             Some(id) => candidatures::evenements(c, id).unwrap_or_default(),
             None => Vec::new(),
         };
-        let vue = Vue { candidatures: &liste, ouverte: self.ouverte, frise: &frise, delai, aujourdhui, profil };
+        let vue = Vue { candidatures: &liste, ouverte: self.ouverte, frise: &frise, delai, aujourdhui, profil, offres };
         let journal =
             (illisibles > 0).then(|| format!("Suivi : {illisibles} candidature(s) illisible(s) laissée(s) de côté"));
         (ecran::etat(version, &vue), journal)

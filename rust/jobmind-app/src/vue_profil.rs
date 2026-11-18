@@ -379,6 +379,8 @@ fn service_json(s: Service, v: &VueProfil) -> Value {
         "etat": etat,
         "etat_nom": etat_nom,
         "parties": parties,
+        // (étape 4 : une clé d'Adzuna ou de Jooble s'essaie par une toute petite recherche)
+        "essai": s != Service::Claude,
         "question": format!("Effacer la clé {nom} ? Jobmind ne pourra plus s'en servir."),
     })
 }
@@ -414,9 +416,11 @@ fn rubrique_cles(v: &VueProfil) -> Value {
             "intro": "Certains sites d'offres et l'IA demandent une clé : un code personnel, créé une seule fois sur \
                       leur site. Jobmind la garde chiffrée sur ce PC : personne d'autre ne peut la lire.",
             "services": Service::TOUS.iter().map(|s| service_json(*s, v)).collect::<Vec<_>>(),
-            "note": "Jobmind essaiera chaque clé la première fois qu'il s'en servira.",
+            "note": "« Essayer la clé » fait une toute petite recherche, pour voir si le site accepte la clé. La clé de \
+                     Claude servira plus tard, pour préparer tes candidatures.",
             "textes": textes(&[
                 ("donner", "Donner la clé"),
+                ("essayer", "Essayer la clé"),
                 ("remplacer", "Remplacer"),
                 ("effacer", "Effacer"),
                 ("enregistrer", "Enregistrer"),

@@ -14,6 +14,8 @@
 //! - [`message`] : la boîte « Jobmind s'utilise avec Mindset » (`MessageBoxW`) ;
 //! - [`dpapi`] (étape 3) : le coffre des clés, DPAPI portée utilisateur (`CryptProtectData`) ;
 //! - [`dialogue`] (étape 3) : la boîte « Ouvrir » de Windows pour choisir un CV (`IFileOpenDialog`) ;
+//! - [`lien`] (étape 4) : « Voir sur le site », l'adresse d'une offre dans le navigateur par défaut (`ShellExecuteW`),
+//!   jamais appelé par la construction d'essai ;
 //! - `capture` (construction d'essai seulement) : l'image de la fenêtre (`PrintWindow`).
 //!
 //! Rien ici n'écrit dans le registre, ne touche aux fenêtres d'un autre programme ni ne lance quoi que ce soit sans
@@ -28,6 +30,8 @@ pub mod dpapi;
 pub mod fenetre;
 pub mod heure;
 pub mod identite;
+#[cfg(not(feature = "essai"))]
+pub mod lien;
 pub mod message;
 pub mod registre;
 pub mod synchro;

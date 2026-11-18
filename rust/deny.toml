@@ -19,6 +19,14 @@ ignore = []
 allow = ["MIT", "Apache-2.0", "ISC", "Zlib", "Unicode-3.0", "MPL-2.0", "BSD-3-Clause"]
 confidence-threshold = 0.9
 
+# Étape 4 de Jobmind (18/11/2026), à faire valider par Jordan : webpki-root-certs (la liste des certificats racines
+# de Mozilla : des données, pas du code) est sous CDLA-Permissive-2.0, une licence ouverte pour les données, permissive
+# comme MIT. ureq la tire avec native-tls ; Jobmind ne s'en sert pas (RootCerts::PlatformVerifier : les certificats de
+# Windows). Permise pour ce seul crate.
+[[licenses.exceptions]]
+crate = "webpki-root-certs"
+allow = ["CDLA-Permissive-2.0"]
+
 [licenses.private]
 # Nos propres crates (publish = false) : licence MIT, déclarée dans Cargo.toml
 ignore = true
@@ -128,6 +136,10 @@ allow = [
     "crossbeam-channel", "crossbeam-utils", "cfg-if", "libc", "log", "tracing", "tracing-core", "anyhow", "thiserror",
     "thiserror-impl", "ctor", "dirs", "dirs-sys", "option-ext", "dunce", "glob", "walkdir", "same-file",
     "winapi-util", "heck", "unicode-segmentation", "byteorder", "web-time",
+    # Étape 4 : le client HTTP des sources d'offres (Adzuna, Jooble) et le chiffrement de Windows (SChannel), MIT ou
+    # Apache-2.0 ; webpki-root-certs : des données (voir [[licenses.exceptions]])
+    "ureq", "ureq-proto", "utf-8", "native-tls", "schannel", "rustls-pki-types", "der", "pem-rfc7468", "base64ct",
+    "zeroize", "webpki-root-certs",
 ]
 
 [sources]

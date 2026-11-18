@@ -13,14 +13,19 @@
 //! - [`profil`] (étape 3) : les CV et les textes pour le style, vérifiés ; le texte lu dans un fichier remis au propre ;
 //! - [`recherche`] (étape 3) : « Ce que je cherche » (postes, lieu, contrats, télétravail, diplôme, salaire), vérifié ;
 //! - [`lieux`] (étape 3) : les régions et les départements français ;
-//! - [`cle`] (étape 3) : les clés des sources d'offres et de l'IA, leur forme vérifiée.
+//! - [`cle`] (étape 3) : les clés des sources d'offres et de l'IA, leur forme vérifiée ;
+//! - [`offre`] (étape 4) : ce qui se lit dans une offre (contrat, télétravail, département), la règle des doublons,
+//!   les filtres de l'onglet Offres ;
+//! - [`recherches`] (étape 4) : les recherches gardées, tirées de « Ce que je cherche » ou tapées.
 
 pub mod candidature;
 pub mod cle;
 pub mod jour;
 pub mod lieux;
+pub mod offre;
 pub mod profil;
 pub mod recherche;
+pub mod recherches;
 pub mod statut;
 pub mod suivi;
 

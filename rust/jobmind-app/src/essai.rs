@@ -16,6 +16,10 @@
 //! (un ordre au kit en JSON) est envoyé à la page (ouvrir une page ou la fiche d'une carte, pour les captures) ;
 //! `exemples.demande` remplit la base de candidatures et d'un profil inventés ; `import.demande` (le chemin d'un CV
 //! d'essai) l'importe comme « Importer un fichier », sans la boîte « Ouvrir ».
+//!
+//! Étape 4 : les recherches d'offres partent vers un faux serveur local (127.0.0.1) qui imite Adzuna et Jooble avec des
+//! offres inventées (jobmind-sources, option « faux ») ; `reseau.essai` change sa réponse ; « Voir sur le site »
+//! n'ouvre jamais le vrai navigateur (la demande est seulement notée au journal).
 
 use std::path::{Path, PathBuf};
 
@@ -39,6 +43,9 @@ pub const ORDRE_DEMANDE: &str = "ordre.demande";
 pub const EXEMPLES_DEMANDE: &str = "exemples.demande";
 /// Ce fichier (le chemin d'un CV d'essai) fait importer ce CV comme « Importer un fichier », sans la boîte « Ouvrir ».
 pub const IMPORT_DEMANDE: &str = "import.demande";
+/// Étape 4 : ce fichier change la réponse du faux serveur d'Adzuna et Jooble à la prochaine recherche (« coupe » : le
+/// réseau coupé, « quota », « refuse » : la clé refusée ; autre chose : normale).
+pub const RESEAU: &str = "reseau.essai";
 
 /// Des candidatures inventées (entreprises et personnes qui n'existent pas), comme celles de la maquette C : (jours
 /// depuis l'envoi, entreprise, poste, ville, moyen, source, statuts suivants avec le nombre de jours avant aujourd'hui,
@@ -209,6 +216,10 @@ fn remplir_profil(
     };
     let r = verifier_recherche(&s)?;
     profil::enregistrer_recherche(c, &r, maintenant).map_err(e)?;
+    // (étape 4 : les recherches gardées qui en viennent, une par poste)
+    for x in jobmind_core::recherches::depuis_profil(&r) {
+        jobmind_storage::offres::ajouter_recherche(c, &x, maintenant).map_err(e)?;
+    }
     for (i, (titre, texte)) in STYLES.iter().enumerate() {
         let jour = maintenant.jour().plus(-(5 - i as i64 * 2));
         profil::ajouter_style(c, titre, texte, a_ce_jour(jour, 10)).map_err(e)?;

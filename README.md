@@ -23,8 +23,15 @@ l'étape 13.
   (postes, lieu : ville et rayon, département, région ou partout ; contrats, télétravail, aucun diplôme requis, débutant
   accepté, salaire minimum), Mon style (mes textes : ajouter, lire, supprimer), Mes clés (Adzuna, Jooble, Claude,
   chiffrées par DPAPI dans `data\cles.json`, seulement leurs 4 derniers caractères à l'écran) ; migration 3 de la base.
-- [ ] **4. Les offres par Adzuna et Jooble** : recherches gardées, archive, lieu (ville et rayon, département, région),
-  contrat, télétravail, recherche dans tout le texte, favoris, plus tard, doublons fusionnés.
+- [x] **4. Les offres par Adzuna et Jooble** : recherches gardées (tirées de « Ce que je cherche », une par poste, ou
+  tapées ; Mes recherches), « Chercher maintenant » sur un fil à part (une demande à chaque source, 50 offres au plus ;
+  une recherche à la fois, pas deux fois la même dans la minute, 100 demandes par jour au plus à Adzuna et 50 à Jooble),
+  chaque offre archivée sur le PC même si elle disparaît du site, doublons fusionnés (entreprise, titre et ville remis
+  au propre ; jamais sans entreprise), filtres (texte cherché dans tout le texte des offres gardées par FTS5, lieu :
+  ville et rayon, département, région ; contrat, télétravail ; toutes, favoris, plus tard, cachées), favoris, plus
+  tard, « Pas pour moi », « J'ai postulé » (une candidature du suivi liée à l'offre), « Voir sur le site » (le
+  navigateur par défaut, seulement http ou https), la mention « Adzuna » liée à adzuna.fr sur chaque offre d'Adzuna ;
+  « Essayer la clé » dans Mes clés ; migration 4 de la base.
 - [ ] **5. Le panneau des sites** dans Jobmind et « Ajouter à Jobmind » (LinkedIn, Indeed, Welcome to the Jungle,
   francetravail.fr), avec le nombre de candidats quand la page le montre.
 - [ ] **6. La lecture et le tri** : diplôme et expérience trouvés dans le texte (règles, puis petit modèle Claude), note
@@ -50,11 +57,11 @@ Jobmind est écrite en Rust avec Tauri, sur le modèle de Paymind (`rust\`, Rust
 |---|---|
 | `jobmind-vie` | la vie dans Mindset (verrou, demandes, accrochage, thème, carte), reprise de Paymind |
 | `jobmind-relais` | `Jobmind.exe`, le relais qui lance `Mindset.exe` |
-| `jobmind-app` | `Mindset.exe` : la fenêtre Tauri, le kit d'écrans de la suite, les onglets (`ui\jobmind.js`), les gestes du suivi et du profil, le coffre DPAPI et la boîte « Ouvrir » (`src\windows`) |
-| `jobmind-storage` | dossier de données, journal, réglages, carte de Mindset, base SQLite et migrations, candidatures, bulles, profil (CV et leurs fichiers, style, ce que je cherche), clés chiffrées (`data\cles.json`) |
-| `jobmind-core` | modèles, statuts, jours, saisie vérifiée, groupes du suivi, relances, bilan, bulles dues ; profil, ce que je cherche, régions et départements, forme des clés ; filtres et pertinence à venir |
+| `jobmind-app` | `Mindset.exe` : la fenêtre Tauri, le kit d'écrans de la suite, les onglets (`ui\jobmind.js`), les gestes du suivi, des offres (`offres.rs`, `vue_offres.rs` ; le fil des recherches) et du profil, le coffre DPAPI, la boîte « Ouvrir » et « Voir sur le site » (`src\windows`) |
+| `jobmind-storage` | dossier de données, journal, réglages, carte de Mindset, base SQLite et migrations, candidatures, bulles, profil (CV et leurs fichiers, style, ce que je cherche), clés chiffrées (`data\cles.json`) ; offres archivées, doublons rattachés, recherche FTS5, recherches gardées, demandes du jour (`offres.rs`) |
+| `jobmind-core` | modèles, statuts, jours, saisie vérifiée, groupes du suivi, relances, bilan, bulles dues ; profil, ce que je cherche, régions et départements, forme des clés ; ce qui se lit dans une offre (contrat, télétravail, département), règle des doublons, filtres de l'onglet Offres, recherches gardées ; pertinence à venir (étape 6) |
 | `jobmind-lecture` | le texte d'un CV en PDF (pdf-extract, MIT) ou en Word .docx (zip et XML lus ici), en Rust pur ; fichier trop gros, scanné, abîmé ou protégé : une phrase simple |
-| `jobmind-sources` | le trait `JobSource` (Adzuna, Jooble, page lue, alertes mail viendront) |
+| `jobmind-sources` | le trait `JobSource`, Adzuna (GET, API France) et Jooble (POST), le client HTTP (ureq, chiffrement SChannel de Windows, délais de 10 s et 25 s), le texte des offres remis au propre ; option `faux` : un faux serveur local (127.0.0.1) qui imite les deux avec des offres inventées (tests et construction d'essai). Page lue et alertes mail viendront |
 | `jobmind-llm` | le trait `LlmProvider` (Claude, puis un moteur sur le PC) |
 | `jobmind-humanizer` | le style de Jordan |
 | `jobmind-mail` | Gmail (IMAP et SMTP) |
@@ -101,7 +108,14 @@ livrée :
   `calendrier` (le petit calendrier de la date ouverte, dans « ajouter », « modifier » ou « entretien »), `jour:<n>`
   (un clic sur le jour n du mois en cours : le champ se remplit) et `clic:<data-k>` (un clic sur un élément, par
   exemple `clic:f:enregistrer` ou `clic:e:ok`) montrent les dates, par exemple
-  `-Vues 'candidature:1,modifier,calendrier,jour:10,clic:f:enregistrer,candidature:2,entretien,calendrier,jour:25,clic:e:ok'` ;
+  `-Vues 'candidature:1,modifier,calendrier,jour:10,clic:f:enregistrer,candidature:2,entretien,calendrier,jour:25,clic:e:ok'`.
+  L'onglet Offres (étape 4) : la construction d'essai envoie ses recherches à un faux serveur local qui imite Adzuna et
+  Jooble (jamais internet ; `-Exemples` donne aussi des recherches tirées du profil inventé) ; `chercher` clique
+  « Chercher maintenant » et attend la fin au journal, `offre:<n>` ouvre l'offre n, `recherches` et
+  `nouvelle-recherche` montrent Mes recherches, `filtres:liste=favoris` ou `filtres:genre=ville;ville=Metz;rayon=10`
+  posent des filtres, `reseau:coupe` (ou `quota`, `refuse`, `normal`) change la réponse du faux serveur pour la suite,
+  `essayer:adzuna` clique « Essayer la clé » ; « Voir sur le site » n'ouvre jamais le vrai navigateur dans l'essai
+  (la demande est notée au journal) ;
 - `D:\Projets\Mindset\outils\tester-contrat.ps1 -AppliConstruite <dossier>\Jobmind -EntreeApps outils\entree-apps-rust.json` :
   tout le contrat avec le vrai code de Mindset, sur l'exe livré.
 

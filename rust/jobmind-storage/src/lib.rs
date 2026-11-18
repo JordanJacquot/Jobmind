@@ -13,6 +13,8 @@
 //! - [`profil`] (étape 3) : les CV (le fichier d'origine copié dans le dossier `cv`), les textes pour le style, « Ce que
 //!   je cherche » ;
 //! - [`cles`] (étape 3) : les clés des sources d'offres et de l'IA, chiffrées (le coffre DPAPI est donné par l'appli) ;
+//! - [`offres`] (étape 4) : l'archive des offres trouvées, les doublons rattachés, la recherche dans tout le texte,
+//!   favoris, « plus tard » et « Pas pour moi », les recherches gardées, les demandes du jour à chaque source ;
 //! - [`dossier`] : le dossier de données et suite.json (copie gérée ou non, dossier de travail) ;
 //! - [`donnees`] : tout réuni ;
 //! - [`valeurs`] : les règles de PowerShell suivies (champs sans majuscules, vrai ou faux).
@@ -30,6 +32,7 @@ pub mod dossier;
 pub mod fichiers;
 pub mod journal;
 pub mod moment;
+pub mod offres;
 pub mod profil;
 pub mod reglages;
 pub mod valeurs;
