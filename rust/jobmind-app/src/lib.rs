@@ -1,7 +1,7 @@
 //! Jobmind en Rust : la fenêtre de Jobmind dans Mindset et son programme. Repris de paymind-appli (étape 1 de
 //! Paymind, avec le kit d'écrans d'aujourd'hui) : une page qui suit le thème, la vie avec Mindset, et l'accueil de la
-//! maquette C (Candidatures, Offres, Mon profil), vide à l'étape 1. La base (data\jobmind.db) est ouverte au
-//! démarrage par jobmind-storage.
+//! maquette C (Candidatures, Offres, Mon profil) ; depuis l'étape 2, le suivi des candidatures tapées à la main. La base
+//! (data\jobmind.db) est ouverte au démarrage par jobmind-storage.
 //!
 //! - [`fenetre`] : la fenêtre « principale », créée dans le code (jamais dans tauri.conf.json), cachée et sans
 //!   prendre la main, titre exact « Jobmind », dossier WebView2 et options du navigateur de suite-commun
@@ -9,6 +9,7 @@
 //! - [`commandes`] : les trois seules commandes que la page peut appeler (`suivre_page`, `noter_visibilite`,
 //!   `action`), déclarées dans build.rs et autorisées à la seule fenêtre « principale » (capabilities\principale.json) ;
 //! - [`ecran`] : ce que la page montre (l'état du kit d'écrans de la suite, et l'accueil dessiné par ui\jobmind.js) ;
+//! - [`suivi`] : les gestes du suivi des candidatures (étape 2), vérifiés puis écrits dans la base ;
 //! - [`pont`] : les messages du kit vérifiés, l'habillage du thème, le retour à la console de Mindset ;
 //! - [`pack`] : la réponse du protocole `pack` (les images et polices du thème, règle 6), par suite-commun ;
 //! - [`preparer`] et [`contexte`] : ce que le programme et les tests donnent à Tauri ;
@@ -32,6 +33,7 @@ pub mod png;
 pub mod pont;
 #[cfg(windows)]
 pub mod programme;
+pub mod suivi;
 #[cfg(windows)]
 pub mod windows;
 

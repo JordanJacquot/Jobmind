@@ -4,6 +4,8 @@
 use std::path::{Path, PathBuf};
 
 use crate::base::Base;
+use crate::bulles::Envoi;
+use crate::candidatures;
 use crate::carte::{EtatMindset, etat_carte};
 use crate::fichiers::Fichiers;
 use crate::journal::{Horloge, Journal};
@@ -24,6 +26,8 @@ pub struct Donnees {
     pub carte_active: bool,
     /// La base, si elle a pu être ouverte (sinon la raison est au journal, et Jobmind s'ouvre quand même)
     pub base: Option<Base>,
+    /// L'envoi des bulles à Mindset (notification.demande) et la lecture de afficher.demande
+    pub envoi: Envoi,
 }
 
 impl Donnees {
@@ -51,6 +55,7 @@ impl Donnees {
             etat: EtatMindset::nouveau(&dossier.join(ETAT)),
             carte_active,
             base,
+            envoi: Envoi::nouveau(dossier),
         }
     }
 
@@ -64,11 +69,21 @@ impl Donnees {
         &self.fichiers.journal
     }
 
-    /// `Write-EtatMindset` : la carte de Mindset, écrite seulement si elle change.
+    /// `Write-EtatMindset` : la carte de Mindset (les candidatures de la base), écrite seulement si elle change. Une
+    /// base absente ou illisible : la carte n'est pas touchée (la raison est au journal).
     pub fn ecrire_etat(&mut self) {
         if !self.carte_active {
             return;
         }
-        self.etat.ecrire(&mut self.fichiers, &etat_carte());
+        let Some(b) = self.base.as_ref() else { return };
+        let lu =
+            candidatures::lister(b.connexion()).and_then(|(l, _)| Ok((l, candidatures::delai_relance(b.connexion())?)));
+        match lu {
+            Ok((liste, delai)) => {
+                let carte = etat_carte(&liste, self.fichiers.journal.maintenant().jour(), delai);
+                self.etat.ecrire(&mut self.fichiers, &carte);
+            }
+            Err(e) => self.fichiers.journal.ecrire(&format!("etat.json pour Mindset : base illisible ({e})")),
+        }
     }
 }

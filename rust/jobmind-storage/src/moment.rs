@@ -42,6 +42,16 @@ impl Moment {
         ok.then_some(Moment { annee, mois, jour, heure, minute, seconde })
     }
 
+    /// Le jour de ce moment (le suivi des candidatures compte en jours).
+    pub fn jour(&self) -> jobmind_core::Jour {
+        jobmind_core::Jour { annee: self.annee, mois: self.mois, jour: self.jour }
+    }
+
+    /// Les secondes depuis le 1er janvier 1970 en heure locale (les écarts entre deux bulles).
+    pub fn secondes(&self) -> i64 {
+        self.jour().numero() * 86_400 + i64::from(self.heure * 3600 + self.minute * 60 + self.seconde)
+    }
+
     /// `Get-Date -Format s` : « 2026-11-14T14:05:00 ».
     pub fn iso(&self) -> String {
         format!(

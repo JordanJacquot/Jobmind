@@ -5,10 +5,14 @@
 //! (3 au plus), Maj }. Etat : ok (vert), info (blanc), attention (orange), urgent (rouge). Mindset coupe chaque ligne à
 //! 80 caractères.
 //!
-//! Étape 1 : pas encore de candidature, la carte le dit.
+//! Étape 2 : deux jauges (les candidatures en attente de réponse, le taux de réponse) et trois lignes (les relances à
+//! faire, le prochain entretien, les envois du mois), calculées par jobmind-core (`suivi::resume_carte`). Sans
+//! candidature, une seule ligne le dit.
 
 use std::path::{Path, PathBuf};
 
+use jobmind_core::suivi::{couper, resume_carte};
+use jobmind_core::{Candidature, Jour};
 use serde_json::{Value, json};
 
 use crate::fichiers::Fichiers;
@@ -42,14 +46,40 @@ pub struct Carte {
     pub lignes: Vec<Ligne>,
 }
 
-/// Ce que la carte montre (étape 1 : aucune candidature ; les candidatures en attente, le taux de réponse, les
-/// relances et le prochain entretien viendront à l'étape 2).
-pub fn etat_carte() -> Carte {
-    Carte {
-        titre: TITRE.to_string(),
-        scores: Vec::new(),
-        lignes: vec![Ligne { texte: AUCUN.to_string(), etat: "info".to_string() }],
+fn ligne(texte: &str, etat: &str) -> Ligne {
+    // (coupée bien avant 80 unités UTF-16 : une lettre accentuée ou un emoji n'en prend jamais plus de deux)
+    Ligne { texte: couper(texte, 70), etat: etat.to_string() }
+}
+
+/// Ce que la carte montre, d'après les candidatures, le jour et le délai de relance.
+pub fn etat_carte(liste: &[Candidature], aujourdhui: Jour, delai: u32) -> Carte {
+    if liste.is_empty() {
+        return Carte { titre: TITRE.to_string(), scores: Vec::new(), lignes: vec![ligne(AUCUN, "info")] };
     }
+    let r = resume_carte(liste, aujourdhui, delai);
+    let mut scores = Vec::new();
+    if let Some(part) = (r.en_attente * 100 + r.comptees / 2).checked_div(r.comptees) {
+        let part = part.min(100);
+        let nom = match r.en_attente {
+            0 => "Aucune en attente".to_string(),
+            1 => "1 en attente de réponse".to_string(),
+            n => format!("{n} en attente de réponse"),
+        };
+        scores.push(json!({ "Nom": nom, "Valeur": part }));
+    }
+    if let Some(t) = r.taux {
+        scores.push(json!({ "Nom": "Taux de réponse", "Valeur": t.min(100) }));
+    }
+    let mut lignes = vec![match r.relances {
+        0 => ligne("Aucune relance à faire", "ok"),
+        1 => ligne("1 relance à faire", "attention"),
+        n => ligne(&format!("{n} relances à faire"), "attention"),
+    }];
+    if let Some((texte, bientot)) = &r.prochain_entretien {
+        lignes.push(ligne(texte, if *bientot { "attention" } else { "info" }));
+    }
+    lignes.push(ligne(&r.envois, "info"));
+    Carte { titre: TITRE.to_string(), scores, lignes }
 }
 
 /// L'écriture de etat.json (`Write-EtatMindset`) : seulement quand la carte change.
@@ -96,17 +126,92 @@ impl EtatMindset {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use jobmind_core::candidature::{Entretien, Moyen};
+    use jobmind_core::{Heure, Statut};
+
+    fn j(a: i32, m: u32, d: u32) -> Jour {
+        Jour::nouveau(a, m, d).unwrap()
+    }
+
+    fn cand(id: i64, entreprise: &str, statut: Statut, envoyee: Jour) -> Candidature {
+        Candidature {
+            id,
+            entreprise: entreprise.into(),
+            poste: "Agent de quai".into(),
+            ville: String::new(),
+            statut,
+            statut_le: envoyee,
+            envoyee_le: envoyee,
+            moyen: Moyen::Site,
+            source: String::new(),
+            lien: String::new(),
+            envoye: String::new(),
+            cv: String::new(),
+            notes: String::new(),
+            relance_le: None,
+            entretien: None,
+        }
+    }
+
+    fn verifier_limites(c: &Carte) {
+        assert!(c.scores.len() <= 2 && c.lignes.len() <= 3);
+        for l in &c.lignes {
+            assert!(longueur(&l.texte) <= LIGNE_MAX, "{}", l.texte);
+            // (aucun tiret long ni demi-cadratin : règle de la suite)
+            assert!(!l.texte.contains(['\u{2013}', '\u{2014}']));
+            assert!(["ok", "info", "attention", "urgent"].contains(&l.etat.as_str()));
+        }
+        for s in &c.scores {
+            let v = s["Valeur"].as_u64().unwrap();
+            assert!(v <= 100);
+            assert!(longueur(s["Nom"].as_str().unwrap()) <= LIGNE_MAX);
+        }
+    }
 
     #[test]
-    fn la_carte_tient_dans_les_limites_de_mindset() {
-        let c = etat_carte();
+    fn sans_candidature() {
+        let c = etat_carte(&[], j(2026, 11, 18), 14);
         assert_eq!(c.titre, "Mes candidatures");
         assert_eq!(c.lignes, vec![Ligne { texte: "Aucune candidature pour l'instant".into(), etat: "info".into() }]);
         assert!(c.scores.is_empty());
-        for l in &c.lignes {
-            assert!(longueur(&l.texte) <= LIGNE_MAX);
-            // (aucun tiret long ni demi-cadratin : règle de la suite)
-            assert!(!l.texte.contains(['\u{2013}', '\u{2014}']));
-        }
+        verifier_limites(&c);
+    }
+
+    #[test]
+    fn deux_jauges_et_trois_lignes() {
+        let auj = j(2026, 11, 18);
+        let mut l = vec![
+            cand(1, "Transports Moselle Fret", Statut::Envoyee, j(2026, 11, 2)),
+            cand(2, "Netéa Services", Statut::Envoyee, j(2026, 11, 16)),
+            cand(3, "Avenir Numérique Est", Statut::Positive, j(2026, 11, 3)),
+            cand(
+                4,
+                "Logistique des Trois Frontières, un nom vraiment très très long pour voir",
+                Statut::Entretien,
+                j(2026, 11, 5),
+            ),
+        ];
+        l[3].entretien = Some(Entretien { jour: j(2026, 11, 19), heure: Heure::nouvelle(9, 30), lieu: String::new() });
+        let c = etat_carte(&l, auj, 14);
+        verifier_limites(&c);
+        assert_eq!(
+            Value::Array(c.scores.clone()),
+            json!([{ "Nom": "3 en attente de réponse", "Valeur": 75 }, { "Nom": "Taux de réponse", "Valeur": 50 }])
+        );
+        assert_eq!(c.lignes[0], Ligne { texte: "1 relance à faire".into(), etat: "attention".into() });
+        assert!(
+            c.lignes[1].texte.starts_with("Entretien demain à 9 h 30 : Logistique des Trois"),
+            "{}",
+            c.lignes[1].texte
+        );
+        assert_eq!(c.lignes[1].etat, "attention");
+        assert_eq!(c.lignes[2], Ligne { texte: "4 envois en novembre".into(), etat: "info".into() });
+        // Sans entretien ni relance
+        let c = etat_carte(&l[1..3], auj, 14);
+        verifier_limites(&c);
+        assert_eq!(
+            c.lignes.iter().map(|x| x.texte.as_str()).collect::<Vec<_>>(),
+            ["Aucune relance à faire", "2 envois en novembre"]
+        );
     }
 }

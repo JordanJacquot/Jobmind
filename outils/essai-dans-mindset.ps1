@@ -19,13 +19,16 @@
 #  2. Mindset trouve sa fenêtre (MSIntegration.Trouver : titre exact « Jobmind », classe « Tauri Window ») ;
 #  3. accrochée dans le panneau (MSIntegration.Accrocher) : elle le voit (journal) et se montre ;
 #  4. etat.json : la carte de Mindset dit « Aucune candidature pour l'instant » ; le thème de la suite est suivi ;
-#     la base data\jobmind.db est créée dans le dossier de données (une vraie base SQLite, migration 1 appliquée) ;
+#     la base data\jobmind.db est créée dans le dossier de données (une vraie base SQLite, migrations 1 et 2) ;
 #  5. une capture de chaque onglet affiché dans le panneau (capture-candidatures.png, capture-offres.png,
 #     capture-profil.png, capture-profil-style.png), l'onglet changé par l'ordre { kit: 'accueil', onglet } que seule
 #     la construction d'essai lit dans ordre.demande ; le changement d'onglet est noté au journal ;
 #  6. « Fermer » de Mindset (WM_CLOSE) : elle quitte en moins de 6 s, verrou rendu ;
-#  7. relancée et accrochée de nouveau : la base est rouverte sans migration ; « Tout quitter » (quitter.demande) :
-#     elle quitte en moins de 6 s ;
+#  7. relancée et accrochée de nouveau, avec des candidatures inventées (exemples.demande, construction d'essai) :
+#     la base est rouverte sans migration ; la carte montre ses 2 jauges et les relances à faire ; une seule bulle
+#     regroupe les relances (notification.demande, au format de Mindset) ; le clic sur la bulle (afficher.demande
+#     « notif:<id> ») ouvre la liste ; un dossier ouvert est capturé ; « Tout quitter » (quitter.demande) : elle
+#     quitte en moins de 6 s ;
 #  8. plus aucun processus de l'essai ; rien de créé hors de l'essai.
 param(
     [Parameter(Mandatory = $true)][string]$Exe,
@@ -178,7 +181,7 @@ try {
         try { $tete = New-Object byte[] 16; [void]$f.Read($tete, 0, 16) } finally { $f.Dispose() }
         Verifier ([Text.Encoding]::ASCII.GetString($tete, 0, 15) -ceq 'SQLite format 3') 'la base est une base SQLite'
     }
-    Verifier ((Compter 'Base : data\jobmind.db prête (version 1, migration 1 appliquée)') -eq 1) 'la base est migrée (version 1, journal)'
+    Verifier ((Compter 'Base : data\jobmind.db prête (version 2, migrations 1, 2 appliquées)') -eq 1) 'la base est migrée (version 2, journal)'
     Verifier ((Compter 'Base : non ouverte') -eq 0) 'aucune erreur de la base (journal)'
     Verifier ((Compter 'Écran : menu du clic droit, raccourcis du navigateur, saisie automatique, mots de passe, outils de développement et zoom coupés') -ge 1 -or (Attendre { (Compter 'outils de développement et zoom coupés') -ge 1 } 10000)) 'réglages de WebView2 coupés et relus (journal)'
     Verifier (Attendre { (Compter 'Écran : page chargée http://tauri.localhost/index.html') -ge 1 } 15000) 'la page de Jobmind est chargée (journal)'
@@ -228,16 +231,50 @@ try {
     }
 
     # --- 7. Relancée, puis « Tout quitter » (quitter.demande) --------------------------------------------------------
+    # (des candidatures inventées, seulement dans le dossier d'essai : la construction d'essai les ajoute au démarrage)
+    [IO.File]::WriteAllText((Join-Path $donnees 'exemples.demande'), '1')
     $b = Open-DansMindset 'Relancée'
     if ($b) {
-        [void](Attendre { $false } 1500)
+        Verifier (Attendre { (Compter 'Essai : 10 candidatures d''exemple ajoutées') -eq 1 } 5000) 'les candidatures d''exemple sont ajoutées (journal)'
+        # La bulle : une seule pour toutes les relances dues, au format de Mindset
+        $notif = Join-Path $donnees 'notification.demande'
+        Verifier (Attendre { Test-Path -LiteralPath $notif } 8000) 'une bulle est demandée à Mindset (notification.demande)'
+        $bulle = $null
+        if (Test-Path -LiteralPath $notif) {
+            $bulle = [IO.File]::ReadAllText($notif, [Text.Encoding]::UTF8) | ConvertFrom-Json
+            Remove-Item -LiteralPath $notif -Force   # (ce que fait Mindset après l'avoir lue)
+            Verifier ($bulle.titre -ceq '2 relances à faire' -and $bulle.texte -like '*attendent une relance.' -and $bulle.id -cmatch '^[0-9a-f]{12}$') "la bulle dit « $($bulle.titre) : $($bulle.texte) »"
+        }
+        [void](Attendre { $false } 7000)
+        Verifier (-not (Test-Path -LiteralPath $notif)) 'jamais deux bulles pour les mêmes relances'
+        # La carte de Mindset : 2 jauges, les relances à faire en premier
+        $j = [IO.File]::ReadAllText((Join-Path $donnees 'etat.json'), [Text.Encoding]::UTF8) | ConvertFrom-Json
+        Verifier (@($j.Scores).Count -eq 2 -and $j.Scores[1].Nom -ceq 'Taux de réponse' -and $j.Lignes[0].Texte -ceq '3 relances à faire' -and @($j.Lignes).Count -eq 3) "la carte : $(@($j.Scores | ForEach-Object { "$($_.Nom) $($_.Valeur)" }) -join ', ') ; $(@($j.Lignes | ForEach-Object { $_.Texte }) -join ' ; ')"
+        # Le clic sur la bulle : Mindset écrit « notif:<id> » dans afficher.demande
+        if ($bulle) {
+            [IO.File]::WriteAllText((Join-Path $donnees 'afficher.demande'), "notif:$($bulle.id)")
+            Verifier (Attendre { (Compter 'Bulle : liste des candidatures ouverte') -eq 1 } 4000) 'le clic sur la bulle ouvre la liste des candidatures (journal)'
+        }
+        # Un dossier ouvert (Transports Moselle Fret, la relance à faire), capturé
+        [IO.File]::WriteAllText((Join-Path $donnees 'ordre.demande'), '{"kit":"accueil","candidature":1}', (New-Object Text.UTF8Encoding($false)))
+        [void](Attendre { $false } 1800)
+        $capture = Join-Path $donnees 'capture.png'
+        if (Test-Path -LiteralPath $capture) { Remove-Item -LiteralPath $capture -Force }
+        [IO.File]::WriteAllText((Join-Path $donnees 'capture.demande'), '1')
+        Verifier (Attendre { Test-Path -LiteralPath $capture } 6000) 'capture d''un dossier ouvert'
+        if (Test-Path -LiteralPath $capture) {
+            [void](Attendre { $false } 300)
+            Copy-Item -LiteralPath $capture -Destination (Join-Path $Resultats 'capture-dossier.png') -Force
+            Write-Output "Capture : $(Join-Path $Resultats 'capture-dossier.png')"
+        }
+        Verifier ((Compter 'Écran : erreur') -eq 0 -and (Compter 'message refusé') -eq 0) 'aucune erreur de la page avec des candidatures (journal)'
         $t = [Diagnostics.Stopwatch]::StartNew()
         [IO.File]::WriteAllText((Join-Path $donnees 'quitter.demande'), "$PID")
         $p = Get-Process -Id $b.Id -ErrorAction SilentlyContinue
         Verifier ((-not $p) -or $p.WaitForExit(6000)) "« Tout quitter » (quitter.demande) : elle quitte en moins de 6 s ($($t.ElapsedMilliseconds) ms)"
         Verifier (-not (Test-Path -LiteralPath (Join-Path $donnees 'quitter.demande'))) 'quitter.demande effacé'
         Verifier ((Compter 'Fermeture demandée par Mindset') -ge 1) 'fermeture demandée par Mindset (journal)'
-        Verifier ((Compter 'Base : data\jobmind.db prête (version 1)') -eq 1) 'relancée : la base est rouverte, aucune migration rejouée (journal)'
+        Verifier ((Compter 'Base : data\jobmind.db prête (version 2)') -eq 1) 'relancée : la base est rouverte, aucune migration rejouée (journal)'
     }
 } catch {
     Echec "l'essai s'est arrêté : $($_.Exception.Message) (ligne $($_.InvocationInfo.ScriptLineNumber))"

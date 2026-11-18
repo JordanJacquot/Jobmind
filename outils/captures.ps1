@@ -10,7 +10,12 @@
 #
 # Les vues, dans l'ordre (séparées par des virgules) : « candidatures », « offres », « profil » (un onglet, montré par
 # l'ordre { kit: 'accueil', onglet } que seule la construction d'essai lit dans ordre.demande), « rubrique:<id> »
-# (une rubrique de Mon profil : cv, style, recherche, reglages).
+# (une rubrique de Mon profil : cv, style, recherche, reglages), « candidature:<n> » (le dossier de la candidature n),
+# « ajouter » (le formulaire d'une nouvelle candidature), « modifier » (celui du dossier ouvert), « menu-statut » (le
+# menu des statuts du dossier ouvert), « entretien » (le petit formulaire de son entretien).
+# -Exemples : la base d'essai est remplie de candidatures inventées à des statuts variés (exemples.demande, lu par la
+# construction d'essai au démarrage). -Largeur et -Hauteur : la taille du panneau (944 x 608 : un panneau de 1180 x 760
+# vu à 125 % d'affichage).
 # Chaque capture est faite par l'exe lui-même (capture.demande) et copiée dans <Resultats>\<Prefixe>-<vue>.png. À la
 # fin, etat.json de l'essai est copié à côté (<Prefixe>-etat.json).
 #
@@ -23,6 +28,9 @@ param(
     [string]$Theme = 'neon',
     [string]$Vues = 'candidatures,offres,profil',
     [string]$Prefixe = 'capture',
+    [switch]$Exemples,
+    [int]$Largeur = 1180,
+    [int]$Hauteur = 760,
     [string]$Mindset = 'D:\Projets\Mindset'
 )
 $ErrorActionPreference = 'Stop'
@@ -89,7 +97,7 @@ $cadre.Text = 'Mindset (essai)'
 $cadre.ShowInTaskbar = $false
 $cadre.StartPosition = 'Manual'
 $cadre.Location = New-Object Drawing.Point(0, 0)
-$cadre.ClientSize = New-Object Drawing.Size(1180, 760)
+$cadre.ClientSize = New-Object Drawing.Size($Largeur, $Hauteur)
 $cadre.BackColor = [Drawing.Color]::FromArgb(6, 5, 15)
 $panneau = New-Object System.Windows.Forms.Panel
 $panneau.Dock = 'Fill'
@@ -117,6 +125,7 @@ function Ordre([string]$Json) {
 }
 
 try {
+    if ($Exemples) { [IO.File]::WriteAllText((Join-Path $donnees 'exemples.demande'), '1') }
     $psi = New-Object Diagnostics.ProcessStartInfo (Join-Path $programmes 'Jobmind.exe')
     $psi.Arguments = '-Demarrage'
     $psi.UseShellExecute = $false
@@ -133,7 +142,7 @@ try {
     $script:h = [IntPtr]::Zero
     if (-not (Attendre { $script:h = [MSIntegration]::Trouver($id, 'Jobmind'); $script:h -ne [IntPtr]::Zero } 20000)) { throw 'fenêtre de Jobmind introuvable' }
     $styles = [MSIntegration]::Accrocher($script:h, $panneau.Handle, $panneau.ClientSize.Width, $panneau.ClientSize.Height)
-    Verifier ($null -ne $styles) 'accrochée dans le panneau de Mindset (1180 x 760)'
+    Verifier ($null -ne $styles) "accrochée dans le panneau de Mindset ($Largeur x $Hauteur)"
     Verifier (Attendre { (Compter 'Écran : page chargée http://tauri.localhost/index.html') -ge 1 } 15000) 'la page est chargée'
     Verifier (Attendre { (Compter 'Écran : montre accueil') -ge 1 } 10000) 'l''accueil est dessiné (écran accueil)'
     [void](Attendre { $false } 2500)
@@ -146,6 +155,10 @@ try {
         if ($vus[$nom] -gt 1) { $nom = "$nom-$($vus[$nom])" }
         if ($v -in 'candidatures', 'offres', 'profil') { Ordre ('{"kit":"accueil","onglet":"' + $v + '"}') }
         elseif ($v -like 'rubrique:*') { Ordre ('{"kit":"accueil","rubrique":"' + ($v.Substring(9) -replace '[^a-z]', '') + '"}') }
+        elseif ($v -match '^candidature:(\d{1,6})$') { Ordre ('{"kit":"accueil","candidature":' + $Matches[1] + '}') }
+        elseif ($v -eq 'ajouter') { Ordre '{"kit":"accueil","ajouter":true}' }
+        elseif ($v -eq 'modifier') { Ordre '{"kit":"accueil","modifier":true}' }
+        elseif ($v -in 'menu-statut', 'entretien') { Ordre ('{"kit":"accueil","statut":"' + $v.Replace('menu-statut', 'menu') + '"}') }
         else { Echec "vue inconnue : $v"; continue }
         [void](Attendre { $false } 1500)
         Capturer $nom

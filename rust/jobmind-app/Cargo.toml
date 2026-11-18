@@ -41,6 +41,8 @@ suite-commun.workspace = true
 # La vie de l'appli avec Mindset (démarrage, verrou, surveillances), ses données (dossier, journal, etat.json, réglages)
 jobmind-vie = { path = "../jobmind-vie" }
 jobmind-storage = { path = "../jobmind-storage" }
+# Le suivi des candidatures (étape 2) : les jours, la saisie vérifiée, les groupes, les relances et les bulles
+jobmind-core = { path = "../jobmind-core" }
 
 # Ce qui parle à Windows (verrou, signal, fenêtre, registre, heure, capture de l'essai). La même version que wry, tao
 # et webview2-com, et que le Rust de Mindset et de Mindcare.

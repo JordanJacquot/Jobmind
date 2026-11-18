@@ -28,8 +28,10 @@ pub struct Migration {
 }
 
 /// Toutes les migrations, dans l'ordre.
-pub const MIGRATIONS: &[Migration] =
-    &[Migration { version: 1, nom: "les tables du plan", sql: include_str!("migrations/0001_tables.sql") }];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration { version: 1, nom: "les tables du plan", sql: include_str!("migrations/0001_tables.sql") },
+    Migration { version: 2, nom: "le suivi à la main", sql: include_str!("migrations/0002_suivi.sql") },
+];
 
 /// La version de la base que cette version de Jobmind connaît (la dernière migration).
 pub fn version_connue() -> u32 {
@@ -135,6 +137,23 @@ impl Base {
         &self.connexion
     }
 
+    /// Applique jusqu'à cette version seulement (les tests : une base de la version d'avant, puis migrée).
+    #[doc(hidden)]
+    pub fn en_memoire_jusqua(version: u32, maintenant: Moment) -> Result<Base, ErreurBase> {
+        let connexion = Connection::open_in_memory()?;
+        connexion.pragma_update(None, "foreign_keys", "ON")?;
+        let mut base = Base { connexion, chemin: None };
+        let jusqua: Vec<Migration> = MIGRATIONS.iter().filter(|m| m.version <= version).copied().collect();
+        base.migrer(&jusqua, maintenant)?;
+        Ok(base)
+    }
+
+    /// Applique les migrations qui manquent à une base déjà ouverte (les tests, après [`Base::en_memoire_jusqua`]).
+    #[doc(hidden)]
+    pub fn migrer_tout(&mut self, maintenant: Moment) -> Result<Vec<u32>, ErreurBase> {
+        self.migrer(MIGRATIONS, maintenant)
+    }
+
     /// Une ligne pour le journal : la base, sa version, et les migrations appliquées à l'ouverture.
     pub fn ligne_journal(&self, appliquees: &[u32]) -> String {
         let version = self.version().unwrap_or(0);
@@ -142,7 +161,8 @@ impl Base {
             format!("Base : {DOSSIER}\\{FICHIER} prête (version {version})")
         } else {
             let liste: Vec<String> = appliquees.iter().map(u32::to_string).collect();
-            format!("Base : {DOSSIER}\\{FICHIER} prête (version {version}, migration {} appliquée)", liste.join(", "))
+            let (m, a) = if liste.len() > 1 { ("migrations", "appliquées") } else { ("migration", "appliquée") };
+            format!("Base : {DOSSIER}\\{FICHIER} prête (version {version}, {m} {} {a})", liste.join(", "))
         }
     }
 }

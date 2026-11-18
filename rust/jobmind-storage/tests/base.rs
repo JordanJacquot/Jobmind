@@ -31,7 +31,7 @@ fn moment() -> Moment {
 }
 
 /// Les tables du plan (phase 2, « Base de données »).
-const TABLES: [&str; 15] = [
+const TABLES: [&str; 17] = [
     "offres",
     "offres_fts",
     "offres_vues",
@@ -47,6 +47,8 @@ const TABLES: [&str; 15] = [
     "profil_style",
     "regles_style",
     "parametres",
+    "bulles",
+    "bulles_cles",
 ];
 
 fn tables(b: &Base) -> Vec<String> {
@@ -58,9 +60,9 @@ fn tables(b: &Base) -> Vec<String> {
 fn creation_avec_toutes_les_tables() {
     let e = Essai::nouveau("creation");
     let (b, appliquees) = Base::ouvrir(&e.0, moment()).unwrap();
-    assert_eq!(appliquees, vec![1]);
-    assert_eq!(b.version().unwrap(), 1);
-    assert_eq!(version_connue(), 1);
+    assert_eq!(appliquees, vec![1, 2]);
+    assert_eq!(b.version().unwrap(), 2);
+    assert_eq!(version_connue(), 2);
     // data\jobmind.db dans le dossier de données
     assert_eq!(b.chemin().unwrap(), e.0.join(DOSSIER).join(FICHIER));
     assert!(e.0.join("data").join("jobmind.db").is_file());
@@ -76,15 +78,17 @@ fn creation_avec_toutes_les_tables() {
     // La version enregistrée : la table des migrations (avec sa date) et PRAGMA user_version
     let (v, nom, quand): (u32, String, String) = b
         .connexion()
-        .query_row("SELECT version, nom, appliquee_le FROM migrations", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .query_row("SELECT version, nom, appliquee_le FROM migrations WHERE version = 1", [], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })
         .unwrap();
     assert_eq!((v, nom.as_str(), quand.as_str()), (1, "les tables du plan", "2026-11-18T14:05:00"));
     let u: u32 = b.connexion().query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(u, 1);
+    assert_eq!(u, 2);
     // Les liens entre tables sont vérifiés
     let fk: i64 = b.connexion().query_row("PRAGMA foreign_keys", [], |r| r.get(0)).unwrap();
     assert_eq!(fk, 1);
-    assert_eq!(b.ligne_journal(&appliquees), r"Base : data\jobmind.db prête (version 1, migration 1 appliquée)");
+    assert_eq!(b.ligne_journal(&appliquees), r"Base : data\jobmind.db prête (version 2, migrations 1, 2 appliquées)");
 }
 
 #[test]
@@ -98,15 +102,15 @@ fn migrations_rejouees_sans_erreur() {
     for _ in 0..3 {
         let (b, appliquees) = Base::ouvrir(&e.0, moment()).unwrap();
         assert!(appliquees.is_empty());
-        assert_eq!(b.version().unwrap(), 1);
+        assert_eq!(b.version().unwrap(), 2);
         let n: i64 = b.connexion().query_row("SELECT COUNT(*) FROM migrations", [], |r| r.get(0)).unwrap();
-        assert_eq!(n, 1);
+        assert_eq!(n, 2);
         let v: String = b
             .connexion()
             .query_row("SELECT valeur FROM parametres WHERE cle = 'alerte_jours'", [], |r| r.get(0))
             .unwrap();
         assert_eq!(v, "14");
-        assert_eq!(b.ligne_journal(&appliquees), r"Base : data\jobmind.db prête (version 1)");
+        assert_eq!(b.ligne_journal(&appliquees), r"Base : data\jobmind.db prête (version 2)");
     }
 }
 
@@ -116,14 +120,14 @@ fn base_d_une_version_future_jamais_touchee() {
     {
         let (b, _) = Base::ouvrir(&e.0, moment()).unwrap();
         b.connexion()
-            .execute("INSERT INTO migrations (version, nom, appliquee_le) VALUES (2, 'plus tard', 'x')", [])
+            .execute("INSERT INTO migrations (version, nom, appliquee_le) VALUES (3, 'plus tard', 'x')", [])
             .unwrap();
     }
     let avant = std::fs::read(e.0.join("data").join("jobmind.db")).unwrap();
     match Base::ouvrir(&e.0, moment()) {
-        Err(ErreurBase::Future { trouvee: 2, connue: 1 }) => {}
+        Err(ErreurBase::Future { trouvee: 3, connue: 2 }) => {}
         Err(autre) => panic!("erreur inattendue : {autre}"),
-        Ok(_) => panic!("une base de version 2 a été ouverte"),
+        Ok(_) => panic!("une base de version 3 a été ouverte"),
     }
     assert_eq!(std::fs::read(e.0.join("data").join("jobmind.db")).unwrap(), avant);
 }
@@ -194,15 +198,15 @@ fn les_donnees_ouvrent_la_base_et_le_notent() {
     let e = Essai::nouveau("donnees");
     let h = horloge_figee(moment());
     let d = Donnees::ouvrir(&e.0, h.clone(), false);
-    assert_eq!(d.base.as_ref().unwrap().version().unwrap(), 1);
+    assert_eq!(d.base.as_ref().unwrap().version().unwrap(), 2);
     drop(d);
     let d = Donnees::ouvrir(&e.0, h, false);
     assert!(d.base.is_some());
     let j = std::fs::read_to_string(e.0.join("journal.txt")).unwrap();
     assert_eq!(
         j,
-        "2026-11-18T14:05:00 Base : data\\jobmind.db prête (version 1, migration 1 appliquée)\r\n\
-         2026-11-18T14:05:00 Base : data\\jobmind.db prête (version 1)\r\n"
+        "2026-11-18T14:05:00 Base : data\\jobmind.db prête (version 2, migrations 1, 2 appliquées)\r\n\
+         2026-11-18T14:05:00 Base : data\\jobmind.db prête (version 2)\r\n"
     );
 }
 
@@ -216,4 +220,36 @@ fn une_base_illisible_n_empeche_pas_de_s_ouvrir() {
     assert!(d.base.is_none());
     let j = std::fs::read_to_string(e.0.join("journal.txt")).unwrap();
     assert!(j.starts_with("2026-11-18T14:05:00 Base : non ouverte (SQLite : "), "{j}");
+}
+
+/// Une base de l'étape 1 (version 1), avec une candidature dedans : la migration 2 l'ajoute sans rien perdre, et la
+/// candidature se lit avec les valeurs par défaut des nouvelles colonnes.
+#[test]
+fn une_base_de_l_etape_1_est_migree_sans_rien_perdre() {
+    let mut b = Base::en_memoire_jusqua(1, moment()).unwrap();
+    assert_eq!(b.version().unwrap(), 1);
+    b.connexion()
+        .execute(
+            "INSERT INTO candidatures (entreprise, poste, lieu, statut, envoyee_le, notes, cree_le, change_le) \
+             VALUES ('Brico Lorraine', 'Vendeur', 'Nancy', 'relancee', '2026-10-30', 'Appeler lundi', \
+             '2026-10-30T10:00:00', '2026-11-13T10:00:00')",
+            [],
+        )
+        .unwrap();
+    assert_eq!(b.migrer_tout(moment()).unwrap(), vec![2]);
+    assert_eq!(b.version().unwrap(), 2);
+    let (l, illisibles) = jobmind_storage::candidatures::lister(b.connexion()).unwrap();
+    assert_eq!(illisibles, 0);
+    assert_eq!(l.len(), 1);
+    let c = &l[0];
+    assert_eq!(
+        (c.entreprise.as_str(), c.ville.as_str(), c.notes.as_str()),
+        ("Brico Lorraine", "Nancy", "Appeler lundi")
+    );
+    assert_eq!(c.statut, Statut::Relancee);
+    assert_eq!(c.moyen, jobmind_core::Moyen::Autre);
+    assert_eq!(c.envoyee_le.iso(), "2026-10-30");
+    // (pas de jour de statut noté avant la migration 2 : celui de l'envoi)
+    assert_eq!(c.statut_le.iso(), "2026-10-30");
+    assert!(c.entretien.is_none() && c.relance_le.is_none());
 }

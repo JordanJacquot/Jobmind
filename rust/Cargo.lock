@@ -1587,6 +1587,7 @@ dependencies = [
 name = "jobmind-app"
 version = "0.1.0"
 dependencies = [
+ "jobmind-core",
  "jobmind-storage",
  "jobmind-vie",
  "serde_json",

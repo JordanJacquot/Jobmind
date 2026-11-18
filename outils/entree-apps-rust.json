@@ -11,6 +11,7 @@
     "exe": "Jobmind.exe",
     "mutex": "Local\\Jobmind-Instance",
     "afficher_signal": "Local\\Jobmind-Afficher",
+    "afficher_fichier": "afficher.demande",
     "donnees": "%LOCALAPPDATA%\\Mindset\\Jobmind",
     "admin": false,
     "cache_depuis": "0.1.0",

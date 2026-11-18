@@ -11,12 +11,12 @@ use tauri::ipc::Channel;
 
 use crate::pont::{self, Habillage, MessagePage};
 
-/// L'état de départ du kit ([`crate::ecran::etat`]), et les couleurs du thème s'il y en a (les variables CSS de
+/// L'état du kit pour cette vue ([`crate::ecran::etat`]), et les couleurs du thème s'il y en a (les variables CSS de
 /// `suite_commun::themes::Theme::variables_css` : `P`, `S`, `T`, `fond`, `fond2` ; une variable au nom ou à la couleur
 /// mal écrits n'est pas passée, la page vérifie aussi). Le thème, les couleurs d'un pack et ses images s'ajoutent par
 /// [`Page::habiller`].
-pub fn etat_page(version: &str, variables: &[(&str, String)]) -> Value {
-    let mut e = crate::ecran::etat(version);
+pub fn etat_page(version: &str, variables: &[(&str, String)], vue: &crate::ecran::Vue) -> Value {
+    let mut e = crate::ecran::etat(version, vue);
     let couleurs = pont::couleurs_json(variables);
     if !couleurs.is_empty() {
         e["couleurs"] = Value::Object(couleurs);
@@ -164,16 +164,20 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn vide() -> crate::ecran::Vue<'static> {
+        crate::ecran::Vue::vide(jobmind_core::Jour { annee: 2026, mois: 11, jour: 18 })
+    }
+
     #[test]
     fn etat_page_avec_et_sans_theme() {
         let theme = suite_commun::themes::Theme::neon();
-        let e = etat_page("0.1.0", &theme.variables_css());
+        let e = etat_page("0.1.0", &theme.variables_css(), &vide());
         assert_eq!(e["app"], json!({ "nom": "Jobmind", "version": "0.1.0", "logo": "logo.svg" }));
         assert_eq!(
             e["couleurs"],
             json!({ "P": "#00E5FF", "S": "#B04BFF", "T": "#FF2EB5", "fond": "#06050F", "fond2": "#0C0920" })
         );
-        let e = etat_page("0.1.0", &[]);
+        let e = etat_page("0.1.0", &[], &vide());
         assert!(e.get("couleurs").is_none());
         assert_eq!(e["accueil"]["perso"]["onglets"][0]["id"], "candidatures");
     }

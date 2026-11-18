@@ -11,7 +11,9 @@
 //!    titre exact « Jobmind », jamais recréée. Les réglages de WebView2 que Tauri ne transmet pas sont coupés.
 //! 4. Les surveillances : un pas de 100 ms sur le fil de la fenêtre, qui fait avancer la vie de l'appli (ses tours de
 //!    500 ms : accrochage et taille minimale, signal d'affichage, veille de la page, quitter.demande, suite.json,
-//!    etat.json). L'échelle de la page dans un panneau de Mindset plus petit que la fenêtre suit chaque nouvelle
+//!    etat.json). Le suivi (étape 2) : toutes les 500 ms, la bulle en attente envoyée à Mindset (notification.demande)
+//!    et afficher.demande lu (un clic sur une bulle ouvre le dossier) ; au démarrage puis toutes les 30 s, les bulles
+//!    dues (une relance devenue à faire, un entretien demain) ; à minuit, la liste refaite. L'échelle de la page dans un panneau de Mindset plus petit que la fenêtre suit chaque nouvelle
 //!    taille (`Resized`), et chaque pas. La croix et `WM_CLOSE` (le bouton « Fermer » de Mindset) quittent.
 //! 5. La fin : la relance si le thème a changé, puis `std::process::exit` (aucun fil ne garde le processus en vie sans
 //!    fenêtre, contrat-appli partie 3), sans rien lâcher de l'état du fil de la fenêtre ([`quitter_sans_rien_lacher`]).
@@ -25,6 +27,8 @@ use std::rc::Rc;
 use std::thread::LocalKey;
 use std::time::{Duration, Instant};
 
+use jobmind_core::Jour;
+use jobmind_storage::bulles::Demande;
 use jobmind_storage::{Donnees, Journal};
 use jobmind_vie::{
     Depart, DisqueReel, Environnement, Fin, Lancement, Monde, Reglages, Taille, Vie, demarrage_demande, demarrer,
@@ -36,6 +40,7 @@ use tauri::{App, AppHandle, Manager, Window, WindowEvent};
 
 use crate::fenetre::{LABEL, TAILLE_MIN, creer_principale};
 use crate::pont::MessagePage;
+use crate::suivi::{self, Suivi};
 use crate::windows::fenetre::FenetreTauri;
 use crate::windows::systeme::SystemeWindows;
 use crate::windows::{heure, identite, webview2};
@@ -43,6 +48,10 @@ use crate::{Page, VERSION, pack};
 
 /// Le pas de la minuterie : les tours de la vie de l'appli (toutes les 500 ms) tombent à ce pas près.
 const PAS: Duration = Duration::from_millis(100);
+/// afficher.demande (un clic sur une bulle) et l'envoi des bulles à Mindset : toutes les 500 ms.
+const RELEVE: Duration = Duration::from_millis(500);
+/// La vérification des bulles dues : au démarrage, puis toutes les 30 s.
+const VERIFICATION: Duration = Duration::from_secs(30);
 
 /// Tout ce que l'appli garde pendant qu'elle tourne, sur le fil de la fenêtre.
 struct Etat {
@@ -57,6 +66,18 @@ struct Etat {
     journal: Journal,
     /// Le dossier de Mindset (retour à sa console)
     dossier_mindset: PathBuf,
+    /// Les données (la base des candidatures)
+    donnees: Rc<RefCell<Option<Donnees>>>,
+    /// Le suivi : le dossier ouvert
+    suivi: Suivi,
+    /// Le jour de la liste montrée : un nouveau jour, elle est refaite
+    jour: Jour,
+    /// Tauri, une fois la fenêtre créée : l'état renvoyé à la page après un geste
+    app: Option<AppHandle>,
+    /// Le prochain relevé de afficher.demande et envoi de bulle
+    releve: Instant,
+    /// La prochaine vérification des bulles dues (la première au premier pas, dès que la fenêtre existe)
+    verification: Instant,
     /// Le dossier de données (construction d'essai : la demande de capture)
     #[cfg(feature = "essai")]
     dossier: PathBuf,
@@ -194,10 +215,20 @@ pub fn lancer() -> ! {
     for r in &theme.raisons {
         journal.ecrire(&format!("Thème : {r}"));
     }
+    // (construction d'essai : des candidatures inventées pour les captures, seulement dans le dossier d'essai)
+    #[cfg(feature = "essai")]
+    crate::essai::exemples_demandes(&l.dossier_donnees, d.base.as_ref(), heure::maintenant(), &journal);
+    // L'état de départ : le suivi d'après la base
+    let jour = heure::maintenant().jour();
+    let mut suivi = Suivi::default();
+    let (depart, raison) = suivi.etat(VERSION, d.base.as_ref(), jour);
+    if let Some(r) = raison {
+        journal.ecrire(&r);
+    }
     *donnees.borrow_mut() = Some(d);
 
     let pour_page = journal.clone();
-    let page = Page::new(crate::commandes::etat_page(VERSION, &[]), move |t| pour_page.ecrire(t));
+    let page = Page::new(depart, move |t| pour_page.ecrire(t));
     // (les couleurs du thème et d'un pack viennent de l'habillage, comme Get-PackVue de vue.ps1)
     page.habiller(crate::pont::Habillage::depuis(&theme, crate::pont::soir(heure::maintenant().heure)));
     let pour_receveur = journal.clone();
@@ -224,6 +255,12 @@ pub fn lancer() -> ! {
             fin: None,
             journal: journal.clone(),
             dossier_mindset: l.dossier_mindset.clone(),
+            donnees: Rc::clone(&donnees),
+            suivi,
+            jour,
+            app: None,
+            releve: Instant::now(),
+            verification: Instant::now(),
             #[cfg(feature = "essai")]
             dossier: l.dossier_donnees.clone(),
         })
@@ -297,6 +334,7 @@ fn ouvrir_fenetre(app: &App, suite: &Path, donnees: &Path, montree: bool, journa
         let mut e = e.borrow_mut();
         let Some(etat) = e.as_mut() else { return };
         etat.fenetre = Some(fenetre);
+        etat.app = Some(app.handle().clone());
         etat.debut = Instant::now();
         let Etat { vie, systeme, disque, fenetre, .. } = etat;
         if let Some(fenetre) = fenetre.as_mut() {
@@ -337,6 +375,8 @@ fn tour(app: &AppHandle) {
         if fin.is_none() {
             // (une taille manquée par `Resized`, la fenêtre occupée, est vue ici)
             vie.ajuster_echelle(&mut Monde { systeme, disque, fenetre });
+            etat.nouveau_jour(app);
+            etat.bulles(app);
         }
         #[cfg(feature = "essai")]
         {
@@ -358,15 +398,154 @@ fn ligne_courte(m: &MessagePage) -> String {
 
 impl Etat {
     /// Un message du kit. « Retour » depuis l'accueil ramène à la console de Mindset (seulement dans Mindset : sinon
-    /// la demande est seulement notée) ; le reste est noté au journal (étape 1 : aucun geste n'a encore d'effet).
+    /// la demande est seulement notée) ; un geste du suivi est vérifié puis écrit dans la base ([`Etat::geste`]) ; le
+    /// reste est noté au journal.
     fn recevoir(&mut self, m: &MessagePage) {
         let ligne = match m {
             MessagePage::Menu if self.vie.dans_mindset() => {
                 crate::pont::demander_menu(&self.dossier_mindset, &mut self.systeme, &mut self.disque)
             }
+            MessagePage::Action { id, valeur, .. } if suivi::est_geste(id) => {
+                self.geste(id, valeur);
+                return;
+            }
             _ => crate::pont::ligne_journal(m),
         };
         self.journal.ecrire(&court(&ligne));
+    }
+
+    /// Un geste du suivi : vérifié, écrit dans la base, puis l'état renvoyé à la page (la liste, le dossier) et la
+    /// carte de Mindset réécrite ; la bulle de l'écran dit ce qui a été fait, ou ce qui ne va pas.
+    fn geste(&mut self, id: &str, valeur: &Value) {
+        let Some(app) = self.app.clone() else { return };
+        let page = app.state::<Page>();
+        // (les données occupées : rien n'est perdu, Jordan réessaie)
+        let Ok(mut d) = self.donnees.try_borrow_mut() else {
+            page.ordre(json!({ "kit": "message", "texte": "Jobmind est occupée : réessaie dans un instant." }));
+            return;
+        };
+        let Some(d) = d.as_mut() else { return };
+        let maintenant = heure::maintenant();
+        self.jour = maintenant.jour();
+        let fait = match d.base.as_ref() {
+            Some(base) => self.suivi.geste(base, id, valeur, maintenant),
+            None => {
+                self.journal.ecrire(&format!("Suivi : {id} impossible, la base n'est pas ouverte"));
+                page.ordre(json!({ "kit": "message", "texte": suivi::SANS_BASE }));
+                return;
+            }
+        };
+        if let Some(j) = &fait.journal {
+            self.journal.ecrire(&court(j));
+        }
+        if fait.change {
+            let (e, raison) = self.suivi.etat(VERSION, d.base.as_ref(), self.jour);
+            if let Some(r) = raison {
+                self.journal.ecrire(&r);
+            }
+            page.changer(e);
+            d.ecrire_etat();
+        }
+        if let Some(o) = fait.ordre {
+            page.ordre(o);
+        }
+        if let Some(m) = fait.message {
+            page.ordre(json!({ "kit": "message", "texte": m, "bravo": fait.bravo }));
+        }
+    }
+
+    /// L'état renvoyé à la page d'après la base (et la carte de Mindset réécrite si elle a changé). Faux si les données
+    /// sont occupées.
+    fn renvoyer(&mut self, app: &AppHandle) -> bool {
+        let Ok(mut d) = self.donnees.try_borrow_mut() else { return false };
+        let Some(d) = d.as_mut() else { return false };
+        let (e, raison) = self.suivi.etat(VERSION, d.base.as_ref(), self.jour);
+        if let Some(r) = raison {
+            self.journal.ecrire(&r);
+        }
+        app.state::<Page>().changer(e);
+        d.ecrire_etat();
+        true
+    }
+
+    /// Minuit passé : la liste est refaite pour le nouveau jour (« il y a 16 jours », les relances devenues à faire) et
+    /// renvoyée à la page ; la carte de Mindset suit tout de suite.
+    fn nouveau_jour(&mut self, app: &AppHandle) {
+        let jour = heure::maintenant().jour();
+        if jour == self.jour {
+            return;
+        }
+        let avant = self.jour;
+        self.jour = jour;
+        if self.renvoyer(app) {
+            self.journal.ecrire(&format!("Suivi : nouveau jour ({})", jour.iso()));
+        } else {
+            // (les données occupées : au prochain pas)
+            self.jour = avant;
+        }
+    }
+
+    /// Les bulles, toutes les 500 ms : la vérification des événements dus (au démarrage puis toutes les 30 s),
+    /// l'envoi de la bulle en attente à Mindset (notification.demande), puis afficher.demande (un clic sur une de nos
+    /// bulles, un numéro de processus).
+    fn bulles(&mut self, app: &AppHandle) {
+        let ici = Instant::now();
+        if ici < self.releve {
+            return;
+        }
+        self.releve = ici + RELEVE;
+        let maintenant = heure::maintenant();
+        let demande = {
+            // (les données occupées : au prochain relevé)
+            let Ok(mut d) = self.donnees.try_borrow_mut() else { return };
+            let Some(d) = d.as_mut() else { return };
+            let Some(base) = d.base.as_ref() else { return };
+            if ici >= self.verification {
+                self.verification = ici + VERIFICATION;
+                for l in suivi::verifier_bulles(base, maintenant) {
+                    self.journal.ecrire(&l);
+                }
+            }
+            d.envoi.envoyer(base.connexion(), &self.journal, maintenant);
+            d.envoi.demande(base.connexion(), &self.journal)
+        };
+        match demande {
+            Demande::Rien => {}
+            Demande::Montrer => self.afficher(),
+            Demande::Ouvrir(cible) => {
+                self.afficher();
+                self.ouvrir_bulle(app, cible);
+            }
+        }
+    }
+
+    /// Montre la fenêtre comme le signal d'un second lancement (dans Mindset si elle est gérée ; accrochée dans
+    /// Mindset, elle n'est pas touchée).
+    fn afficher(&mut self) {
+        let Etat { vie, systeme, disque, fenetre, .. } = self;
+        if let Some(fenetre) = fenetre.as_mut() {
+            vie.afficher(&mut Monde { systeme, disque, fenetre });
+        }
+    }
+
+    /// Un clic sur une bulle : l'onglet Candidatures, sur le dossier qu'elle annonçait (plusieurs relances : la liste).
+    fn ouvrir_bulle(&mut self, app: &AppHandle, cible: Option<i64>) {
+        if let Some(id) = cible {
+            self.suivi.ouverte = Some(id);
+        }
+        self.renvoyer(app);
+        let page = app.state::<Page>();
+        page.ordre(json!({ "kit": "aller", "ecran": "accueil" }));
+        match cible {
+            Some(id) => {
+                page.ordre(json!({ "kit": "accueil", "onglet": crate::ecran::CANDIDATURES, "candidature": id }));
+                self.journal.ecrire(&format!("Bulle : dossier {id} ouvert"));
+            }
+            None => {
+                page.ordre(json!({ "kit": "accueil", "onglet": crate::ecran::CANDIDATURES }));
+                self.journal.ecrire("Bulle : liste des candidatures ouverte");
+            }
+        }
     }
 }
 

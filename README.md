@@ -16,8 +16,8 @@ l'étape 13.
 
 - [x] **1. Le squelette dans Mindset** : l'espace de travail Rust repris de Paymind, la base SQLite (data\jobmind.db)
   et ses migrations, le journal, les trois onglets de la maquette C vides.
-- [ ] **2. Le suivi à la main** : ajouter une candidature, statuts, notes, frise, relances après X jours, bulle, carte
-  dans Mindset.
+- [x] **2. Le suivi à la main** : ajouter une candidature, statuts, notes, frise, relances après X jours, bulle, carte
+  dans Mindset (migration 2 de la base ; Mon profil > Réglages : le délai avant relance).
 - [ ] **3. Mon profil** : CV (collé ou importé en PDF ou Word), ce que je cherche, mes textes pour le style, clés
   chiffrées.
 - [ ] **4. Les offres par Adzuna et Jooble** : recherches gardées, archive, lieu (ville et rayon, département, région),
@@ -48,8 +48,8 @@ Jobmind est écrite en Rust avec Tauri, sur le modèle de Paymind (`rust\`, Rust
 | `jobmind-vie` | la vie dans Mindset (verrou, demandes, accrochage, thème, carte), reprise de Paymind |
 | `jobmind-relais` | `Jobmind.exe`, le relais qui lance `Mindset.exe` |
 | `jobmind-app` | `Mindset.exe` : la fenêtre Tauri, le kit d'écrans de la suite, les onglets (`ui\jobmind.js`) |
-| `jobmind-storage` | dossier de données, journal, réglages, carte de Mindset, base SQLite et migrations |
-| `jobmind-core` | modèles, statuts, filtres, pertinence, relances |
+| `jobmind-storage` | dossier de données, journal, réglages, carte de Mindset, base SQLite et migrations, candidatures, bulles |
+| `jobmind-core` | modèles, statuts, jours, saisie vérifiée, groupes du suivi, relances, bilan, bulles dues ; filtres et pertinence à venir |
 | `jobmind-sources` | le trait `JobSource` (Adzuna, Jooble, page lue, alertes mail viendront) |
 | `jobmind-llm` | le trait `LlmProvider` (Claude, puis un moteur sur le PC) |
 | `jobmind-humanizer` | le style de Jordan |
@@ -83,7 +83,9 @@ livrée :
   par son relais, accrochée par le code d'accrochage de Mindset, la base créée, une capture de chaque onglet, puis
   fermée par « Fermer » et « Tout quitter » ;
 - `outils\captures.ps1 -Exe <Mindset.exe d'essai> -Relais <Jobmind.exe> -Resultats <dossier> [-Theme <thème>]
-  [-Vues 'candidatures,offres,profil,rubrique:style'] [-Prefixe <nom>]` : les captures dans un panneau de 1180 x 760 ;
+  [-Vues 'candidatures,candidature:1,menu-statut,entretien,ajouter,modifier,offres,profil,rubrique:reglages']
+  [-Prefixe <nom>] [-Exemples] [-Largeur 944 -Hauteur 608]` : les captures dans un panneau de 1180 x 760 (944 x 608 :
+  le même vu à 125 %) ; `-Exemples` remplit la base d'essai de candidatures inventées à des statuts variés ;
 - `D:\Projets\Mindset\outils\tester-contrat.ps1 -AppliConstruite <dossier>\Jobmind -EntreeApps outils\entree-apps-rust.json` :
   tout le contrat avec le vrai code de Mindset, sur l'exe livré.
 
