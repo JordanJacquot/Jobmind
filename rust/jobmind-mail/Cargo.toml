@@ -1,0 +1,12 @@
+[package]
+name = "jobmind-mail"
+version = "0.1.0"
+description = "Le Gmail de Jordan dans Jobmind : lire (IMAP : alertes d'offres, réponses des recruteurs) et envoyer (SMTP : les candidatures). Sans écran"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

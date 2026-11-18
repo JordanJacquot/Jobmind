@@ -1,0 +1,12 @@
+[package]
+name = "jobmind-humanizer"
+version = "0.1.0"
+description = "Le style de Jordan dans Jobmind : plancher professionnel, règles fixes modifiables, réécriture, score naturel. Sans écran et sans Windows"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

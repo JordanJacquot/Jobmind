@@ -1,0 +1,12 @@
+# Les constructions (cargo) restent sur le PC
+target/
+/_test/
+# Le zip d'une publication et sa signature (outils\publier.ps1) : seulement joints à la Release, jamais dans le dépôt
+/release/
+# Les captures des maquettes (faites pour Jordan, refaites à la demande)
+maquettes/capture-*.png
+# Les thèmes perso (images, packs) : JAMAIS dans le dépôt
+packs/
+pack-*.json
+*.pack
+theme-perso*/

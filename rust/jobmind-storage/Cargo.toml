@@ -1,0 +1,26 @@
+[package]
+name = "jobmind-storage"
+version = "0.1.0"
+description = "Les données de Jobmind (repris de paymind-donnees) : dossier de données, suite.json, journal, fichiers JSON sûrs, réglages, carte de Mindset (etat.json), et la base SQLite (data\\jobmind.db, migrations numérotées). Sans écran et sans appel à Windows"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Versions figées (« = ») : une nouvelle version n'entre que par un changement relu.
+# Les fichiers JSON (reglages.json, etat.json) : lus avec l'ordre de leurs champs, comme ConvertFrom-Json
+serde_json = { version = "=1.0.154", features = ["preserve_order"] }
+# L'écriture et la lecture sûres des JSON de la suite (json_sur), et les chemins comme .NET : la bibliothèque commune de
+# Mindset, à la révision épinglée dans le Cargo.toml de l'espace de travail, sans ses options (ni signature, ni zips,
+# ni heure de Windows) ; les fichiers mis de côté prennent l'heure du journal de Jobmind.
+suite-commun.workspace = true
+# La base de Jobmind (data\jobmind.db) : SQLite rangé dans l'exe (« bundled » : aucune DLL à installer), avec la
+# recherche dans tout le texte des offres (FTS5, compris dans la construction « bundled »)
+rusqlite = { version = "=0.43.0", features = ["bundled"] }
+# Les erreurs de la base, nommées (la même version que celle déjà tirée par Tauri)
+thiserror = "=2.0.21"
+# Les statuts d'une candidature (la base n'accepte que ceux-là)
+jobmind-core = { path = "../jobmind-core" }
+
+[lints]
+workspace = true

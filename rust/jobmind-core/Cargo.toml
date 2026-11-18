@@ -1,0 +1,13 @@
+[package]
+name = "jobmind-core"
+version = "0.1.0"
+description = "Le cœur de Jobmind : les modèles (offre, candidature, profil), le dédoublonnage, les filtres, la pertinence, les statuts et les relances. Sans écran, sans Windows, sans fichier et sans réseau"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Aucune dépendance pour l'instant (étape 1 : les statuts d'une candidature seulement).
+[dependencies]
+
+[lints]
+workspace = true

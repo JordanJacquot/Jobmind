@@ -1,0 +1,19 @@
+{
+    "id": "jobmind",
+    "type": "rust",
+    "nom": "Jobmind",
+    "couleur": "#FFC93C",
+    "description": "Trouve des offres sur plusieurs sites, prépare tes candidatures et suis où tu en es.",
+    "presentation": "Jobmind rassemble les offres de plusieurs sites, garde les plus pertinentes, t'aide à préparer chaque candidature dans ton style et te dit à tout moment ce que tu as envoyé, à qui, et où tu en es. Tout reste sur ton PC.",
+    "depot": "JordanJacquot/Jobmind",
+    "zip": "Jobmind.zip",
+    "dossier_zip": "Jobmind",
+    "exe": "Jobmind.exe",
+    "mutex": "Local\\Jobmind-Instance",
+    "afficher_signal": "Local\\Jobmind-Afficher",
+    "donnees": "%LOCALAPPDATA%\\Mindset\\Jobmind",
+    "admin": false,
+    "cache_depuis": "0.1.0",
+    "logo": "M16,28 L40,28 L47,36 L84,36 L84,74 L16,74 L16,28 M37,55 L46,64 L63,47",
+    "logo_epaisseur": 8
+}
