@@ -18,6 +18,7 @@ use jobmind_storage::{Base, Moment, bulles};
 use serde_json::{Value, json};
 
 use crate::ecran::{self, Vue};
+use crate::vue_profil::{VIDE, VueProfil};
 
 /// Les ids des gestes du suivi (les actions de la page).
 pub const OUVRIR: &str = "c-ouvrir";
@@ -53,10 +54,12 @@ pub struct Fait {
     pub journal: Option<String>,
     /// L'état a changé (sinon, rien à renvoyer)
     pub change: bool,
+    /// Mon profil : ouvrir la boîte « Ouvrir » de Windows pour choisir un CV (crate::profil, `IMPORTER`)
+    pub importer: bool,
 }
 
 impl Fait {
-    fn refus(message: impl Into<String>, journal: String) -> Fait {
+    pub(crate) fn refus(message: impl Into<String>, journal: String) -> Fait {
         Fait { message: Some(message.into()), journal: Some(journal), change: true, ..Fait::default() }
     }
 }
@@ -81,13 +84,25 @@ impl Suivi {
     /// L'état de la page d'après la base : la liste, le dossier ouvert (s'il n'y en a pas, ou s'il a disparu, le
     /// premier de la liste), le délai. Une base absente ou illisible : la liste vide, et la raison pour le journal.
     pub fn etat(&mut self, version: &str, base: Option<&Base>, aujourdhui: Jour) -> (Value, Option<String>) {
-        let Some(b) = base else { return (ecran::etat(version, &Vue::vide(aujourdhui)), None) };
+        self.etat_avec(version, base, aujourdhui, &VIDE)
+    }
+
+    /// [`Suivi::etat`], avec ce que Mon profil montre.
+    pub fn etat_avec(
+        &mut self,
+        version: &str,
+        base: Option<&Base>,
+        aujourdhui: Jour,
+        profil: &VueProfil,
+    ) -> (Value, Option<String>) {
+        let vide = Vue { profil, ..Vue::vide(aujourdhui) };
+        let Some(b) = base else { return (ecran::etat(version, &vide), None) };
         let c = b.connexion();
         let lu = candidatures::lister(c).and_then(|(l, n)| Ok((l, n, candidatures::delai_relance(c)?)));
         let (liste, illisibles, delai) = match lu {
             Ok(x) => x,
             Err(e) => {
-                return (ecran::etat(version, &Vue::vide(aujourdhui)), Some(format!("Suivi : base illisible ({e})")));
+                return (ecran::etat(version, &vide), Some(format!("Suivi : base illisible ({e})")));
             }
         };
         if !self.ouverte.is_some_and(|id| liste.iter().any(|x| x.id == id)) {
@@ -97,7 +112,7 @@ impl Suivi {
             Some(id) => candidatures::evenements(c, id).unwrap_or_default(),
             None => Vec::new(),
         };
-        let vue = Vue { candidatures: &liste, ouverte: self.ouverte, frise: &frise, delai, aujourdhui };
+        let vue = Vue { candidatures: &liste, ouverte: self.ouverte, frise: &frise, delai, aujourdhui, profil };
         let journal =
             (illisibles > 0).then(|| format!("Suivi : {illisibles} candidature(s) illisible(s) laissée(s) de côté"));
         (ecran::etat(version, &vue), journal)
@@ -194,6 +209,7 @@ impl Suivi {
             ordre: Some(json!({ "kit": "accueil", "enregistre": id })),
             journal: Some(journal),
             change: true,
+            ..Fait::default()
         })
     }
 
@@ -238,6 +254,7 @@ impl Suivi {
                     ordre: Some(json!({ "kit": "accueil", "fait": id })),
                     journal: Some(format!("Suivi : candidature {id}, statut {}", statut.code())),
                     change: true,
+                    ..Fait::default()
                 }
             }
         })
@@ -447,7 +464,7 @@ mod tests {
         let f = s.geste(&b, DELAI, &json!(500), m(18, 11));
         assert_eq!(f.message.as_deref(), Some("Relance proposée après 60 jours."));
         let (e, _) = s.etat("0.2.0", Some(&b), auj);
-        assert_eq!(e["accueil"]["perso"]["onglets"][2]["rubriques"][3]["sous"], "Relance après 60 jours");
+        assert_eq!(e["accueil"]["perso"]["onglets"][2]["rubriques"][4]["sous"], "Relance après 60 jours");
         // Supprimée : la liste est vide, plus de dossier
         let f = s.geste(&b, SUPPRIMER, &json!({ "id": id }), m(18, 12));
         assert_eq!(f.message.as_deref(), Some("Candidature supprimée."));

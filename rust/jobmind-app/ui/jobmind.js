@@ -19,7 +19,11 @@
 //   bulle qui dit ce qui ne va pas (le formulaire reste ouvert). Un brouillon fermé par Retour est gardé ;
 // - les dates (la date d'envoi, celle de l'entretien) : le champ JJ/MM/AAAA, et un petit calendrier d'un mois (repris
 //   de Paymind) ouvert par l'agenda du champ ou un clic dedans ; un clic sur un jour remplit le champ. Rust vérifie ;
-// - Mon profil : ses rubriques ; Réglages montre le délai avant relance ('reglage-relance') ;
+// - Mon profil (étape 3) : Mon CV (importer un fichier : 'cv-importer', Rust ouvre la boîte « Ouvrir » de Windows ;
+//   coller ; corriger le texte lu ; le CV principal ; supprimer), Ce que je cherche (postes, lieu, contrats, télétravail,
+//   diplôme, débutant, salaire : 'recherche-enregistrer'), Mon style (ajouter, lire, supprimer un texte), Mes clés
+//   (donner, remplacer, effacer : une clé tapée n'est gardée ici que le temps de l'envoyer) ; Réglages montre le délai
+//   avant relance ('reglage-relance') ;
 // - Retour (Échap, B) ferme d'abord ce qui est ouvert (menu, question, formulaire), revient ensuite au premier
 //   onglet, puis à la console de Mindset ;
 // - les ordres de l'appli : { kit: 'accueil', onglet: id }, { rubrique: id }, { candidature: id } (le dossier
@@ -56,6 +60,13 @@
     bas: svg('<path d="M6 9l6 6 6-6"/>', 2.2),
     gauche: svg('<path d="M15 5l-7 7 7 7"/>', 2.4),
     droite: svg('<path d="M9 5l7 7-7 7"/>', 2.4),
+    cle: svg('<circle cx="8" cy="15" r="4.2"/><path d="M11 12l8.5-8.5M16 7l2.5 2.5M14 9l2 2"/>'),
+    importer: svg('<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"/><path d="M4.5 14v4a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-4"/>'),
+    coller: svg('<rect x="5.5" y="4.5" width="13" height="16" rx="2.2"/><path d="M9 4.5V3.8a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v.7M9 10h6M9 13.5h6M9 17h3.5"/>'),
+    etoile: svg('<path d="M12 3.8l2.5 5.1 5.6.8-4 3.9 1 5.6L12 16.6l-5 2.6 1-5.6-4-3.9 5.6-.8z"/>'),
+    attention: svg('<path d="M12 4l9 16H3z"/><path d="M12 10v4.5M12 17.2v.1"/>'),
+    cadenas: svg('<rect x="5" y="10.5" width="14" height="10" rx="2.2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>'),
+    oeil: svg('<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>'),
   };
   const icone = (n) => (typeof n === 'string' && Object.hasOwn(ICONES, n) ? ICONES[n] : '');
   // La couleur de chaque statut, par son rôle dans le thème (jamais en dur : elle suit le thème de la suite)
@@ -376,6 +387,7 @@
   function droiteRubrique(r, o) {
     const d = r ? r.dossier : o.dossier;
     if (d && typeof d === 'object' && d.reglage && typeof d.reglage === 'object') return reglagesHTML(d);
+    if (d && typeof d === 'object' && typeof d.vue === 'string') { const h = droiteProfil(d); if (h !== null) return h; }
     return dossierVideHTML(d, false);
   }
 
@@ -496,13 +508,13 @@
     O.action('c-enregistrer', v);
   }
 
-  // Copie un texte (le presse-papiers de la page ; sinon l'ancienne façon)
-  function copier(texte, el, quoi) {
+  // Copie un texte (le presse-papiers de la page ; sinon l'ancienne façon), puis dit « Copié » sur le bouton
+  function copierBrut(texte, el, apres) {
     const fini = () => {
       const s = el?.querySelector('span');
-      if (s) { const avant = s.textContent; s.textContent = T('copie'); el.classList.add('fait'); setTimeout(() => { if (s.isConnected) { s.textContent = avant; el.classList.remove('fait'); } }, 1600); }
+      if (s) { const avant = s.textContent; s.textContent = T('copie') || 'Copié'; el.classList.add('fait'); setTimeout(() => { if (s.isConnected) { s.textContent = avant; el.classList.remove('fait'); } }, 1600); }
       O.son?.ok?.();
-      const f = fiche(); if (f) O.action('c-copie', { id: f.id, quoi });
+      apres?.();
     };
     const ancienne = () => {
       const z = document.createElement('textarea'); z.value = texte; z.setAttribute('readonly', ''); z.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
@@ -512,6 +524,10 @@
       el?.focus({ preventScroll: true });
     };
     try { navigator.clipboard.writeText(texte).then(fini, ancienne); } catch (_) { ancienne(); }
+  }
+  // Copie un texte du dossier ouvert (noté au journal par Rust)
+  function copier(texte, el, quoi) {
+    copierBrut(texte, el, () => { const f = fiche(); if (f) O.action('c-copie', { id: f.id, quoi }); });
   }
 
   // Les notes tapées : envoyées en quittant le champ, si elles ont changé
@@ -613,7 +629,7 @@
       }
       case 'cal-fermer': O.son?.retour?.(); if (cal) fermerCal(); return true;
       case 'delai': { const n = Number(d.v); if (Number.isInteger(n) && !el.disabled) { O.son?.bascule?.(); O.action('reglage-relance', n); } return true; }
-      default: return false;
+      default: return validerProfil(el, d);
     }
   }
 
@@ -630,6 +646,8 @@
       if (d.champ === 'date') suivreCal('e');
     } else if (d.perso === 'notes') {
       const f = fiche(); if (f) notes[f.id] = el.value;
+    } else if (d.perso === 'p-champ') {
+      saisieProfil(el, d);
     }
   }
 
@@ -637,6 +655,8 @@
   // manette) ; Échap garde son sens (Retour). Pendant qu'on tape, la souris ne déplace pas le choix.
   function surTouche(e) {
     if (e.target.tagName === 'TEXTAREA' && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'Backspace', 'Home', 'End'].includes(e.key)) e.stopPropagation();
+    // (une liste à choisir : ses flèches choisissent dans la liste)
+    if (e.target.tagName === 'SELECT' && ['ArrowUp', 'ArrowDown', 'Home', 'End', 'Enter', 'Backspace'].includes(e.key)) e.stopPropagation();
   }
   function surSurvol(e) {
     if (document.activeElement?.tagName === 'TEXTAREA' && document.activeElement !== e.target) e.stopPropagation();
@@ -662,6 +682,395 @@
     h.addEventListener('pointerover', surSurvol);
     h.addEventListener('focusout', surSortie);
     h.addEventListener('submit', (e) => e.preventDefault());
+  }
+
+  // ---------------------------------------------------------------- Mon profil (étape 3)
+  // Les rubriques Mon CV, Ce que je cherche, Mon style et Mes clés. Ce qui se tape reste ici tant que ce n'est pas
+  // enregistré (un nouvel état ne l'efface pas) ; chaque envoi passe par le kit, et Rust vérifie tout (src\profil.rs).
+  // Une clé tapée n'est gardée ici que le temps de l'envoyer : jamais dans l'état, jamais redessinée.
+  const P_LONGUEURS = { nom: 80, texte: 30000, postes: 800, ville: 60, salaire: 12, titre: 80, stexte: 8000, cle: 300 };
+  let cvMode = 'voir';     // Mon CV : 'voir' (le CV ouvert) ou 'coller' (un nouveau CV collé)
+  const cvEdits = {};      // le nom et le texte corrigés, par CV : { nom, texte }
+  let cvColle = null;      // le CV en train d'être collé : { nom, texte }
+  let cvConfirme = false;  // « Supprimer ce CV ? »
+  let rch = null;          // Ce que je cherche, en cours de saisie (une copie des valeurs reçues)
+  let styleForm = null;    // le texte en train d'être ajouté : { titre, texte }
+  let styleConfirme = null; // le texte dont la suppression est demandée
+  let cleForm = null;      // le service dont la clé se tape : 'adzuna', 'jooble' ou 'claude'
+  let cleSaisie = {};      // ce qui est tapé dans ce formulaire (vidé dès l'envoi ou l'annulation)
+  let cleConfirme = null;  // le service dont l'effacement est demandé
+  const objet = (x) => (x && typeof x === 'object' && !Array.isArray(x) ? x : {});
+  const liste = (x) => (Array.isArray(x) ? x : []);
+  const tx = (d) => { const t = objet(d.textes); return (k) => texteSur(t[k]); };
+  const deptSur = (t) => typeof t === 'string' && /^(\d{2,3}|2[AB])$/.test(t);
+  const codeSurP = (t) => typeof t === 'string' && /^[a-z0-9_]{1,40}$/.test(t);
+  const anime = () => (O.anime ? ' entree' : '');
+  const pChamp = (zone, champ, k, val, attrs = '') => `data-perso="p-champ" data-zone="${zone}" data-champ="${champ}" data-k="${k}"${attrs} value="${O.esc(val || '')}"`;
+  const rubriqueOuverte = (id) => onglet === 'profil' && rubriqueDe(ongletDe('profil'))?.id === id;
+
+  // -------------------------------------------- Mon CV
+  function cvVideHTML(d, imp) {
+    const { esc } = O, t = tx(d), v = objet(d.vide);
+    return `<div class="jm-vide${anime()}">
+        <div class="jm-v-ic plasma-bord">${icone('cv')}</div>
+        <h1>${esc(texteSur(v.titre))}</h1><p>${esc(texteSur(v.texte))}</p>
+        ${imp ? attenteHTML(imp) : ''}
+        <div class="jm-btns centre">${bouton('cv-importer', 'cv:importer', t('importer'), 'importer', 'principal grand', imp ? ' disabled' : '')}${bouton('cv-coller', 'cv:coller', t('coller'), 'coller', 'second grand')}</div>
+        <p class="jm-note">${esc(t('formats'))} ${esc(texteSur(v.note))}</p></div>`;
+  }
+
+  const attenteHTML = (imp) => `<div class="jm-attente" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${O.esc(texteSur(imp.texte))}</span></div>`;
+
+  function cvCollerHTML(d) {
+    const { esc } = O, t = tx(d), v = cvColle || { nom: '', texte: '' };
+    return `<form class="jm-p${anime()}" novalidate><h1>${esc(t('coller_titre'))}</h1><p class="jm-intro">${esc(t('coller_intro'))}</p>
+      <div class="jm-grille un">
+        <label class="jm-champ"><span>${esc(t('nom'))}</span><input class="f" ${pChamp('colle', 'nom', 'cv:nom', v.nom, ` maxlength="${P_LONGUEURS.nom}" autocomplete="off" spellcheck="false" placeholder="${esc(t('i_nom'))}"`)}></label>
+        <label class="jm-champ"><span>${esc(t('texte'))}</span><textarea class="f jm-cv-texte" data-perso="p-champ" data-zone="colle" data-champ="texte" data-k="cv:texte" maxlength="${P_LONGUEURS.texte}" spellcheck="true" placeholder="${esc(t('i_texte'))}">${esc(v.texte || '')}</textarea></label></div>
+      <p class="jm-err" role="alert"></p>
+      <div class="jm-btns">${bouton('cv-enregistrer', 'cv:enreg', t('enregistrer'), 'coche', 'principal')}${bouton('cv-annuler', 'cv:annuler', t('annuler'), '', 'second')}</div></form>`;
+  }
+
+  function cvHTML(d) {
+    const { esc } = O, t = tx(d);
+    const cvs = liste(d.cvs).filter((c) => numSur(c?.id));
+    const imp = d.import && typeof d.import === 'object' ? d.import : null;
+    if (cvMode === 'coller') return cvCollerHTML(d);
+    if (!cvs.length) return cvVideHTML(d, imp);
+    const c = objet(d.ouvert), plein = d.plein === true;
+    let h = `<div class="jm-p${anime()}"><h1>${esc(texteSur(d.titre))}</h1><p class="jm-intro">${esc(texteSur(d.intro))}</p>
+      <div class="jm-outils">${bouton('cv-importer', 'cv:importer', t('importer'), 'importer', '', imp || plein ? ' disabled' : '')}${bouton('cv-coller', 'cv:coller', t('coller'), 'coller', '', plein ? ' disabled' : '')}<span>${esc(plein ? t('plein') : t('formats'))}</span></div>`;
+    if (imp) h += attenteHTML(imp);
+    if (cvs.length > 1) {
+      h += `<div class="jm-cvs" role="tablist" aria-label="${esc(t('mes_cv'))}">${cvs.map((x) => {
+        const oui = x.id === c.id;
+        return `<button type="button" role="tab" aria-selected="${oui}" class="jm-cvc f${oui ? ' sel' : ''}" data-perso="cv-ouvrir" data-id="${x.id}" data-k="cvl:${x.id}">${x.principal === true ? icone('etoile') : ''}<b>${esc(texteSur(x.nom))}</b><span>${esc(texteSur(x.sous))}</span></button>`;
+      }).join('')}</div>`;
+    }
+    if (!numSur(c.id)) return `${h}</div>`;
+    const e = Object.hasOwn(cvEdits, c.id) ? cvEdits[c.id] : { nom: texteSur(c.nom), texte: texteSur(c.texte) };
+    h += `<div class="jm-cv"><div class="jm-cv-tete"><span class="jm-a-ic">${icone('cv')}</span><div class="jm-cv-t"><b>${esc(texteSur(c.nom))}</b><span>${esc([texteSur(c.sous), texteSur(c.mots)].filter(Boolean).join(', '))}</span></div>
+        ${c.principal === true ? `<span class="jm-badge">${icone('etoile')}${esc(t('principal'))}</span>` : bouton('cv-principal', 'cv:principal', t('rendre_principal'), 'etoile', 'discret')}</div>
+      <p class="jm-petit">${esc(texteSur(c.fichier))}</p>
+      ${c.sans_texte === true ? `<p class="jm-alerte">${icone('attention')}<span>${esc(t('sans_texte'))}</span></p>` : ''}
+      <div class="jm-grille un">
+        <label class="jm-champ"><span>${esc(t('nom'))}</span><input class="f" ${pChamp('cv', 'nom', 'cv:nom', e.nom, ` maxlength="${P_LONGUEURS.nom}" autocomplete="off" spellcheck="false" placeholder="${esc(t('i_nom'))}"`)}></label>
+        <label class="jm-champ"><span>${esc(t('texte'))}</span><textarea class="f jm-cv-texte" data-perso="p-champ" data-zone="cv" data-champ="texte" data-k="cv:texte" maxlength="${P_LONGUEURS.texte}" spellcheck="true" placeholder="${esc(t('i_texte'))}">${esc(e.texte)}</textarea></label></div>
+      <p class="jm-petit">${esc(t('aide'))}</p>
+      <p class="jm-err" role="alert"></p>
+      <div class="jm-btns">${bouton('cv-enregistrer', 'cv:enreg', t('enregistrer'), 'coche', 'principal')}</div>`;
+    h += cvConfirme
+      ? `<div class="jm-suppr"><p>${esc(texteSur(c.question))}</p><div class="jm-btns">${bouton('cv-suppr-oui', 'cv:oui', t('oui'), 'poubelle', 'danger')}${bouton('cv-suppr-non', 'cv:non', t('non'), '', 'second')}</div></div>`
+      : `<div class="jm-d-bas">${bouton('cv-supprimer', 'cv:suppr', t('supprimer'), 'poubelle', 'discret danger')}</div>`;
+    return `${h}</div></div>`;
+  }
+
+  // Le CV montré (pour l'enregistrer, le supprimer...)
+  const cvDossier = () => objet(rubriquesDe(ongletDe('profil')).find((r) => r.id === 'cv')?.dossier);
+
+  function cvEnregistrer() {
+    const d = cvDossier(), err = hote.querySelector('.jm-err');
+    const colle = cvMode === 'coller', c = objet(d.ouvert);
+    const v = colle ? (cvColle || {}) : (Object.hasOwn(cvEdits, c.id) ? cvEdits[c.id] : { nom: texteSur(c.nom), texte: texteSur(c.texte) });
+    for (const k of ['nom', 'texte']) {
+      if (!String(v[k] || '').trim()) {
+        hote.querySelector(`[data-k="cv:${k}"]`)?.closest('.jm-champ')?.classList.add('faux');
+        if (err) err.textContent = k === 'nom' ? 'Donne un nom à ce CV.' : 'Colle le texte de ton CV.';
+        hote.querySelector(`[data-k="cv:${k}"]`)?.focus({ preventScroll: false });
+        O.son?.retour?.();
+        return;
+      }
+    }
+    if (Date.now() < envoiJusqua) return;
+    envoiJusqua = Date.now() + 800;
+    const m = { nom: String(v.nom).slice(0, P_LONGUEURS.nom), texte: String(v.texte).slice(0, P_LONGUEURS.texte) };
+    if (!colle && numSur(c.id)) m.id = c.id;
+    O.son?.ok?.();
+    O.action('cv-enregistrer', m);
+  }
+
+  // -------------------------------------------- Ce que je cherche
+  function rchDe(d) {
+    if (!rch) {
+      const v = objet(d.valeurs);
+      rch = {
+        postes: texteSur(v.postes), lieu: codeSurP(v.lieu) ? v.lieu : 'ville', ville: texteSur(v.ville),
+        rayon: Number.isInteger(v.rayon) ? v.rayon : 30, departement: deptSur(v.departement) ? v.departement : '',
+        region: codeSurP(v.region) ? v.region : '', contrats: liste(v.contrats).filter(codeSurP),
+        teletravail: codeSurP(v.teletravail) ? v.teletravail : 'peu_importe', sans_diplome: v.sans_diplome === true,
+        debutant: v.debutant === true, salaire: texteSur(v.salaire),
+      };
+    }
+    return rch;
+  }
+
+  function puce(perso, k, nom, oui, extra = '', role = 'radio') {
+    const etat = role === 'radio' ? `role="radio" aria-checked="${oui}"` : `aria-pressed="${oui}"`;
+    return `<button type="button" ${etat} class="jm-puce f${oui ? ' oui' : ''}" data-perso="${perso}" data-k="${k}"${extra}>${role === 'radio' ? '' : icone(oui ? 'coche' : 'plus')}${O.esc(texteSur(nom))}</button>`;
+  }
+
+  function rechercheHTML(d) {
+    const { esc } = O, t = tx(d), r = rchDe(d);
+    const choixListe = (champ, k, l, val, sur) => `<select class="f" data-perso="p-champ" data-zone="rc" data-champ="${champ}" data-k="${k}" aria-label="${esc(t(champ))}">
+        <option value="">${esc(t('choisir'))}</option>${liste(l).filter((x) => sur(x?.id)).map((x) => `<option value="${x.id}"${x.id === val ? ' selected' : ''}>${esc(texteSur(x.nom))}</option>`).join('')}</select>`;
+    const lieux = liste(d.lieux).filter((x) => codeSurP(x?.id));
+    let ou = '';
+    if (r.lieu === 'ville') {
+      ou = `<label class="jm-champ"><span>${esc(t('ville'))}</span><input class="f" ${pChamp('rc', 'ville', 'rc:ville', r.ville, ` maxlength="${P_LONGUEURS.ville}" autocomplete="off" spellcheck="false" placeholder="${esc(t('i_ville'))}"`)}></label>
+        <div class="jm-champ"><span>${esc(t('rayon'))}</span><div class="jm-puces" role="radiogroup" aria-label="${esc(t('rayon'))}">${liste(d.rayons).filter(Number.isInteger).map((n) => puce('rc-rayon', `rc:r-${n}`, `${n} ${t('km')}`, n === r.rayon, ` data-v="${n}"`)).join('')}</div></div>`;
+    } else if (r.lieu === 'departement') {
+      ou = `<label class="jm-champ large"><span>${esc(t('departement'))}</span>${choixListe('departement', 'rc:dep', d.departements, r.departement, deptSur)}</label>`;
+    } else if (r.lieu === 'region') {
+      ou = `<label class="jm-champ large"><span>${esc(t('region'))}</span>${choixListe('region', 'rc:reg', d.regions, r.region, codeSurP)}</label>`;
+    }
+    const contrats = liste(d.liste_contrats).filter((x) => codeSurP(x?.id));
+    const teles = liste(d.liste_teletravail).filter((x) => codeSurP(x?.id));
+    return `<form class="jm-p${anime()}" novalidate><h1>${esc(texteSur(d.titre))}</h1><p class="jm-intro">${esc(texteSur(d.intro))}</p>
+      ${d.enregistree === true ? `<p class="jm-deja">${icone('coche')}<span>${esc(t('deja'))}</span></p>` : ''}
+      <div class="jm-grille">
+        <label class="jm-champ large"><span>${esc(t('postes'))}</span><textarea class="f petit" data-perso="p-champ" data-zone="rc" data-champ="postes" data-k="rc:postes" maxlength="${P_LONGUEURS.postes}" spellcheck="true" placeholder="${esc(t('i_postes'))}">${esc(r.postes)}</textarea><small class="jm-aide">${esc(t('postes_aide'))}</small></label>
+        <div class="jm-champ large"><span>${esc(t('lieu'))}</span><div class="jm-puces" role="radiogroup" aria-label="${esc(t('lieu'))}">${lieux.map((x, i) => puce('rc-lieu', `rc:l${i}`, x.nom, x.id === r.lieu, ` data-id="${x.id}"`)).join('')}</div></div>
+        ${ou}
+        <div class="jm-champ large"><span>${esc(t('contrats'))}</span><div class="jm-puces">${contrats.map((x, i) => puce('rc-contrat', `rc:c${i}`, x.nom, r.contrats.includes(x.id), ` data-id="${x.id}"`, 'bascule')).join('')}</div><small class="jm-aide">${esc(t('contrats_aide'))}</small></div>
+        <div class="jm-champ large"><span>${esc(t('teletravail'))}</span><div class="jm-puces" role="radiogroup" aria-label="${esc(t('teletravail'))}">${teles.map((x, i) => puce('rc-tele', `rc:t${i}`, x.nom, x.id === r.teletravail, ` data-id="${x.id}"`)).join('')}</div></div>
+        <div class="jm-champ large"><span>${esc(t('avant'))}</span><div class="jm-puces">${puce('rc-case', 'rc:diplome', t('sans_diplome'), r.sans_diplome, ' data-id="sans_diplome"', 'bascule')}${puce('rc-case', 'rc:debutant', t('debutant'), r.debutant, ' data-id="debutant"', 'bascule')}</div></div>
+        <label class="jm-champ"><span>${esc(t('salaire'))} <small>${esc(t('facultatif'))}</small></span><input class="f" inputmode="numeric" ${pChamp('rc', 'salaire', 'rc:salaire', r.salaire, ` maxlength="${P_LONGUEURS.salaire}" autocomplete="off" spellcheck="false" placeholder="${esc(t('i_salaire'))}"`)}><small class="jm-aide">${esc(t('salaire_aide'))}</small></label>
+      </div>
+      <p class="jm-err" role="alert"></p>
+      <div class="jm-btns">${bouton('rc-enregistrer', 'rc:enreg', t('enregistrer'), 'coche', 'principal')}</div></form>`;
+  }
+
+  function rechercheEnregistrer() {
+    if (!rch) return;
+    const err = hote.querySelector('.jm-err');
+    if (!String(rch.postes || '').trim()) {
+      hote.querySelector('[data-k="rc:postes"]')?.closest('.jm-champ')?.classList.add('faux');
+      if (err) err.textContent = 'Écris au moins un poste ou un mot, par exemple : agent de quai.';
+      hote.querySelector('[data-k="rc:postes"]')?.focus({ preventScroll: false });
+      O.son?.retour?.();
+      return;
+    }
+    if (Date.now() < envoiJusqua) return;
+    envoiJusqua = Date.now() + 800;
+    O.son?.ok?.();
+    O.action('recherche-enregistrer', {
+      postes: String(rch.postes).slice(0, P_LONGUEURS.postes), lieu: rch.lieu, ville: String(rch.ville).slice(0, P_LONGUEURS.ville),
+      rayon: rch.rayon, departement: rch.departement, region: rch.region, contrats: rch.contrats.slice(0, 20),
+      teletravail: rch.teletravail, sans_diplome: rch.sans_diplome, debutant: rch.debutant, salaire: String(rch.salaire).slice(0, P_LONGUEURS.salaire),
+    });
+  }
+
+  // -------------------------------------------- Mon style
+  function styleHTML(d) {
+    const { esc } = O, t = tx(d), v = objet(d.vide);
+    const l = liste(d.liste).filter((x) => numSur(x?.id)), ouvert = objet(d.ouvert), plein = d.plein === true;
+    if (styleForm) {
+      return `<form class="jm-p${anime()}" novalidate><h1>${esc(t('nouveau'))}</h1><p class="jm-intro">${esc(texteSur(d.intro))}</p>
+        <div class="jm-grille un">
+          <label class="jm-champ"><span>${esc(t('titre'))} <small>${esc(t('facultatif'))}</small></span><input class="f" ${pChamp('st', 'titre', 'st:titre', styleForm.titre, ` maxlength="${P_LONGUEURS.titre}" autocomplete="off" spellcheck="false" placeholder="${esc(t('i_titre'))}"`)}></label>
+          <label class="jm-champ"><span>${esc(t('texte'))}</span><textarea class="f jm-cv-texte moyen" data-perso="p-champ" data-zone="st" data-champ="texte" data-k="st:texte" maxlength="${P_LONGUEURS.stexte}" spellcheck="true" placeholder="${esc(t('i_texte'))}">${esc(styleForm.texte || '')}</textarea></label></div>
+        <p class="jm-err" role="alert"></p>
+        <div class="jm-btns">${bouton('st-enregistrer', 'st:enreg', t('enregistrer'), 'coche', 'principal')}${bouton('st-annuler', 'st:annuler', t('annuler'), '', 'second')}</div></form>`;
+    }
+    if (!l.length) {
+      return `<div class="jm-vide${anime()}"><div class="jm-v-ic plasma-bord">${icone('plume')}</div><h1>${esc(texteSur(v.titre))}</h1>
+        <p>${esc(texteSur(d.intro))}</p>${bouton('st-ajouter', 'st:ajouter', t('ajouter'), 'plus', 'principal grand')}<p class="jm-note">${esc(texteSur(d.conseil))} ${esc(texteSur(d.note))}</p></div>`;
+    }
+    let h = `<div class="jm-p${anime()}"><h1>${esc(texteSur(d.titre))}</h1><p class="jm-intro">${esc(texteSur(d.intro))}</p>
+      <div class="jm-outils">${bouton('st-ajouter', 'st:ajouter', t('ajouter'), 'plus', '', plein ? ' disabled' : '')}<span>${esc(plein ? t('plein') : texteSur(d.conseil))}</span></div><div class="jm-textes">`;
+    for (const x of l) {
+      const oui = x.id === ouvert.id;
+      h += `<div class="jm-texte${oui ? ' ouvert' : ''}"><button type="button" class="jm-texte-t f" data-perso="st-ouvrir" data-id="${x.id}" data-k="st:${x.id}" aria-expanded="${oui}"><span class="jm-texte-n"><b>${esc(texteSur(x.titre))}</b><span>${esc(texteSur(x.sous))}</span></span>${icone(oui ? 'bas' : 'droite')}</button>`;
+      if (oui) {
+        h += `<div class="jm-lettre petit" data-brut>${esc(texteSur(ouvert.texte))}</div>`;
+        h += styleConfirme === x.id
+          ? `<div class="jm-suppr"><p>${esc(texteSur(ouvert.question))}</p><div class="jm-btns">${bouton('st-suppr-oui', 'st:oui', t('oui'), 'poubelle', 'danger')}${bouton('st-suppr-non', 'st:non', t('non'), '', 'second')}</div></div>`
+          : `<div class="jm-d-bas">${bouton('st-supprimer', `sts:${x.id}`, t('supprimer'), 'poubelle', 'discret danger', ` data-id="${x.id}"`)}</div>`;
+      } else {
+        h += `<p class="jm-extrait">${esc(texteSur(x.extrait))}</p>`;
+      }
+      h += '</div>';
+    }
+    return `${h}</div><p class="jm-note gauche">${esc(texteSur(d.note))}</p></div>`;
+  }
+
+  function styleEnregistrer() {
+    if (!styleForm) return;
+    const err = hote.querySelector('.jm-err');
+    if (!String(styleForm.texte || '').trim()) {
+      hote.querySelector('[data-k="st:texte"]')?.closest('.jm-champ')?.classList.add('faux');
+      if (err) err.textContent = 'Colle un texte que tu as écrit toi-même.';
+      hote.querySelector('[data-k="st:texte"]')?.focus({ preventScroll: false });
+      O.son?.retour?.();
+      return;
+    }
+    if (Date.now() < envoiJusqua) return;
+    envoiJusqua = Date.now() + 800;
+    O.son?.ok?.();
+    O.action('style-ajouter', { titre: String(styleForm.titre || '').slice(0, P_LONGUEURS.titre), texte: String(styleForm.texte).slice(0, P_LONGUEURS.stexte) });
+  }
+
+  // -------------------------------------------- Mes clés
+  function clesHTML(d) {
+    const { esc } = O, t = tx(d);
+    let h = `<div class="jm-p${anime()}"><h1>${esc(texteSur(d.titre))}</h1><p class="jm-intro">${esc(texteSur(d.intro))}</p>`;
+    for (const s of liste(d.services).filter((x) => idSur(x?.id))) {
+      const parties = liste(s.parties).filter((p) => codeSurP(p?.id));
+      const etat = ['gardee', 'absente', 'illisible', 'partielle'].includes(s.etat) ? s.etat : 'absente';
+      const form = cleForm === s.id;
+      h += `<section class="jm-cle ${etat}"><div class="jm-r-tete"><span class="jm-a-ic">${icone('cle')}</span><div class="jm-cle-t"><div class="jm-cle-l1"><b>${esc(texteSur(s.nom))}</b><span class="jm-etat">${esc(texteSur(s.etat_nom))}</span></div><p>${esc(texteSur(s.role))}</p></div></div>`;
+      if (etat === 'gardee' && !form) h += `<div class="jm-parts">${parties.map((p) => `<span>${icone('cadenas')}${esc(texteSur(p.nom))} : <b>${esc(texteSur(p.apercu))}</b></span>`).join('')}</div>`;
+      if (form) {
+        h += `<div class="jm-grille cle">${parties.map((p) => `<label class="jm-champ${parties.length === 1 ? ' large' : ''}"><span>${esc(texteSur(p.nom))}</span><input class="f" type="password" data-perso="p-champ" data-zone="cle" data-champ="${p.id}" data-k="kf:${p.id}" maxlength="${P_LONGUEURS.cle}" autocomplete="off" spellcheck="false" placeholder="${esc(texteSur(p.indice))}"></label>`).join('')}</div>
+          <p class="jm-err" role="alert"></p>
+          <div class="jm-btns">${bouton('k-enregistrer', 'k:enreg', t('enregistrer'), 'coche', 'principal')}${bouton('k-annuler', 'k:annuler', t('annuler'), '', 'second')}</div>`;
+      }
+      if (form || etat !== 'gardee') {
+        h += `<div class="jm-ouvoir"><b>${esc(t('ou'))}</b><p>${esc(texteSur(s.texte))}</p><div class="jm-lien-l"><span class="jm-lien" data-brut>${esc(texteSur(s.adresse))}</span>${bouton('k-copier', `kc:${s.id}`, t('copier'), 'lien', 'discret', ` data-id="${s.id}"`)}</div><p class="jm-petit">${esc(t('adresse_aide'))}</p></div>`;
+      }
+      if (!form) {
+        if (cleConfirme === s.id) {
+          h += `<div class="jm-suppr"><p>${esc(texteSur(s.question))}</p><div class="jm-btns">${bouton('k-effacer-oui', 'k:oui', t('oui'), 'poubelle', 'danger', ` data-id="${s.id}"`)}${bouton('k-effacer-non', 'k:non', t('non'), '', 'second')}</div></div>`;
+        } else {
+          const bts = etat === 'absente'
+            ? bouton('k-donner', `k:${s.id}`, t('donner'), 'cle', 'principal', ` data-id="${s.id}"`)
+            : bouton('k-donner', `k:${s.id}`, t('remplacer'), 'crayon', '', ` data-id="${s.id}"`) + bouton('k-effacer', `ke:${s.id}`, t('effacer'), 'poubelle', 'discret danger', ` data-id="${s.id}"`);
+          h += `<div class="jm-btns">${bts}</div>`;
+        }
+      }
+      h += '</section>';
+    }
+    return `${h}<p class="jm-note gauche">${esc(texteSur(d.note))}</p></div>`;
+  }
+
+  function cleEnregistrer() {
+    if (!idSur(cleForm)) return;
+    const champs = [...hote.querySelectorAll('[data-zone="cle"]')];
+    const vide = champs.find((el) => !String(cleSaisie[el.dataset.champ] || '').trim());
+    if (vide) {
+      vide.closest('.jm-champ')?.classList.add('faux');
+      const err = hote.querySelector('.jm-cle .jm-err'); if (err) err.textContent = 'Colle la clé dans la case.';
+      vide.focus({ preventScroll: false });
+      O.son?.retour?.();
+      return;
+    }
+    if (Date.now() < envoiJusqua) return;
+    envoiJusqua = Date.now() + 800;
+    const valeurs = Object.fromEntries(champs.map((el) => [el.dataset.champ, String(cleSaisie[el.dataset.champ] || '').slice(0, P_LONGUEURS.cle)]));
+    O.son?.ok?.();
+    O.action('cle-enregistrer', { service: cleForm, valeurs });
+    // (la clé tapée n'est pas gardée ici : si elle est refusée, Jordan la colle de nouveau)
+    cleSaisie = {};
+    champs.forEach((el) => { el.value = ''; });
+  }
+
+  // Ferme le formulaire d'une clé et oublie ce qui y était tapé
+  function cleFermer(focusK) {
+    const id = cleForm;
+    cleForm = null; cleSaisie = {};
+    dessinerTout(focusK || (id ? `k:${id}` : undefined));
+  }
+
+  // Le dossier d'une rubrique de Mon profil, selon sa vue
+  function droiteProfil(d) {
+    if (d.vue === 'cv') return cvHTML(d);
+    if (d.vue === 'recherche') return rechercheHTML(d);
+    if (d.vue === 'style') return styleHTML(d);
+    if (d.vue === 'cles') return clesHTML(d);
+    return null;
+  }
+
+  // Un élément de Mon profil (clic, A ou Entrée) ; vrai s'il en était un
+  function validerProfil(el, d) {
+    switch (d.perso) {
+      case 'p-champ': {   // (Entrée dans un champ d'une ligne : le champ suivant)
+        if (el.tagName !== 'INPUT') return true;
+        const els = [...hote.querySelectorAll('#jm .jm-dossier .f')], i = els.indexOf(el);
+        els[i + 1]?.focus({ preventScroll: false });
+        return true;
+      }
+      // Mon CV
+      case 'cv-importer': if (!el.disabled) { O.son?.ok?.(); O.action('cv-importer'); } return true;
+      case 'cv-coller': if (!el.disabled) { O.son?.ok?.(); cvMode = 'coller'; cvColle = cvColle || { nom: '', texte: '' }; O.anime = !reduit(); dessinerTout('cv:nom'); } return true;
+      case 'cv-annuler': O.son?.retour?.(); cvMode = 'voir'; dessinerTout('cv:coller'); return true;
+      case 'cv-enregistrer': cvEnregistrer(); return true;
+      case 'cv-ouvrir': { const id = Number(d.id); if (numSur(id)) { O.son?.tic?.(); cvConfirme = false; O.action('cv-ouvrir', { id }); } return true; }
+      case 'cv-principal': { const c = objet(cvDossier().ouvert); if (numSur(c.id)) { O.son?.ok?.(); O.action('cv-principal', { id: c.id }); } return true; }
+      case 'cv-supprimer': O.son?.ok?.(); cvConfirme = true; dessinerTout('cv:non'); hote.querySelector('.jm-suppr')?.scrollIntoView({ block: 'nearest' }); return true;
+      case 'cv-suppr-non': O.son?.retour?.(); cvConfirme = false; dessinerTout('cv:suppr'); return true;
+      case 'cv-suppr-oui': { const c = objet(cvDossier().ouvert); if (numSur(c.id) && cvConfirme) { cvConfirme = false; el.disabled = true; O.action('cv-supprimer', { id: c.id }); } return true; }
+      // Ce que je cherche
+      case 'rc-lieu': if (rch && codeSurP(d.id)) { rch.lieu = d.id; O.son?.bascule?.(); dessinerTout(el.dataset.k); } return true;
+      case 'rc-rayon': { const n = Number(d.v); if (rch && Number.isInteger(n)) { rch.rayon = n; O.son?.bascule?.(); dessinerTout(el.dataset.k); } return true; }
+      case 'rc-contrat': if (rch && codeSurP(d.id)) { rch.contrats = rch.contrats.includes(d.id) ? rch.contrats.filter((x) => x !== d.id) : [...rch.contrats, d.id]; O.son?.bascule?.(); dessinerTout(el.dataset.k); } return true;
+      case 'rc-tele': if (rch && codeSurP(d.id)) { rch.teletravail = d.id; O.son?.bascule?.(); dessinerTout(el.dataset.k); } return true;
+      case 'rc-case': if (rch && (d.id === 'sans_diplome' || d.id === 'debutant')) { rch[d.id] = !rch[d.id]; O.son?.bascule?.(); dessinerTout(el.dataset.k); } return true;
+      case 'rc-enregistrer': rechercheEnregistrer(); return true;
+      // Mon style
+      case 'st-ajouter': if (!el.disabled) { O.son?.ok?.(); styleForm = styleForm || { titre: '', texte: '' }; O.anime = !reduit(); dessinerTout('st:titre'); } return true;
+      case 'st-annuler': O.son?.retour?.(); styleForm = null; dessinerTout('st:ajouter'); return true;
+      case 'st-enregistrer': styleEnregistrer(); return true;
+      case 'st-ouvrir': { const id = Number(d.id); if (numSur(id)) { O.son?.tic?.(); styleConfirme = null; O.action('style-ouvrir', { id }); } return true; }
+      case 'st-supprimer': { const id = Number(d.id); if (numSur(id)) { O.son?.ok?.(); styleConfirme = id; dessinerTout('st:non'); } return true; }
+      case 'st-suppr-non': { const id = styleConfirme; O.son?.retour?.(); styleConfirme = null; dessinerTout(id ? `sts:${id}` : undefined); return true; }
+      case 'st-suppr-oui': if (numSur(styleConfirme)) { const id = styleConfirme; styleConfirme = null; el.disabled = true; O.action('style-supprimer', { id }); } return true;
+      // Mes clés
+      case 'k-donner': if (idSur(d.id)) { O.son?.ok?.(); cleForm = d.id; cleSaisie = {}; cleConfirme = null; dessinerTout(); hote.querySelector('#jm [data-zone="cle"]')?.focus({ preventScroll: false }); } return true;
+      case 'k-annuler': O.son?.retour?.(); cleFermer(); return true;
+      case 'k-enregistrer': cleEnregistrer(); return true;
+      case 'k-copier': {
+        const s = liste(objet(rubriquesDe(ongletDe('profil')).find((r) => r.id === 'cles')?.dossier).services).find((x) => x?.id === d.id);
+        if (s && texteSur(s.adresse)) copierBrut(texteSur(s.adresse), el, () => O.action('p-copie', { quoi: 'adresse', service: s.id }));
+        return true;
+      }
+      case 'k-effacer': if (idSur(d.id)) { O.son?.ok?.(); cleConfirme = d.id; dessinerTout('k:non'); } return true;
+      case 'k-effacer-non': { const id = cleConfirme; O.son?.retour?.(); cleConfirme = null; dessinerTout(id ? `ke:${id}` : undefined); return true; }
+      case 'k-effacer-oui': if (idSur(cleConfirme)) { const service = cleConfirme; cleConfirme = null; el.disabled = true; O.action('cle-effacer', { service }); } return true;
+      default: return false;
+    }
+  }
+
+  // Ce qui se tape dans Mon profil : gardé ici
+  function saisieProfil(el, d) {
+    const v = el.value;
+    el.closest('.jm-champ')?.classList.remove('faux');
+    const err = el.closest('form, .jm-p, .jm-cle')?.querySelector('.jm-err'); if (err) err.textContent = '';
+    if (d.zone === 'colle' && (d.champ === 'nom' || d.champ === 'texte')) { cvColle = { ...(cvColle || {}), [d.champ]: v }; return; }
+    if (d.zone === 'cv' && (d.champ === 'nom' || d.champ === 'texte')) {
+      const c = objet(cvDossier().ouvert); if (!numSur(c.id)) return;
+      const e = Object.hasOwn(cvEdits, c.id) ? cvEdits[c.id] : { nom: texteSur(c.nom), texte: texteSur(c.texte) };
+      cvEdits[c.id] = { ...e, [d.champ]: v };
+      return;
+    }
+    if (d.zone === 'rc' && rch && ['postes', 'ville', 'salaire', 'departement', 'region'].includes(d.champ)) { rch[d.champ] = v; return; }
+    if (d.zone === 'st' && styleForm && (d.champ === 'titre' || d.champ === 'texte')) { styleForm[d.champ] = v; return; }
+    if (d.zone === 'cle' && cleForm && codeSurP(d.champ)) cleSaisie[d.champ] = v;
+  }
+
+  // Retour dans Mon profil : ferme d'abord ce qui est ouvert ; vrai si quelque chose l'était
+  function retourProfil() {
+    if (onglet !== 'profil') return false;
+    if (cvConfirme) { cvConfirme = false; dessinerTout('cv:suppr'); return true; }
+    if (cvMode === 'coller') { cvMode = 'voir'; dessinerTout('cv:coller'); return true; }
+    if (styleConfirme) { const id = styleConfirme; styleConfirme = null; dessinerTout(`sts:${id}`); return true; }
+    if (styleForm) { styleForm = null; dessinerTout('st:ajouter'); return true; }
+    if (cleConfirme) { const id = cleConfirme; cleConfirme = null; dessinerTout(`ke:${id}`); return true; }
+    if (cleForm) { cleFermer(); return true; }
+    return false;
+  }
+
+  // Les ordres de l'appli pour Mon profil ; vrai si c'en était un
+  function ordreProfil(o) {
+    if (numSur(o.cv)) {
+      cvMode = 'voir'; cvColle = null; cvConfirme = false; delete cvEdits[o.cv];
+      if (rubriqueOuverte('cv')) dessinerTout('cv:enreg');
+      return true;
+    }
+    if (numSur(o.cv_supprime)) { delete cvEdits[o.cv_supprime]; cvConfirme = false; if (rubriqueOuverte('cv')) dessinerTout(); return true; }
+    if (o.recherche === 'enregistree') { rch = null; if (rubriqueOuverte('recherche')) dessinerTout('rc:enreg'); return true; }
+    if (numSur(o.style)) { styleForm = null; if (rubriqueOuverte('style')) dessinerTout('st:ajouter'); return true; }
+    if (idSur(o.cle)) { cleForm = null; cleSaisie = {}; cleConfirme = null; if (rubriqueOuverte('cles')) dessinerTout(`k:${o.cle}`); return true; }
+    return false;
   }
 
   // ---------------------------------------------------------------- avec le kit
@@ -691,6 +1100,7 @@
       if (rdv) { rdv = null; dessinerTout('d:statut'); return true; }
       if (confirme) { confirme = false; dessinerTout('d:supprimer'); return true; }
       if (vueC === 'formulaire') { fermerFormulaire(true); return true; }
+      if (retourProfil()) return true;
       const premier = onglets()[0];
       if (premier && onglet !== premier.id) { montrer(premier.id); return true; }
       return false;
@@ -698,6 +1108,7 @@
     // Les ordres de l'appli
     ordre(o) {
       if (!hote || !P) return;
+      if (ordreProfil(o)) return;
       if (idSur(o.rubrique)) {
         const avec = onglets().find((x) => rubriquesDe(x).some((r) => r.id === o.rubrique));
         if (avec) { montrer(avec.id, `r:${o.rubrique}`); ouvrirRubrique(o.rubrique); }
@@ -740,6 +1151,8 @@
         if (vueC === 'formulaire' && form) ouvrirCal('f'); else if (rdv) ouvrirCal('e');
         return;
       }
+      // (pour les captures) le dossier ouvert descendu tout en bas
+      if (o.defiler === 'bas') { const d = hote.querySelector('.jm-dossier'); if (d) d.scrollTop = d.scrollHeight; return; }
       // (pour les captures) un clic sur un élément de l'écran, par son data-k (« cal:2026-11-10 », « f:enregistrer »)
       if (typeof o.cliquer === 'string' && /^[a-z]{1,4}:[a-z0-9-]{1,12}$/.test(o.cliquer)) {
         hote.querySelector(`#jm [data-k="${o.cliquer}"]`)?.click();

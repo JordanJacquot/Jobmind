@@ -1,0 +1,25 @@
+[package]
+name = "jobmind-lecture"
+version = "0.1.0"
+description = "La lecture d'un CV (étape 3) : le texte d'un PDF ou d'un fichier Word (.docx), en Rust pur. Sans écran, sans Windows, sans réseau : seulement des octets reçus"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Versions figées (« = ») : une nouvelle version n'entre que par un changement relu.
+# Le texte d'un PDF (licence MIT), avec lopdf (MIT) sans ses options par défaut (ni chrono, ni rayon). Il peut
+# s'arrêter net (« panic ») sur un PDF qu'il ne comprend pas : chaque lecture est protégée (lib.rs, `lire`).
+pdf-extract = "=0.12.1"
+# Le .docx est un zip : ses parties compressées sont décompressées par miniz_oxide (MIT, Zlib ou Apache-2.0, déjà
+# tiré par Tauri pour les images), avec une taille limite (un zip piégé ne remplit pas la mémoire), et vérifiées par
+# leur somme de contrôle (crc32fast, MIT ou Apache-2.0, déjà tiré par Tauri).
+miniz_oxide = "=0.8.9"
+crc32fast = "=1.5.3"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# (l'exemple « lire » remet le texte au propre comme l'appli)
+jobmind-core = { path = "../jobmind-core" }

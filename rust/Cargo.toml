@@ -5,6 +5,7 @@ resolver = "3"
 members = [
     "jobmind-core",
     "jobmind-storage",
+    "jobmind-lecture",
     "jobmind-sources",
     "jobmind-llm",
     "jobmind-humanizer",

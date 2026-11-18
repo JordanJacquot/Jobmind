@@ -13,7 +13,10 @@
 //!    500 ms : accrochage et taille minimale, signal d'affichage, veille de la page, quitter.demande, suite.json,
 //!    etat.json). Le suivi (étape 2) : toutes les 500 ms, la bulle en attente envoyée à Mindset (notification.demande)
 //!    et afficher.demande lu (un clic sur une bulle ouvre le dossier) ; au démarrage puis toutes les 30 s, les bulles
-//!    dues (une relance devenue à faire, un entretien demain) ; à minuit, la liste refaite. L'échelle de la page dans un panneau de Mindset plus petit que la fenêtre suit chaque nouvelle
+//!    dues (une relance devenue à faire, un entretien demain) ; à minuit, la liste refaite. Mon profil (étape 3) : un
+//!    geste du profil passe par crate::profil ; « Importer un fichier » ouvre la boîte « Ouvrir » de Windows sur un fil
+//!    à part, qui lit ensuite le fichier et rapporte chaque étape au fil de la fenêtre (lecture abandonnée après 60 s).
+//!    L'échelle de la page dans un panneau de Mindset plus petit que la fenêtre suit chaque nouvelle
 //!    taille (`Resized`), et chaque pas. La croix et `WM_CLOSE` (le bouton « Fermer » de Mindset) quittent.
 //! 5. La fin : la relance si le thème a changé, puis `std::process::exit` (aucun fil ne garde le processus en vie sans
 //!    fenêtre, contrat-appli partie 3), sans rien lâcher de l'état du fil de la fenêtre ([`quitter_sans_rien_lacher`]).
@@ -29,6 +32,7 @@ use std::time::{Duration, Instant};
 
 use jobmind_core::Jour;
 use jobmind_storage::bulles::Demande;
+use jobmind_storage::cles::Cles;
 use jobmind_storage::{Donnees, Journal};
 use jobmind_vie::{
     Depart, DisqueReel, Environnement, Fin, Lancement, Monde, Reglages, Taille, Vie, demarrage_demande, demarrer,
@@ -40,7 +44,10 @@ use tauri::{App, AppHandle, Manager, Window, WindowEvent};
 
 use crate::fenetre::{LABEL, TAILLE_MIN, creer_principale};
 use crate::pont::MessagePage;
-use crate::suivi::{self, Suivi};
+use crate::profil::{self, Contexte, Import, Profil};
+use crate::suivi::{self, Fait, Suivi};
+use crate::windows::dialogue::{self, Choix};
+use crate::windows::dpapi::Dpapi;
 use crate::windows::fenetre::FenetreTauri;
 use crate::windows::systeme::SystemeWindows;
 use crate::windows::{heure, identite, webview2};
@@ -52,6 +59,8 @@ const PAS: Duration = Duration::from_millis(100);
 const RELEVE: Duration = Duration::from_millis(500);
 /// La vérification des bulles dues : au démarrage, puis toutes les 30 s.
 const VERIFICATION: Duration = Duration::from_secs(30);
+/// La lecture d'un fichier de CV choisi : abandonnée après ce temps (un fichier qui ferait tourner la lecture sans fin).
+const LECTURE_MAX: Duration = Duration::from_secs(60);
 
 /// Tout ce que l'appli garde pendant qu'elle tourne, sur le fil de la fenêtre.
 struct Etat {
@@ -70,6 +79,12 @@ struct Etat {
     donnees: Rc<RefCell<Option<Donnees>>>,
     /// Le suivi : le dossier ouvert
     suivi: Suivi,
+    /// Mon profil : le CV et le texte ouverts, l'import en cours
+    profil: Profil,
+    /// Les clés, chiffrées par DPAPI (data\cles.json)
+    cles: Cles,
+    /// La lecture du fichier de CV choisi a commencé à ce moment
+    lecture_depuis: Option<Instant>,
     /// Le jour de la liste montrée : un nouveau jour, elle est refaite
     jour: Jour,
     /// Tauri, une fois la fenêtre créée : l'état renvoyé à la page après un geste
@@ -215,13 +230,25 @@ pub fn lancer() -> ! {
     for r in &theme.raisons {
         journal.ecrire(&format!("Thème : {r}"));
     }
-    // (construction d'essai : des candidatures inventées pour les captures, seulement dans le dossier d'essai)
+    // Les clés (data\cles.json), chiffrées par DPAPI pour cet utilisateur Windows
+    #[cfg_attr(not(feature = "essai"), allow(unused_mut))]
+    let (mut cles, raison) = Cles::ouvrir(&l.dossier_donnees, Box::new(Dpapi));
+    if let Some(r) = raison {
+        journal.ecrire(&r);
+    }
+    // (construction d'essai : des candidatures et un profil inventés pour les captures, seulement dans le dossier
+    // d'essai)
     #[cfg(feature = "essai")]
-    crate::essai::exemples_demandes(&l.dossier_donnees, d.base.as_ref(), heure::maintenant(), &journal);
-    // L'état de départ : le suivi d'après la base
+    crate::essai::exemples_demandes(&l.dossier_donnees, d.base.as_ref(), &mut cles, heure::maintenant(), &journal);
+    // L'état de départ : le suivi et le profil d'après la base
     let jour = heure::maintenant().jour();
     let mut suivi = Suivi::default();
-    let (depart, raison) = suivi.etat(VERSION, d.base.as_ref(), jour);
+    let mut profil = Profil::default();
+    let (vue_profil, raison) = profil.vue(d.base.as_ref(), Some(&cles));
+    if let Some(r) = raison {
+        journal.ecrire(&r);
+    }
+    let (depart, raison) = suivi.etat_avec(VERSION, d.base.as_ref(), jour, &vue_profil);
     if let Some(r) = raison {
         journal.ecrire(&r);
     }
@@ -257,6 +284,9 @@ pub fn lancer() -> ! {
             dossier_mindset: l.dossier_mindset.clone(),
             donnees: Rc::clone(&donnees),
             suivi,
+            profil,
+            cles,
+            lecture_depuis: None,
             jour,
             app: None,
             releve: Instant::now(),
@@ -377,11 +407,13 @@ fn tour(app: &AppHandle) {
             vie.ajuster_echelle(&mut Monde { systeme, disque, fenetre });
             etat.nouveau_jour(app);
             etat.bulles(app);
+            etat.lecture_trop_longue(app);
         }
         #[cfg(feature = "essai")]
         {
             capture_demandee(etat);
             ordre_demande(etat, app);
+            import_demande(etat, app);
         }
         etat.fin = fin;
         fin
@@ -396,16 +428,63 @@ fn ligne_courte(m: &MessagePage) -> String {
     court(&crate::pont::ligne_journal(m))
 }
 
+/// Ce que le fil de l'import rapporte au fil de la fenêtre.
+enum RetourImport {
+    /// Un fichier choisi (son nom) : sa lecture commence
+    Choisi(u64, String),
+    /// La boîte fermée sans choix, ou qui n'a pas pu s'ouvrir (la raison)
+    Annule(u64, Option<String>),
+    /// Le fichier lu (ou refusé)
+    Fini(Box<Import>),
+}
+
+/// Le fil de l'import : la boîte « Ouvrir » de Windows posée sur la fenêtre de Jobmind (sauf un chemin donné par
+/// l'essai), puis la lecture du fichier choisi ; chaque étape est rapportée au fil de la fenêtre.
+fn fil_import(app: AppHandle, h: usize, jeton: u64, chemin: Option<PathBuf>) {
+    let chemin = match chemin {
+        Some(c) => c,
+        None => match dialogue::choisir_cv(h) {
+            Ok(Choix::Fichier(c)) => c,
+            Ok(Choix::Annule) => return rapporter(&app, RetourImport::Annule(jeton, None)),
+            Err(e) => return rapporter(&app, RetourImport::Annule(jeton, Some(e))),
+        },
+    };
+    let nom = chemin.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    rapporter(&app, RetourImport::Choisi(jeton, nom));
+    let lu = profil::lire_fichier(&chemin, jeton);
+    rapporter(&app, RetourImport::Fini(Box::new(lu)));
+}
+
+/// Rapporte une étape de l'import au fil de la fenêtre (occupé : réessayé juste après).
+fn rapporter(app: &AppHandle, r: RetourImport) {
+    let a = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let pour_etat = a.clone();
+        let reste = ETAT.with(move |e| match e.try_borrow_mut() {
+            Ok(mut e) => {
+                if let Some(etat) = e.as_mut() {
+                    etat.retour_import(&pour_etat, r);
+                }
+                None
+            }
+            Err(_) => Some(r),
+        });
+        if let Some(r) = reste {
+            rapporter(&a, r);
+        }
+    });
+}
+
 impl Etat {
     /// Un message du kit. « Retour » depuis l'accueil ramène à la console de Mindset (seulement dans Mindset : sinon
-    /// la demande est seulement notée) ; un geste du suivi est vérifié puis écrit dans la base ([`Etat::geste`]) ; le
-    /// reste est noté au journal.
+    /// la demande est seulement notée) ; un geste du suivi ou du profil est vérifié puis écrit ([`Etat::geste`]) ; le
+    /// reste est noté au journal (jamais la valeur d'un geste du profil : un texte de Jordan, une clé).
     fn recevoir(&mut self, m: &MessagePage) {
         let ligne = match m {
             MessagePage::Menu if self.vie.dans_mindset() => {
                 crate::pont::demander_menu(&self.dossier_mindset, &mut self.systeme, &mut self.disque)
             }
-            MessagePage::Action { id, valeur, .. } if suivi::est_geste(id) => {
+            MessagePage::Action { id, valeur, .. } if suivi::est_geste(id) || profil::est_geste(id) => {
                 self.geste(id, valeur);
                 return;
             }
@@ -414,35 +493,46 @@ impl Etat {
         self.journal.ecrire(&court(&ligne));
     }
 
-    /// Un geste du suivi : vérifié, écrit dans la base, puis l'état renvoyé à la page (la liste, le dossier) et la
-    /// carte de Mindset réécrite ; la bulle de l'écran dit ce qui a été fait, ou ce qui ne va pas.
-    fn geste(&mut self, id: &str, valeur: &Value) {
-        let Some(app) = self.app.clone() else { return };
-        let page = app.state::<Page>();
-        // (les données occupées : rien n'est perdu, Jordan réessaie)
-        let Ok(mut d) = self.donnees.try_borrow_mut() else {
-            page.ordre(json!({ "kit": "message", "texte": "Jobmind est occupée : réessaie dans un instant." }));
+    /// L'état de la page d'après la base et les clés : le suivi et le profil.
+    fn etat_page(&mut self, d: &Donnees) -> Value {
+        let (vue, raison) = self.profil.vue(d.base.as_ref(), Some(&self.cles));
+        if let Some(r) = raison {
+            self.journal.ecrire(&r);
+        }
+        let (e, raison) = self.suivi.etat_avec(VERSION, d.base.as_ref(), self.jour, &vue);
+        if let Some(r) = raison {
+            self.journal.ecrire(&r);
+        }
+        e
+    }
+
+    /// Fait quelque chose avec les données (la base, le dossier), puis applique ce qui en sort ([`Etat::appliquer`]).
+    /// Les données occupées : rien n'est perdu, Jordan réessaie.
+    fn faire(&mut self, app: &AppHandle, f: impl FnOnce(&mut Etat, &mut Donnees) -> Fait) {
+        let donnees = Rc::clone(&self.donnees);
+        let Ok(mut d) = donnees.try_borrow_mut() else {
+            app.state::<Page>()
+                .ordre(json!({ "kit": "message", "texte": "Jobmind est occupée : réessaie dans un instant." }));
             return;
         };
         let Some(d) = d.as_mut() else { return };
-        let maintenant = heure::maintenant();
-        self.jour = maintenant.jour();
-        let fait = match d.base.as_ref() {
-            Some(base) => self.suivi.geste(base, id, valeur, maintenant),
-            None => {
-                self.journal.ecrire(&format!("Suivi : {id} impossible, la base n'est pas ouverte"));
-                page.ordre(json!({ "kit": "message", "texte": suivi::SANS_BASE }));
-                return;
-            }
-        };
+        let fait = f(self, d);
+        self.appliquer(app, d, fait);
+    }
+
+    /// Ce qu'a donné un geste : la ligne du journal, l'import demandé (la boîte « Ouvrir »), l'état renvoyé à la page
+    /// et la carte de Mindset réécrite s'il a changé, l'ordre à la page, puis la bulle de l'écran qui dit ce qui a été
+    /// fait, ou ce qui ne va pas.
+    fn appliquer(&mut self, app: &AppHandle, d: &mut Donnees, fait: Fait) {
+        let page = app.state::<Page>();
         if let Some(j) = &fait.journal {
             self.journal.ecrire(&court(j));
         }
+        if fait.importer {
+            self.lancer_import(app, None);
+        }
         if fait.change {
-            let (e, raison) = self.suivi.etat(VERSION, d.base.as_ref(), self.jour);
-            if let Some(r) = raison {
-                self.journal.ecrire(&r);
-            }
+            let e = self.etat_page(d);
             page.changer(e);
             d.ecrire_etat();
         }
@@ -454,20 +544,80 @@ impl Etat {
         }
     }
 
+    /// Un geste du suivi ou du profil : vérifié, écrit dans la base (ou le dossier `cv`, ou le fichier des clés), puis
+    /// appliqué.
+    fn geste(&mut self, id: &str, valeur: &Value) {
+        let Some(app) = self.app.clone() else { return };
+        self.faire(&app, |etat, d| {
+            let maintenant = heure::maintenant();
+            etat.jour = maintenant.jour();
+            if profil::est_geste(id) {
+                let dossier = d.dossier().to_path_buf();
+                let mut ctx = Contexte { base: d.base.as_ref(), dossier: &dossier, cles: Some(&mut etat.cles) };
+                return etat.profil.geste(&mut ctx, id, valeur, maintenant);
+            }
+            match d.base.as_ref() {
+                Some(base) => etat.suivi.geste(base, id, valeur, maintenant),
+                None => Fait::refus(suivi::SANS_BASE, format!("Suivi : {id} impossible, la base n'est pas ouverte")),
+            }
+        });
+    }
+
+    /// Lance le fil de l'import demandé par « Importer un fichier » (`chemin` : l'essai donne le fichier, sans boîte).
+    fn lancer_import(&mut self, app: &AppHandle, chemin: Option<PathBuf>) {
+        let Some(jeton) = self.profil.import.as_ref().map(|i| i.jeton) else { return };
+        let h = self.fenetre.as_ref().map_or(0, FenetreTauri::hwnd);
+        let a = app.clone();
+        let r = std::thread::Builder::new().name("import-cv".into()).spawn(move || fil_import(a, h, jeton, chemin));
+        if let Err(e) = r {
+            self.profil.import = None;
+            self.journal.ecrire(&format!("Profil : fil de l'import non lancé ({e})"));
+        }
+    }
+
+    /// Une étape de l'import rapportée par son fil.
+    fn retour_import(&mut self, app: &AppHandle, r: RetourImport) {
+        match r {
+            RetourImport::Choisi(jeton, nom) => {
+                if self.profil.import_choisi(jeton, &nom) {
+                    self.lecture_depuis = Some(Instant::now());
+                    self.journal.ecrire("Profil : fichier choisi, lecture en cours");
+                    self.renvoyer(app);
+                }
+            }
+            RetourImport::Annule(jeton, raison) => {
+                self.faire(app, |etat, _| etat.profil.import_annule(jeton, raison.as_deref()));
+            }
+            RetourImport::Fini(lu) => {
+                self.lecture_depuis = None;
+                self.faire(app, |etat, d| {
+                    let dossier = d.dossier().to_path_buf();
+                    let mut ctx = Contexte { base: d.base.as_ref(), dossier: &dossier, cles: None };
+                    etat.profil.import_fini(&mut ctx, *lu, heure::maintenant())
+                });
+            }
+        }
+    }
+
+    /// La lecture d'un fichier qui dure trop longtemps : abandonnée (un résultat qui arriverait ensuite est laissé).
+    fn lecture_trop_longue(&mut self, app: &AppHandle) {
+        if self.lecture_depuis.is_some_and(|t| t.elapsed() > LECTURE_MAX) {
+            self.lecture_depuis = None;
+            self.faire(app, |etat, _| etat.profil.import_trop_long());
+        }
+    }
+
     /// L'état renvoyé à la page d'après la base (et la carte de Mindset réécrite si elle a changé). Faux si les données
     /// sont occupées.
     fn renvoyer(&mut self, app: &AppHandle) -> bool {
-        let Ok(mut d) = self.donnees.try_borrow_mut() else { return false };
+        let donnees = Rc::clone(&self.donnees);
+        let Ok(mut d) = donnees.try_borrow_mut() else { return false };
         let Some(d) = d.as_mut() else { return false };
-        let (e, raison) = self.suivi.etat(VERSION, d.base.as_ref(), self.jour);
-        if let Some(r) = raison {
-            self.journal.ecrire(&r);
-        }
+        let e = self.etat_page(d);
         app.state::<Page>().changer(e);
         d.ecrire_etat();
         true
     }
-
     /// Minuit passé : la liste est refaite pour le nouveau jour (« il y a 16 jours », les relances devenues à faire) et
     /// renvoyée à la page ; la carte de Mindset suit tout de suite.
     fn nouveau_jour(&mut self, app: &AppHandle) {
@@ -643,6 +793,32 @@ fn ordre_demande(etat: &Etat, app: &AppHandle) {
         }
         Err(e) => etat.journal.ecrire(&format!("Essai : ordre illisible ({e})")),
     }
+}
+
+/// Construction d'essai : un fichier `import.demande` (le chemin d'un CV d'essai) fait comme « Importer un fichier »,
+/// mais sans la boîte « Ouvrir » : le fichier est lu et ajouté comme si Jordan l'avait choisi (les captures, la
+/// preuve de l'import de bout en bout). La boîte elle-même est essayée par outils\captures.ps1 (vue « dialogue »).
+#[cfg(feature = "essai")]
+fn import_demande(etat: &mut Etat, app: &AppHandle) {
+    let demande = etat.dossier.join(crate::essai::IMPORT_DEMANDE);
+    if !demande.is_file() {
+        return;
+    }
+    let texte = std::fs::read_to_string(&demande).unwrap_or_default();
+    let _ = std::fs::remove_file(&demande);
+    let chemin = PathBuf::from(texte.trim_start_matches('\u{feff}').trim());
+    etat.journal.ecrire("Essai : import d'un fichier demandé");
+    let a = app.clone();
+    etat.faire(app, move |e, d| {
+        let dossier = d.dossier().to_path_buf();
+        let mut ctx = Contexte { base: d.base.as_ref(), dossier: &dossier, cles: None };
+        let mut f = e.profil.geste(&mut ctx, profil::IMPORTER, &Value::Null, heure::maintenant());
+        if f.importer {
+            f.importer = false;
+            e.lancer_import(&a, Some(chemin));
+        }
+        f
+    });
 }
 
 /// La boucle de la fenêtre (`run_return`), protégée : tao attrape une panique d'un rappel de la fenêtre (une page, une

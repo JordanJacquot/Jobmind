@@ -48,6 +48,14 @@ allow = [
     # construit par cc, déjà dans la liste), et ce que rusqlite tire. Licences relues le 18/11/2026.
     "rusqlite", "libsqlite3-sys", "hashlink", "fallible-iterator", "fallible-streaming-iterator", "pkg-config",
     "vcpkg",
+    # la lecture des CV (jobmind-lecture, étape 3) : pdf-extract et lopdf (MIT) pour le texte des PDF, et ce qu'ils
+    # tirent : polices et encodages (encoding_rs : Apache-2.0 ou MIT, et BSD-3-Clause), déchiffrement des PDF protégés
+    # contre la copie (RustCrypto : MIT ou Apache-2.0), lecture des fichiers PDF (nom, MIT). Licences relues le 18/11/2026.
+    "jobmind-lecture",
+    "pdf-extract", "lopdf", "adobe-cmap-parser", "pom", "cff-parser", "encoding_rs", "core_detect",
+    "multiversion_no_op", "simdutf8", "euclid", "num-traits", "postscript", "type1-encoding-parser", "ttf-parser",
+    "weezl", "rangemap", "nom", "stringprep", "unicode-bidi", "unicode-normalization", "unicode-properties",
+    "aes", "cbc", "ecb", "cipher", "inout", "block-padding", "md-5", "rand", "rand_core", "chacha20",
     # Windows (Microsoft) : verrou, signal, fenêtre, registre en lecture (jobmind-app), comme le Rust de Mindset
     "windows",
     "windows-core",

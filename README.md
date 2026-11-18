@@ -18,8 +18,11 @@ l'étape 13.
   et ses migrations, le journal, les trois onglets de la maquette C vides.
 - [x] **2. Le suivi à la main** : ajouter une candidature, statuts, notes, frise, relances après X jours, bulle, carte
   dans Mindset (migration 2 de la base ; Mon profil > Réglages : le délai avant relance).
-- [ ] **3. Mon profil** : CV (collé ou importé en PDF ou Word), ce que je cherche, mes textes pour le style, clés
-  chiffrées.
+- [x] **3. Mon profil** : Mon CV (importé en PDF ou Word par la boîte « Ouvrir » de Windows, ou collé ; le texte lu
+  se corrige ; jusqu'à 5 CV, un principal ; le fichier gardé dans le dossier `cv` des données), Ce que je cherche
+  (postes, lieu : ville et rayon, département, région ou partout ; contrats, télétravail, aucun diplôme requis, débutant
+  accepté, salaire minimum), Mon style (mes textes : ajouter, lire, supprimer), Mes clés (Adzuna, Jooble, Claude,
+  chiffrées par DPAPI dans `data\cles.json`, seulement leurs 4 derniers caractères à l'écran) ; migration 3 de la base.
 - [ ] **4. Les offres par Adzuna et Jooble** : recherches gardées, archive, lieu (ville et rayon, département, région),
   contrat, télétravail, recherche dans tout le texte, favoris, plus tard, doublons fusionnés.
 - [ ] **5. Le panneau des sites** dans Jobmind et « Ajouter à Jobmind » (LinkedIn, Indeed, Welcome to the Jungle,
@@ -47,9 +50,10 @@ Jobmind est écrite en Rust avec Tauri, sur le modèle de Paymind (`rust\`, Rust
 |---|---|
 | `jobmind-vie` | la vie dans Mindset (verrou, demandes, accrochage, thème, carte), reprise de Paymind |
 | `jobmind-relais` | `Jobmind.exe`, le relais qui lance `Mindset.exe` |
-| `jobmind-app` | `Mindset.exe` : la fenêtre Tauri, le kit d'écrans de la suite, les onglets (`ui\jobmind.js`) |
-| `jobmind-storage` | dossier de données, journal, réglages, carte de Mindset, base SQLite et migrations, candidatures, bulles |
-| `jobmind-core` | modèles, statuts, jours, saisie vérifiée, groupes du suivi, relances, bilan, bulles dues ; filtres et pertinence à venir |
+| `jobmind-app` | `Mindset.exe` : la fenêtre Tauri, le kit d'écrans de la suite, les onglets (`ui\jobmind.js`), les gestes du suivi et du profil, le coffre DPAPI et la boîte « Ouvrir » (`src\windows`) |
+| `jobmind-storage` | dossier de données, journal, réglages, carte de Mindset, base SQLite et migrations, candidatures, bulles, profil (CV et leurs fichiers, style, ce que je cherche), clés chiffrées (`data\cles.json`) |
+| `jobmind-core` | modèles, statuts, jours, saisie vérifiée, groupes du suivi, relances, bilan, bulles dues ; profil, ce que je cherche, régions et départements, forme des clés ; filtres et pertinence à venir |
+| `jobmind-lecture` | le texte d'un CV en PDF (pdf-extract, MIT) ou en Word .docx (zip et XML lus ici), en Rust pur ; fichier trop gros, scanné, abîmé ou protégé : une phrase simple |
 | `jobmind-sources` | le trait `JobSource` (Adzuna, Jooble, page lue, alertes mail viendront) |
 | `jobmind-llm` | le trait `LlmProvider` (Claude, puis un moteur sur le PC) |
 | `jobmind-humanizer` | le style de Jordan |
@@ -63,6 +67,9 @@ cargo test --locked -p jobmind-app --features essai
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 ```
+
+La lecture d'un CV sur un fichier quelconque (les mesures sur des fichiers jamais vus) :
+`cargo run -p jobmind-lecture --example lire -- <fichier> [<fichier>...]`.
 
 Le dossier prêt à zipper et le zip (dans PowerShell, depuis la racine du dépôt, chemins complets) :
 
@@ -83,9 +90,14 @@ livrée :
   par son relais, accrochée par le code d'accrochage de Mindset, la base créée, une capture de chaque onglet, puis
   fermée par « Fermer » et « Tout quitter » ;
 - `outils\captures.ps1 -Exe <Mindset.exe d'essai> -Relais <Jobmind.exe> -Resultats <dossier> [-Theme <thème>]
-  [-Vues 'candidatures,candidature:1,menu-statut,entretien,ajouter,modifier,offres,profil,rubrique:reglages']
+  [-Vues 'candidatures,candidature:1,menu-statut,entretien,ajouter,modifier,offres,profil,rubrique:cles,rubrique:reglages']
   [-Prefixe <nom>] [-Exemples] [-Largeur 944 -Hauteur 608]` : les captures dans un panneau de 1180 x 760 (944 x 608 :
-  le même vu à 125 %) ; `-Exemples` remplit la base d'essai de candidatures inventées à des statuts variés. Les vues
+  le même vu à 125 %) ; `-Exemples` remplit la base d'essai de candidatures inventées à des statuts variés et d'un profil
+  inventé (un CV collé, ce que je cherche, trois textes, deux clés inventées sur trois). Les rubriques de Mon profil :
+  `rubrique:cv`, `rubrique:recherche`, `rubrique:style`, `rubrique:cles`, `rubrique:reglages` ; `bas` descend le dossier
+  ouvert ; `importer:<chemin>` importe ce CV d'essai sans la boîte « Ouvrir » (`import.demande`) ; `dialogue:<chemin>`
+  clique « Importer un fichier », trouve la VRAIE boîte « Ouvrir » de Windows parmi les fenêtres de l'essai, la capture,
+  y tape le chemin et clique « Importer ». Les vues
   `calendrier` (le petit calendrier de la date ouverte, dans « ajouter », « modifier » ou « entretien »), `jour:<n>`
   (un clic sur le jour n du mois en cours : le champ se remplit) et `clic:<data-k>` (un clic sur un élément, par
   exemple `clic:f:enregistrer` ou `clic:e:ok`) montrent les dates, par exemple

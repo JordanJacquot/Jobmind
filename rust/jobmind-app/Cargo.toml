@@ -43,8 +43,11 @@ jobmind-vie = { path = "../jobmind-vie" }
 jobmind-storage = { path = "../jobmind-storage" }
 # Le suivi des candidatures (étape 2) : les jours, la saisie vérifiée, les groupes, les relances et les bulles
 jobmind-core = { path = "../jobmind-core" }
+# Le texte d'un CV en PDF ou en Word (étape 3), en Rust pur
+jobmind-lecture = { path = "../jobmind-lecture" }
 
-# Ce qui parle à Windows (verrou, signal, fenêtre, registre, heure, capture de l'essai). La même version que wry, tao
+# Ce qui parle à Windows (verrou, signal, fenêtre, registre, heure, capture de l'essai ; étape 3 : le coffre des clés,
+# DPAPI, et la boîte « Ouvrir » pour choisir un CV, COM). La même version que wry, tao
 # et webview2-com, et que le Rust de Mindset et de Mindcare.
 [target.'cfg(windows)'.dependencies.windows]
 version = "=0.62.2"
@@ -52,12 +55,15 @@ features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
     "Win32_Security",
+    "Win32_Security_Cryptography",
     "Win32_Storage_Xps",
+    "Win32_System_Com",
     "Win32_System_Registry",
     "Win32_System_StationsAndDesktops",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
     "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
     "Win32_UI_WindowsAndMessaging",
 ]
 # Les réglages de WebView2 que Tauri ne transmet pas (menu du clic droit, raccourcis du navigateur, saisie

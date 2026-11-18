@@ -256,3 +256,100 @@ button.jm-cal-d.oui:hover, button.jm-cal-d.oui:focus { background: color-mix(in 
   .jm-rdv-champs .large { grid-column: 1 / -1; }
   .jm-r-reglage { margin-left: 0; }
 }
+
+/* ---------------------------------------------------------------- Mon profil (étape 3) */
+.jm-p { padding: 30px 44px 36px; max-width: 900px; }
+.jm-p.entree { animation: jm-entree 380ms var(--jm-anim); }
+.jm-p h1 { margin: 0; font-size: 30px; font-weight: 800; letter-spacing: -0.5px; line-height: 1.15; overflow-wrap: anywhere; }
+.jm-p > .jm-intro { max-width: 680px; }
+.jm-btns.centre { justify-content: center; margin-top: 26px; }
+.jm-outils { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 18px; }
+.jm-outils > span { font-size: 13px; color: var(--pale); }
+.jm-attente { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding: 12px 16px; border-radius: 14px; font-size: 14.5px;
+  background: color-mix(in srgb, var(--jm) 9%, transparent); border: 1px solid color-mix(in srgb, var(--jm) 35%, transparent); color: var(--texte); }
+.jm-vide .jm-attente { margin-top: 22px; }
+.jm-roue { width: 18px; height: 18px; flex: none; border-radius: 50%; border: 2.5px solid color-mix(in srgb, var(--jm) 25%, transparent); border-top-color: var(--jm); animation: jm-tourne 900ms linear infinite; }
+@keyframes jm-tourne { to { transform: rotate(360deg); } }
+.jm-cvs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+.jm-cvc { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 8px 14px; border-radius: 12px; background: rgba(255, 255, 255, 0.045); border: 1px solid transparent; font-size: 14px; color: var(--doux); }
+.jm-cvc b { font-weight: 650; color: var(--texte); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+.jm-cvc span { font-size: 12.5px; color: var(--pale); white-space: nowrap; }
+.jm-cvc svg { width: 15px; height: 15px; color: var(--jm); flex: none; }
+.jm-cvc:hover, .jm-cvc:focus { background: rgba(255, 255, 255, 0.08); }
+.jm-cvc.sel { border-color: color-mix(in srgb, var(--jm) 50%, transparent); background: color-mix(in srgb, var(--jm) 9%, transparent); }
+.jm-cvc.f:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--jm) 55%, transparent); }
+.jm-cv { margin-top: 22px; padding: 20px 22px 18px; border-radius: 18px; background: var(--carte); border: 1px solid color-mix(in srgb, var(--ligne) 80%, transparent); }
+.jm-cv-tete { display: flex; align-items: center; gap: 14px; }
+.jm-cv-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.jm-cv-t b { font-size: 17px; font-weight: 700; overflow-wrap: anywhere; }
+.jm-cv-t span { font-size: 13.5px; color: var(--pale); }
+.jm-badge { display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 6px 12px; border-radius: 99px; font-size: 13px; font-weight: 650; color: var(--jm); background: color-mix(in srgb, var(--jm) 13%, transparent); }
+.jm-badge svg { width: 15px; height: 15px; }
+.jm-cv > .jm-petit { margin-top: 12px; }
+.jm-alerte { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0 0; padding: 12px 14px; border-radius: 12px; font-size: 14px; line-height: 1.5;
+  background: color-mix(in srgb, var(--T) 10%, transparent); border: 1px solid color-mix(in srgb, var(--T) 35%, transparent); }
+.jm-alerte svg { width: 18px; height: 18px; flex: none; color: var(--T); margin-top: 1px; }
+.jm-grille.un { grid-template-columns: minmax(0, 1fr); margin-top: 16px; }
+/* (assez haut pour lire, assez bas pour que « Enregistrer » se voie sans descendre) */
+.jm-champ textarea.jm-cv-texte { height: clamp(150px, calc(100vh - 500px), 320px); line-height: 1.55; }
+.jm-champ textarea.jm-cv-texte.moyen { height: clamp(140px, calc(100vh - 520px), 220px); }
+.jm-champ textarea.petit { height: 66px; }
+.jm-aide { font-size: 12.5px; color: var(--pale); line-height: 1.4; }
+.jm-champ select { width: 100%; box-sizing: border-box; height: 42px; padding: 0 12px; border-radius: 11px; border: 1px solid transparent; background: rgba(255, 255, 255, 0.055);
+  font: inherit; font-size: 15px; color: var(--texte); outline: none; }
+.jm-champ select:focus { border-color: color-mix(in srgb, var(--jm) 50%, transparent); }
+.jm-champ select option { background: var(--carte2); color: var(--texte); }
+.jm-champ.faux textarea { border-color: color-mix(in srgb, var(--rouge) 70%, transparent); }
+.jm-puce { display: inline-flex; align-items: center; gap: 6px; }
+.jm-puce svg { width: 14px; height: 14px; flex: none; }
+.jm-deja { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; font-size: 13.5px; color: var(--vert); }
+.jm-deja svg { width: 16px; height: 16px; flex: none; }
+.jm-textes { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
+.jm-texte { padding: 4px 6px 4px 6px; border-radius: 16px; background: var(--carte); border: 1px solid color-mix(in srgb, var(--ligne) 70%, transparent); }
+.jm-texte.ouvert { border-color: color-mix(in srgb, var(--jm) 40%, transparent); padding-bottom: 14px; }
+.jm-texte-t { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; border-radius: 12px; text-align: left; }
+.jm-texte-t:hover, .jm-texte-t:focus { background: rgba(255, 255, 255, 0.04); }
+.jm-texte-t.f:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--jm) 45%, transparent); }
+.jm-texte-t > svg { width: 18px; height: 18px; flex: none; color: var(--pale); }
+.jm-texte-n { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.jm-texte-n b { font-size: 15.5px; font-weight: 650; overflow-wrap: anywhere; }
+.jm-texte-n span { font-size: 13px; color: var(--pale); }
+.jm-extrait { margin: 0 12px 8px; font-size: 14px; line-height: 1.5; color: var(--doux); overflow-wrap: anywhere; }
+.jm-lettre.petit { margin: 4px 12px 0; padding: 14px 18px; font-size: 14.5px; max-height: 260px; }
+.jm-texte .jm-d-bas, .jm-texte .jm-suppr { margin: 12px 12px 0; }
+.jm-texte .jm-d-bas { padding-top: 8px; }
+.jm-cle { margin-top: 18px; padding: 18px 20px; border-radius: 16px; background: var(--carte); border: 1px solid color-mix(in srgb, var(--ligne) 80%, transparent); max-width: 720px; }
+.jm-cle.gardee { border-color: color-mix(in srgb, var(--vert) 35%, transparent); }
+.jm-cle.illisible, .jm-cle.partielle { border-color: color-mix(in srgb, var(--T) 45%, transparent); }
+.jm-cle-t { flex: 1; min-width: 0; }
+.jm-cle-l1 { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.jm-cle-l1 b { font-size: 17px; font-weight: 700; }
+.jm-etat { padding: 3px 10px; border-radius: 99px; font-size: 12.5px; font-weight: 650; color: var(--pale); background: rgba(255, 255, 255, 0.06); }
+.jm-cle.gardee .jm-etat { color: var(--vert); background: color-mix(in srgb, var(--vert) 14%, transparent); }
+.jm-cle.illisible .jm-etat, .jm-cle.partielle .jm-etat { color: var(--T); background: color-mix(in srgb, var(--T) 14%, transparent); }
+.jm-cle .jm-r-tete p { margin: 4px 0 0; }
+.jm-parts { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 14px 0 0 60px; font-size: 14px; color: var(--doux); }
+.jm-parts span { display: inline-flex; align-items: center; gap: 7px; }
+.jm-parts svg { width: 15px; height: 15px; color: var(--vert); }
+.jm-parts b { font-weight: 650; color: var(--texte); font-variant-numeric: tabular-nums; }
+.jm-ouvoir { margin: 14px 0 0 60px; }
+.jm-ouvoir > b { font-size: 13.5px; color: var(--doux); }
+.jm-ouvoir > p { margin: 4px 0 10px; font-size: 14px; line-height: 1.5; color: var(--doux); }
+.jm-ouvoir .jm-petit { margin-top: 6px; }
+.jm-cle > .jm-btns { margin: 14px 0 0 60px; }
+.jm-cle > .jm-suppr { margin: 14px 0 0 60px; }
+.jm-grille.cle { margin: 16px 0 0 60px; }
+.jm-cle > .jm-err { margin-left: 60px; }
+.jm-cle > .jm-btns:has(+ .jm-ouvoir), .jm-cle > .jm-grille.cle + .jm-err + .jm-btns { margin-top: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .jm-p.entree { animation: none; }
+  .jm-roue { animation-duration: 3s; }
+}
+@media (max-width: 1040px) {
+  .jm-p { padding: 26px 30px 32px; }
+}
+@media (max-width: 900px) {
+  .jm-p h1 { font-size: 26px; }
+  .jm-parts, .jm-ouvoir, .jm-cle > .jm-btns, .jm-cle > .jm-suppr, .jm-grille.cle, .jm-cle > .jm-err { margin-left: 0; }
+}

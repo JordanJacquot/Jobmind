@@ -12,6 +12,8 @@
 //! - [`identite`] : `SetCurrentProcessExplicitAppUserModelID("JordanJacquot.Jobmind")` (la barre des tâches) ;
 //! - [`heure`] : l'heure locale du journal (`GetLocalTime`) ;
 //! - [`message`] : la boîte « Jobmind s'utilise avec Mindset » (`MessageBoxW`) ;
+//! - [`dpapi`] (étape 3) : le coffre des clés, DPAPI portée utilisateur (`CryptProtectData`) ;
+//! - [`dialogue`] (étape 3) : la boîte « Ouvrir » de Windows pour choisir un CV (`IFileOpenDialog`) ;
 //! - `capture` (construction d'essai seulement) : l'image de la fenêtre (`PrintWindow`).
 //!
 //! Rien ici n'écrit dans le registre, ne touche aux fenêtres d'un autre programme ni ne lance quoi que ce soit sans
@@ -21,6 +23,8 @@
 
 #[cfg(feature = "essai")]
 pub mod capture;
+pub mod dialogue;
+pub mod dpapi;
 pub mod fenetre;
 pub mod heure;
 pub mod identite;

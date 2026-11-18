@@ -10,6 +10,8 @@
 //!   `action`), déclarées dans build.rs et autorisées à la seule fenêtre « principale » (capabilities\principale.json) ;
 //! - [`ecran`] : ce que la page montre (l'état du kit d'écrans de la suite, et l'accueil dessiné par ui\jobmind.js) ;
 //! - [`suivi`] : les gestes du suivi des candidatures (étape 2), vérifiés puis écrits dans la base ;
+//! - [`profil`] et [`vue_profil`] : Mon profil (étape 3) : les CV importés ou collés, ce que je cherche, les textes
+//!   pour le style, les clés chiffrées ; ses gestes vérifiés, puis ce que l'écran en montre ;
 //! - [`pont`] : les messages du kit vérifiés, l'habillage du thème, le retour à la console de Mindset ;
 //! - [`pack`] : la réponse du protocole `pack` (les images et polices du thème, règle 6), par suite-commun ;
 //! - [`preparer`] et [`contexte`] : ce que le programme et les tests donnent à Tauri ;
@@ -31,9 +33,11 @@ pub mod pack;
 #[cfg(any(feature = "essai", test))]
 pub mod png;
 pub mod pont;
+pub mod profil;
 #[cfg(windows)]
 pub mod programme;
 pub mod suivi;
+pub mod vue_profil;
 #[cfg(windows)]
 pub mod windows;
 

@@ -13,13 +13,19 @@
 //! En plus, dans cette construction : HKLM n'est jamais lu et seul ce programme peut être lancé
 //! (windows\systeme.rs), le signal du vrai Mindset n'est jamais levé (pont.rs) ; un fichier `capture.demande` dans
 //! le dossier de données fait écrire l'image de la fenêtre dans `capture.png`, à côté ; un fichier `ordre.demande`
-//! (un ordre au kit en JSON) est envoyé à la page (ouvrir une page ou la fiche d'une carte, pour les captures).
+//! (un ordre au kit en JSON) est envoyé à la page (ouvrir une page ou la fiche d'une carte, pour les captures) ;
+//! `exemples.demande` remplit la base de candidatures et d'un profil inventés ; `import.demande` (le chemin d'un CV
+//! d'essai) l'importe comme « Importer un fichier », sans la boîte « Ouvrir ».
 
 use std::path::{Path, PathBuf};
 
 use jobmind_core::candidature::{Entretien, Fiche, Moyen};
+use jobmind_core::cle::Cle;
+use jobmind_core::recherche::{SaisieRecherche, verifier_recherche};
 use jobmind_core::{Heure, Jour, Statut};
 use jobmind_storage::candidatures;
+use jobmind_storage::cles::Cles;
+use jobmind_storage::profil::{self, GenreCv, NouveauCv};
 use jobmind_storage::{Journal, Moment};
 use jobmind_vie::Noms;
 
@@ -31,6 +37,8 @@ pub const ORDRE_DEMANDE: &str = "ordre.demande";
 /// Au démarrage, ce fichier dans le dossier de données d'essai remplit la base de candidatures inventées (les
 /// captures), à des statuts variés, datées d'après aujourd'hui ; il est supprimé ensuite.
 pub const EXEMPLES_DEMANDE: &str = "exemples.demande";
+/// Ce fichier (le chemin d'un CV d'essai) fait importer ce CV comme « Importer un fichier », sans la boîte « Ouvrir ».
+pub const IMPORT_DEMANDE: &str = "import.demande";
 
 /// Des candidatures inventées (entreprises et personnes qui n'existent pas), comme celles de la maquette C : (jours
 /// depuis l'envoi, entreprise, poste, ville, moyen, source, statuts suivants avec le nombre de jours avant aujourd'hui,
@@ -130,7 +138,13 @@ fn lettre(poste: &str) -> String {
 
 /// Remplit la base d'essai avec [`EXEMPLES`] si `exemples.demande` est là (puis le supprime). Seulement dans la
 /// construction d'essai, seulement dans son dossier de données.
-pub fn exemples_demandes(dossier: &Path, base: Option<&jobmind_storage::Base>, maintenant: Moment, journal: &Journal) {
+pub fn exemples_demandes(
+    dossier: &Path,
+    base: Option<&jobmind_storage::Base>,
+    cles: &mut Cles,
+    maintenant: Moment,
+    journal: &Journal,
+) {
     let demande = dossier.join(EXEMPLES_DEMANDE);
     if !demande.is_file() {
         return;
@@ -141,6 +155,69 @@ pub fn exemples_demandes(dossier: &Path, base: Option<&jobmind_storage::Base>, m
         Ok(n) => journal.ecrire(&format!("Essai : {n} candidatures d'exemple ajoutées")),
         Err(e) => journal.ecrire(&format!("Essai : exemples non ajoutés ({e})")),
     }
+    match remplir_profil(b.connexion(), cles, maintenant) {
+        Ok(()) => journal.ecrire("Essai : profil d'exemple ajouté"),
+        Err(e) => journal.ecrire(&format!("Essai : profil d'exemple non ajouté ({e})")),
+    }
+}
+
+/// Le CV d'exemple (une personne inventée).
+pub const CV_EXEMPLE: &str = "Jordan Exemple\nMetz (57), permis B\n\nExpérience\n2023 à 2025 : préparateur de \
+commandes et cariste en intérim, entrepôt de Woippy\n2021 à 2022 : vendeur dans un magasin de sport, Metz\n\nFormation\n\
+CAP Opérateur logistique, 2018\nCACES 1, 3 et 5\n\nÀ côté\nDépannage et montage d'ordinateurs pour les proches";
+
+/// Des textes d'exemple pour le style (inventés, professionnels).
+const STYLES: [(&str, &str); 3] = [
+    (
+        "Lettre au magasin de sport",
+        "Madame, Monsieur,\n\nJ'ai travaillé un an dans un magasin de sport à Metz. J'aimais conseiller les clients \
+         et ranger le rayon après le passage du samedi. Je suis disponible tout de suite.\n\nBien à vous,\nJordan",
+    ),
+    (
+        "Mail pour une relance",
+        "Bonjour,\n\nJe me permets de revenir vers vous au sujet du poste de cariste. Je reste disponible pour un \
+         entretien, sur place ou au téléphone.\n\nBonne journée,\nJordan",
+    ),
+    (
+        "Message à une agence d'intérim",
+        "Bonjour, je cherche des missions en entrepôt autour de Metz. J'ai mon CACES 1, 3 et 5 à jour et je peux \
+         commencer tôt le matin.",
+    ),
+];
+
+/// Remplit le profil d'exemple : un CV collé, « Ce que je cherche », trois textes pour le style, et deux clés
+/// inventées (Adzuna et Jooble ; celle de Claude reste à donner), chiffrées par le vrai coffre dans le dossier d'essai.
+fn remplir_profil(
+    c: &jobmind_storage::rusqlite::Connection,
+    cles: &mut Cles,
+    maintenant: Moment,
+) -> Result<(), String> {
+    let e = |x: jobmind_storage::rusqlite::Error| x.to_string();
+    let n = NouveauCv { nom: "CV 2026", fichier: None, genre: GenreCv::Texte, texte: CV_EXEMPLE, taille: None };
+    profil::ajouter_cv(c, &n, maintenant).map_err(e)?;
+    let s = SaisieRecherche {
+        postes: "Agent de quai, cariste, préparateur de commandes, vendeur".into(),
+        lieu: "ville".into(),
+        ville: "Metz".into(),
+        rayon: 30,
+        contrats: vec!["cdi".into(), "cdd".into(), "interim".into()],
+        teletravail: "peu_importe".into(),
+        sans_diplome: true,
+        debutant: true,
+        salaire: "1800".into(),
+        ..SaisieRecherche::default()
+    };
+    let r = verifier_recherche(&s)?;
+    profil::enregistrer_recherche(c, &r, maintenant).map_err(e)?;
+    for (i, (titre, texte)) in STYLES.iter().enumerate() {
+        let jour = maintenant.jour().plus(-(5 - i as i64 * 2));
+        profil::ajouter_style(c, titre, texte, a_ce_jour(jour, 10)).map_err(e)?;
+    }
+    cles.garder_plusieurs(&[
+        (Cle::AdzunaId, "1a2b3c4d"),
+        (Cle::AdzunaCle, "0123456789abcdef0123456789ab4f2a"),
+        (Cle::Jooble, "aaaabbbb-cccc-dddd-eeee-ffff00009e71"),
+    ])
 }
 
 fn a_ce_jour(j: Jour, h: u32) -> Moment {
@@ -257,5 +334,23 @@ mod tests {
         for s in Statut::TOUS.iter().filter(|s| **s != Statut::Abandonnee) {
             assert!(l.iter().any(|c| c.statut == *s), "{s:?}");
         }
+    }
+
+    /// Le profil d'exemple des captures : un CV, ce que je cherche, trois textes, deux clés sur trois (chiffrées par le
+    /// vrai DPAPI, dans un dossier d'essai).
+    #[test]
+    fn profil_d_exemple() {
+        let m = Moment::nouveau(2026, 11, 18, 9, 0, 0).unwrap();
+        let (b, _) = jobmind_storage::Base::en_memoire(m).unwrap();
+        let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let d = std::env::temp_dir().join(format!("JobmindEssai-{}-exemple-{n}", std::process::id()));
+        let (mut cles, _) = Cles::ouvrir(&d, Box::new(crate::windows::dpapi::Dpapi));
+        remplir_profil(b.connexion(), &mut cles, m).unwrap();
+        let (v, _) = crate::profil::Profil::default().vue(Some(&b), Some(&cles));
+        assert_eq!((v.cvs.len(), v.style.len()), (1, 3));
+        assert_eq!(v.recherche.as_ref().unwrap().postes.len(), 4);
+        let e = crate::ecran::etat("0.3.0", &crate::ecran::Vue { profil: &v, ..crate::ecran::Vue::vide(m.jour()) });
+        assert_eq!(e["accueil"]["perso"]["onglets"][2]["rubriques"][3]["sous"], "2 clés sur 3");
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

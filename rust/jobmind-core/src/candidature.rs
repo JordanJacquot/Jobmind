@@ -166,19 +166,19 @@ pub struct Fiche {
 }
 
 /// Un texte d'une ligne : espaces en trop retirés, caractères de contrôle remplacés par une espace.
-fn une_ligne(t: &str) -> String {
+pub(crate) fn une_ligne(t: &str) -> String {
     let t: String = t.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
     t.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Un texte de plusieurs lignes : fins de ligne « \n », autres caractères de contrôle retirés, espaces autour retirés.
-fn plusieurs_lignes(t: &str) -> String {
+pub(crate) fn plusieurs_lignes(t: &str) -> String {
     let t = t.replace("\r\n", "\n").replace('\r', "\n");
     let t: String = t.chars().filter(|&c| c == '\n' || c == '\t' || !c.is_control()).collect();
     t.trim().to_string()
 }
 
-fn trop_long(t: &str, max: usize) -> bool {
+pub(crate) fn trop_long(t: &str, max: usize) -> bool {
     t.chars().count() > max
 }
 

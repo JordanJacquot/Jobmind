@@ -10,6 +10,9 @@
 //!   prochain entretien, les envois du mois ;
 //! - [`candidatures`] (étape 2) : les candidatures tapées à la main, leurs statuts et leur frise, le délai de relance ;
 //! - [`bulles`] (étape 2) : les bulles près de l'horloge (notification.demande) et le clic sur une bulle ;
+//! - [`profil`] (étape 3) : les CV (le fichier d'origine copié dans le dossier `cv`), les textes pour le style, « Ce que
+//!   je cherche » ;
+//! - [`cles`] (étape 3) : les clés des sources d'offres et de l'IA, chiffrées (le coffre DPAPI est donné par l'appli) ;
 //! - [`dossier`] : le dossier de données et suite.json (copie gérée ou non, dossier de travail) ;
 //! - [`donnees`] : tout réuni ;
 //! - [`valeurs`] : les règles de PowerShell suivies (champs sans majuscules, vrai ou faux).
@@ -21,11 +24,13 @@ pub mod base;
 pub mod bulles;
 pub mod candidatures;
 pub mod carte;
+pub mod cles;
 pub mod donnees;
 pub mod dossier;
 pub mod fichiers;
 pub mod journal;
 pub mod moment;
+pub mod profil;
 pub mod reglages;
 pub mod valeurs;
 

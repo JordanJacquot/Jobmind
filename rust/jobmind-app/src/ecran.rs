@@ -11,6 +11,9 @@
 //! boutons, la frise, « Ce que j'ai envoyé », « L'offre », « Notes »). Le formulaire d'ajout est dessiné par la page
 //! avec les textes envoyés ici. Mon profil > Réglages : le délai avant relance. Offres reste vide (étape 4).
 //!
+//! Étape 3 : Mon profil montre ses rubriques Mon CV, Ce que je cherche, Mon style et Mes clés (vue_profil.rs), puis
+//! Réglages.
+//!
 //! Tous les textes vont à la page tels quels (elle les échappe) : en français simple, sans tiret long ni demi-cadratin.
 
 use jobmind_core::candidature::{self, Candidature, Evenement, Moyen};
@@ -20,6 +23,8 @@ use jobmind_core::suivi::{
 };
 use jobmind_core::{Jour, Statut};
 use serde_json::{Value, json};
+
+use crate::vue_profil::{self, VIDE, VueProfil};
 
 /// Les onglets, dans l'ordre.
 pub const CANDIDATURES: &str = "candidatures";
@@ -41,29 +46,20 @@ pub struct Vue<'a> {
     pub frise: &'a [Evenement],
     pub delai: u32,
     pub aujourdhui: Jour,
+    /// Mon profil (étape 3) : les CV, ce que je cherche, les textes pour le style, les clés
+    pub profil: &'a VueProfil,
 }
 
 impl Vue<'_> {
     /// Rien encore (les tests, une base qui ne s'ouvre pas).
     pub fn vide(aujourdhui: Jour) -> Vue<'static> {
-        Vue { candidatures: &[], ouverte: None, frise: &[], delai: suivi::DELAI_DEFAUT, aujourdhui }
+        Vue { candidatures: &[], ouverte: None, frise: &[], delai: suivi::DELAI_DEFAUT, aujourdhui, profil: &VIDE }
     }
 }
 
 /// Un dossier vide (le grand panneau de droite) : son icône, sa phrase, ce qui viendra, et une note.
 fn dossier_vide(icone: &str, titre: &str, texte: &str, note: &str) -> Value {
     json!({ "icone": icone, "titre": titre, "texte": texte, "note": note })
-}
-
-/// Une rubrique de Mon profil : une ligne de la liste et son dossier.
-fn rubrique(id: &str, nom: &str, icone: &str, titre: &str, texte: &str) -> Value {
-    json!({
-        "id": id,
-        "nom": nom,
-        "sous": "Pas encore rempli",
-        "icone": icone,
-        "dossier": dossier_vide(icone, titre, texte, ""),
-    })
 }
 
 /// La rubrique Réglages : le délai avant relance (le seul réglage de l'étape 2).
@@ -90,7 +86,7 @@ fn rubrique_reglages(delai: u32) -> Value {
                 "moins": "Un jour de moins",
                 "plus": "Un jour de plus",
             },
-            "note": "Les clés des sites d'offres et de l'IA, ta boîte Gmail et la sauvegarde viendront ici.",
+            "note": "Ta boîte Gmail, la sauvegarde et les exports viendront ici.",
         },
     })
 }
@@ -344,6 +340,13 @@ fn onglet_candidatures(v: &Vue) -> Value {
     })
 }
 
+/// Les rubriques de Mon profil : Mon CV, Ce que je cherche, Mon style, Mes clés (vue_profil.rs), puis Réglages.
+fn rubriques_profil(v: &Vue) -> Vec<Value> {
+    let mut l = vue_profil::rubriques(v.profil, v.aujourdhui);
+    l.push(rubrique_reglages(v.delai));
+    l
+}
+
 /// L'accueil de Jobmind (bloc `accueil.perso`) : les trois onglets et ce que chacun montre.
 pub fn accueil(v: &Vue) -> Value {
     json!({
@@ -369,32 +372,7 @@ pub fn accueil(v: &Vue) -> Value {
                 "nom": "Mon profil",
                 "liste": "Mon profil",
                 "vide": "",
-                "rubriques": [
-                    rubrique(
-                        "cv",
-                        "Mon CV",
-                        "cv",
-                        "Aucun CV pour l'instant.",
-                        "Ton CV servira à préparer chaque candidature. Tu pourras le donner en PDF ou en Word, ou \
-                         le coller.",
-                    ),
-                    rubrique(
-                        "style",
-                        "Mon style",
-                        "plume",
-                        "Aucun texte de toi pour l'instant.",
-                        "Quelques textes écrits par toi apprendront à Jobmind ta façon d'écrire. Tes candidatures \
-                         resteront toujours professionnelles.",
-                    ),
-                    rubrique(
-                        "recherche",
-                        "Ce que je cherche",
-                        "cible",
-                        "Rien de noté pour l'instant.",
-                        "Les métiers, le lieu et les contrats que tu cherches serviront à trier les offres.",
-                    ),
-                    rubrique_reglages(v.delai),
-                ],
+                "rubriques": rubriques_profil(v),
                 "dossier": dossier_vide("profil", "Mon profil", "", ""),
             },
         ],
@@ -489,17 +467,30 @@ mod tests {
         assert!(o[0]["suivi"]["groupes"].as_array().unwrap().is_empty());
         assert!(o[0]["suivi"]["fiche"].is_null());
         assert!(o[0]["suivi"]["bilan"].as_array().unwrap().is_empty());
-        // Mon profil : ses quatre rubriques ; Réglages a son délai de relance, les autres sont vides
+        // Mon profil : ses cinq rubriques, vides ; Réglages a son délai de relance
         let r = o[2]["rubriques"].as_array().unwrap();
         let noms: Vec<&str> = r.iter().map(|x| x["nom"].as_str().unwrap()).collect();
-        assert_eq!(noms, ["Mon CV", "Mon style", "Ce que je cherche", "Réglages"]);
-        for x in &r[..3] {
-            assert!(x["dossier"]["titre"].as_str().unwrap().ends_with("pour l'instant."), "{x}");
-        }
-        assert_eq!(r[3]["sous"], "Relance après 14 jours");
-        assert_eq!(r[3]["dossier"]["reglage"]["valeur"], 14);
+        assert_eq!(noms, ["Mon CV", "Ce que je cherche", "Mon style", "Mes clés", "Réglages"]);
+        let vues: Vec<&str> = r[..4].iter().map(|x| x["dossier"]["vue"].as_str().unwrap()).collect();
+        assert_eq!(vues, ["cv", "recherche", "style", "cles"]);
+        let sous: Vec<&str> = r.iter().map(|x| x["sous"].as_str().unwrap()).collect();
         assert_eq!(
-            (r[3]["dossier"]["reglage"]["min"].as_u64(), r[3]["dossier"]["reglage"]["max"].as_u64()),
+            sous,
+            [
+                "Pas encore donné",
+                "Rien de noté pour l'instant",
+                "Aucun texte pour l'instant",
+                "Aucune clé pour l'instant",
+                "Relance après 14 jours"
+            ]
+        );
+        assert!(r[0]["dossier"]["ouvert"].is_null() && r[0]["dossier"]["import"].is_null());
+        assert_eq!(r[1]["dossier"]["enregistree"], false);
+        assert_eq!(r[1]["dossier"]["departements"].as_array().unwrap().len(), 101);
+        assert_eq!(r[3]["dossier"]["services"][2]["etat"], "absente");
+        assert_eq!(r[4]["dossier"]["reglage"]["valeur"], 14);
+        assert_eq!(
+            (r[4]["dossier"]["reglage"]["min"].as_u64(), r[4]["dossier"]["reglage"]["max"].as_u64()),
             (Some(3), Some(60))
         );
         assert!(e["pages"].as_object().unwrap().is_empty());
@@ -510,7 +501,7 @@ mod tests {
         let l = exemples();
         let frise =
             [Evenement { jour: Jour::nouveau(2026, 11, 2).unwrap(), statut: Statut::Envoyee, texte: String::new() }];
-        let v = Vue { candidatures: &l, ouverte: Some(1), frise: &frise, delai: 14, aujourdhui: auj() };
+        let v = Vue { candidatures: &l, ouverte: Some(1), frise: &frise, delai: 14, aujourdhui: auj(), profil: &VIDE };
         let e = etat("0.1.0", &v);
         let o = &e["accueil"]["perso"]["onglets"][0];
         // Deux choses à faire : l'entretien du 20, puis la relance de Transports Moselle Fret
@@ -603,8 +594,9 @@ mod tests {
     #[test]
     fn textes_simples() {
         let l = exemples();
-        for ouverte in [None, Some(1), Some(2), Some(3), Some(4)] {
-            let v = Vue { candidatures: &l, ouverte, frise: &[], delai: 14, aujourdhui: auj() };
+        let p = crate::vue_profil::tests::exemple();
+        for (ouverte, profil) in [(None, &VIDE), (Some(1), &p), (Some(2), &VIDE), (Some(3), &p), (Some(4), &VIDE)] {
+            let v = Vue { candidatures: &l, ouverte, frise: &[], delai: 14, aujourdhui: auj(), profil };
             let mut t = Vec::new();
             textes_de(&etat("0.1.0", &v), &mut t);
             for t in t {
@@ -653,8 +645,9 @@ mod tests {
         let l = exemples();
         let frise =
             [Evenement { jour: Jour::nouveau(2026, 11, 2).unwrap(), statut: Statut::Envoyee, texte: String::new() }];
-        for ouverte in [None, Some(1), Some(2), Some(3), Some(4)] {
-            let v = Vue { candidatures: &l, ouverte, frise: &frise, delai: 14, aujourdhui: auj() };
+        let p = crate::vue_profil::tests::exemple();
+        for (ouverte, profil) in [(None, &VIDE), (Some(1), &p), (Some(2), &VIDE), (Some(3), &p), (Some(4), &VIDE)] {
+            let v = Vue { candidatures: &l, ouverte, frise: &frise, delai: 14, aujourdhui: auj(), profil };
             verifier(&etat("0.1.0", &v), &noms, "etat");
         }
     }
@@ -665,7 +658,8 @@ mod tests {
     fn le_logo_et_l_accueil_existent() {
         let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("ui");
         let l = exemples();
-        let e = etat("0.1.0", &Vue::vide(auj()));
+        let p = crate::vue_profil::tests::exemple();
+        let e = etat("0.1.0", &Vue { profil: &p, ..Vue::vide(auj()) });
         assert!(ui.join(e["app"]["logo"].as_str().unwrap()).is_file());
         let index = std::fs::read_to_string(ui.join("index.html")).unwrap();
         for f in ["jobmind.css", "jobmind.js"] {
@@ -681,7 +675,8 @@ mod tests {
             }
         }
         for id in 1..=4 {
-            let v = Vue { candidatures: &l, ouverte: Some(id), frise: &[], delai: 14, aujourdhui: auj() };
+            let v =
+                Vue { candidatures: &l, ouverte: Some(id), frise: &[], delai: 14, aujourdhui: auj(), profil: &VIDE };
             let f = &etat("0.1.0", &v)["accueil"]["perso"]["onglets"][0]["suivi"]["fiche"];
             for x in [&f["action"]["icone"], &f["calme"]["icone"]] {
                 if let Some(i) = x.as_str() {
@@ -694,15 +689,28 @@ mod tests {
                 }
             }
         }
-        for i in ["plus", "crayon", "poubelle", "copie", "lien"] {
+        for i in [
+            "plus",
+            "crayon",
+            "poubelle",
+            "copie",
+            "lien",
+            "importer",
+            "coller",
+            "etoile",
+            "attention",
+            "cadenas",
+            "cle",
+        ] {
             icones.push(i.to_string());
         }
         for i in icones {
             assert!(js.contains(&format!("  {i}: ")), "icône {i} inconnue de jobmind.js");
         }
-        // L'état entier reste léger (envoyé à chaque changement)
-        assert!(e.to_string().len() < 20_000);
-        let v = Vue { candidatures: &l, ouverte: Some(1), frise: &[], delai: 14, aujourdhui: auj() };
+        // L'état entier reste léger (envoyé à chaque changement ; la liste des départements compte pour 6 Ko)
+        assert!(etat("0.1.0", &Vue::vide(auj())).to_string().len() < 40_000);
+        assert!(e.to_string().len() < 60_000);
+        let v = Vue { candidatures: &l, ouverte: Some(1), frise: &[], delai: 14, aujourdhui: auj(), profil: &VIDE };
         assert!(etat("0.1.0", &v).to_string().len() < 40_000);
     }
 }

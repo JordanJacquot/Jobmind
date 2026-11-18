@@ -18,9 +18,9 @@ use jobmind_vie::{Disque, Systeme};
 use serde_json::{Map, Value, json};
 use suite_commun::themes::Theme;
 
-/// Un message plus gros (en JSON) est refusé : un geste du kit fait quelques centaines d'octets, une recherche tapée
-/// quelques milliers au plus.
-pub const TAILLE_MAX: usize = 16 * 1024;
+/// Un message plus gros (en JSON) est refusé : un geste du kit fait quelques centaines d'octets ; le plus gros est le
+/// texte d'un CV corrigé (30 000 caractères au plus, jobmind-core `profil::CV_TEXTE_MAX`, soit 90 Ko en JSON au pire).
+pub const TAILLE_MAX: usize = 128 * 1024;
 /// La profondeur la plus grande de `valeur` (le kit envoie un texte, un nombre, un oui ou non, ou `{ valeur, oui }`)
 pub const PROFONDEUR_MAX: usize = 4;
 /// Le texte d'une erreur de la page, coupé à cette longueur (le kit coupe aussi)
@@ -316,6 +316,9 @@ mod tests {
         ] {
             assert_eq!(lire_message(&m), Err(refus), "{m}");
         }
+        // Le plus gros geste : le texte d'un CV de 30 000 caractères (accents, retours à la ligne, guillemets) passe
+        let cv = "é\n\"".repeat(10_000);
+        assert!(lire_message(&json!({ "type": "action", "id": "cv-enregistrer", "ecran": "accueil", "valeur": { "id": 1, "nom": "CV", "texte": cv } })).is_ok());
         // (à la limite : 4 niveaux passent)
         assert!(lire_message(&json!({ "type": "action", "id": "ok", "ecran": "a", "valeur": [[[[1]]]] })).is_ok());
     }

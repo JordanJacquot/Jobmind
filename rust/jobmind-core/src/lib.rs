@@ -9,10 +9,18 @@
 //! - [`jour`] (étape 2) : les jours et les heures, écrits en français ;
 //! - [`candidature`] (étape 2) : une candidature suivie à la main, sa saisie vérifiée ;
 //! - [`suivi`] (étape 2) : les groupes de la liste, la prochaine action, les relances après X jours, le bilan du mois,
-//!   la carte de Mindset, les bulles et le message de relance.
+//!   la carte de Mindset, les bulles et le message de relance ;
+//! - [`profil`] (étape 3) : les CV et les textes pour le style, vérifiés ; le texte lu dans un fichier remis au propre ;
+//! - [`recherche`] (étape 3) : « Ce que je cherche » (postes, lieu, contrats, télétravail, diplôme, salaire), vérifié ;
+//! - [`lieux`] (étape 3) : les régions et les départements français ;
+//! - [`cle`] (étape 3) : les clés des sources d'offres et de l'IA, leur forme vérifiée.
 
 pub mod candidature;
+pub mod cle;
 pub mod jour;
+pub mod lieux;
+pub mod profil;
+pub mod recherche;
 pub mod statut;
 pub mod suivi;
 

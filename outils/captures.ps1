@@ -10,12 +10,16 @@
 #
 # Les vues, dans l'ordre (séparées par des virgules) : « candidatures », « offres », « profil » (un onglet, montré par
 # l'ordre { kit: 'accueil', onglet } que seule la construction d'essai lit dans ordre.demande), « rubrique:<id> »
-# (une rubrique de Mon profil : cv, style, recherche, reglages), « candidature:<n> » (le dossier de la candidature n),
+# (une rubrique de Mon profil : cv, recherche, style, cles, reglages), « candidature:<n> » (le dossier de la candidature n),
 # « ajouter » (le formulaire d'une nouvelle candidature), « modifier » (celui du dossier ouvert), « menu-statut » (le
 # menu des statuts du dossier ouvert), « entretien » (le petit formulaire de son entretien), « calendrier » (le petit
 # calendrier de la date ouverte : celle du formulaire, sinon celle de l'entretien), « jour:<n> » (un clic sur le jour n
 # du mois en cours dans ce calendrier : le champ se remplit), « clic:<data-k> » (un clic sur cet élément de l'écran, par
-# exemple clic:f:enregistrer ou clic:e:ok). Chaque vue est capturée après son geste.
+# exemple clic:f:enregistrer ou clic:e:ok), « bas » (le dossier ouvert descendu tout en bas), « importer:<chemin> » (étape 3 : ce CV d'essai importé comme par « Importer un
+# fichier », sans la boîte « Ouvrir » : import.demande, lu seulement par la construction d'essai), « dialogue:<chemin> »
+# (étape 3 : un clic sur « Importer un fichier », puis la VRAIE boîte « Ouvrir » de Windows trouvée parmi les fenêtres de
+# l'essai, capturée dans <Prefixe>-<vue>-boite.png, le chemin tapé dans son champ et « Importer » cliqué). Chaque vue est
+# capturée après son geste ; un import attend la fin de sa lecture (journal : « Profil : CV ... importé » ou « fichier refusé »).
 # -Exemples : la base d'essai est remplie de candidatures inventées à des statuts variés (exemples.demande, lu par la
 # construction d'essai au démarrage). -Largeur et -Hauteur : la taille du panneau (944 x 608 : un panneau de 1180 x 760
 # vu à 125 % d'affichage).
@@ -44,6 +48,54 @@ function Verifier([bool]$c, [string]$t) { if ($c) { Ok $t } else { Echec $t } }
 
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 Add-Type -TypeDefinition ([IO.File]::ReadAllText((Join-Path $Mindset 'Mindset\fichiers\modules\natif.cs'), [Text.Encoding]::UTF8))
+# La boîte « Ouvrir » de Windows ouverte par l'essai (étape 3) : trouvée parmi les fenêtres de SON processus seulement,
+# capturée, son champ « Nom du fichier » rempli, puis « Importer » (le bouton 1) cliqué.
+if (-not ('JobmindBoite' -as [type])) {
+Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @"
+using System; using System.Text; using System.Drawing; using System.Runtime.InteropServices;
+public static class JobmindBoite {
+    delegate bool Proc(IntPtr h, IntPtr l);
+    [DllImport("user32.dll")] static extern bool EnumWindows(Proc f, IntPtr l);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindowEx(IntPtr p, IntPtr apres, string classe, string titre);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr SendMessage(IntPtr h, uint m, IntPtr w, string l);
+    [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+    [DllImport("user32.dll")] static extern IntPtr GetDlgItem(IntPtr h, int id);
+    [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint f);
+    [StructLayout(LayoutKind.Sequential)] struct RECT { public int G, H, D, B; }
+    public static IntPtr Trouver(uint pid) {
+        IntPtr trouve = IntPtr.Zero;
+        EnumWindows((h, l) => {
+            uint p; GetWindowThreadProcessId(h, out p);
+            var c = new StringBuilder(64); GetClassName(h, c, 64);
+            if (p == pid && c.ToString() == "#32770" && IsWindowVisible(h)) { trouve = h; return false; }
+            return true;
+        }, IntPtr.Zero);
+        return trouve;
+    }
+    public static bool Capturer(IntPtr h, string fichier) {
+        RECT r; if (!GetWindowRect(h, out r) || r.D <= r.G || r.B <= r.H) return false;
+        using (var b = new Bitmap(r.D - r.G, r.B - r.H)) {
+            using (var g = Graphics.FromImage(b)) { IntPtr dc = g.GetHdc(); try { PrintWindow(h, dc, 2); } finally { g.ReleaseHdc(dc); } }
+            b.Save(fichier, System.Drawing.Imaging.ImageFormat.Png);
+        }
+        return true;
+    }
+    public static bool Choisir(IntPtr boite, string chemin) {
+        IntPtr ex = FindWindowEx(boite, IntPtr.Zero, "ComboBoxEx32", null);
+        IntPtr cb = FindWindowEx(ex, IntPtr.Zero, "ComboBox", null);
+        IntPtr champ = FindWindowEx(cb, IntPtr.Zero, "Edit", null);
+        if (champ == IntPtr.Zero) return false;
+        SendMessage(champ, 0x000C, IntPtr.Zero, chemin);
+        IntPtr ok = GetDlgItem(boite, 1);
+        return ok != IntPtr.Zero && PostMessage(ok, 0x00F5, IntPtr.Zero, IntPtr.Zero);
+    }
+}
+"@
+}
 
 function Attendre([scriptblock]$Condition, [int]$Ms) {
     $t = [Diagnostics.Stopwatch]::StartNew()
@@ -162,9 +214,35 @@ try {
         elseif ($v -eq 'ajouter') { Ordre '{"kit":"accueil","ajouter":true}' }
         elseif ($v -eq 'modifier') { Ordre '{"kit":"accueil","modifier":true}' }
         elseif ($v -in 'menu-statut', 'entretien') { Ordre ('{"kit":"accueil","statut":"' + $v.Replace('menu-statut', 'menu') + '"}') }
+        elseif ($v -eq 'bas') { Ordre '{"kit":"accueil","defiler":"bas"}' }
         elseif ($v -eq 'calendrier') { Ordre '{"kit":"accueil","calendrier":true}' }
         elseif ($v -match '^jour:(\d{1,2})$') { Ordre ('{"kit":"accueil","cliquer":"cal:' + (Get-Date -Day ([int]$Matches[1]) -Format 'yyyy-MM-dd') + '"}') }
         elseif ($v -match '^clic:([a-z]{1,4}:[a-z0-9-]{1,12})$') { Ordre ('{"kit":"accueil","cliquer":"' + $Matches[1] + '"}') }
+        elseif ($v -match '^importer:(.+)$') {
+            $imports = (Compter 'Profil : CV ') + (Compter 'Profil : fichier refusé')
+            [IO.File]::WriteAllText((Join-Path $donnees 'import.demande'), $Matches[1], $sansBom)
+            Verifier (Attendre { ((Compter 'Profil : CV ') + (Compter 'Profil : fichier refusé')) -gt $imports } 20000) "import de $($Matches[1]) fini (journal)"
+            $nom = 'import-' + (Split-Path -Leaf $Matches[1] -ErrorAction SilentlyContinue).Replace('.', '-')
+        }
+        elseif ($v -match '^dialogue:(.+)$') {
+            $chemin = $Matches[1]
+            $nom = 'dialogue-' + (Split-Path -Leaf $chemin).Replace('.', '-')
+            $imports = (Compter 'Profil : CV ') + (Compter 'Profil : fichier refusé')
+            Ordre '{"kit":"accueil","rubrique":"cv"}'
+            [void](Attendre { $false } 800)
+            Ordre '{"kit":"accueil","cliquer":"cv:importer"}'
+            $script:boite = [IntPtr]::Zero
+            $vue = Attendre { $script:boite = [JobmindBoite]::Trouver([uint32]$id); $script:boite -ne [IntPtr]::Zero } 10000
+            Verifier $vue 'la boîte « Ouvrir » de Windows s''ouvre (fenêtre de l''essai)'
+            if ($vue) {
+                [void](Attendre { $false } 1500)
+                $image = Join-Path $Resultats "$Prefixe-$nom-boite.png"
+                Verifier ([JobmindBoite]::Capturer($script:boite, $image)) "capture de la boîte : $image"
+                Verifier ([JobmindBoite]::Choisir($script:boite, $chemin)) 'le fichier est tapé dans la boîte, « Importer » cliqué'
+                Verifier (Attendre { [JobmindBoite]::Trouver([uint32]$id) -eq [IntPtr]::Zero } 6000) 'la boîte se ferme'
+                Verifier (Attendre { ((Compter 'Profil : CV ') + (Compter 'Profil : fichier refusé')) -gt $imports } 20000) "import par la boîte de $chemin fini (journal)"
+            }
+        }
         else { Echec "vue inconnue : $v"; continue }
         [void](Attendre { $false } 1500)
         Capturer $nom
@@ -188,7 +266,7 @@ try {
 
 foreach ($d in $horsEssai) {
     $maintenant = if (Test-Path -LiteralPath $d) { (Get-Item -LiteralPath $d).LastWriteTimeUtc } else { $null }
-    Verifier ($maintenant -eq $avant[$d]) "rien de créé ni changé hors de l'essai : $d"
+    Verifier ($maintenant -eq $avant[$d]) "rien de créé ni changé hors de l'essai : $d (avant $($avant[$d]), après $maintenant)"
 }
 Get-Journal | Set-Content -LiteralPath (Join-Path $Resultats "$Prefixe-journal.txt") -Encoding UTF8
 foreach ($f in @('etat.json')) {
