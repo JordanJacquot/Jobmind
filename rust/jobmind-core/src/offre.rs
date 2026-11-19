@@ -13,7 +13,9 @@ use std::collections::HashSet;
 
 use crate::Jour;
 use crate::candidature::une_ligne;
+use crate::lecture::{Diplome, Experience};
 use crate::lieux::{self, Departement, Region};
+use crate::pertinence::Niveau;
 use crate::recherche::{Contrat, GenreLieu, RAYON_MAX, Teletravail};
 
 /// Un texte remis au propre pour comparer : minuscules, sans accents, des lettres et des chiffres séparés par une
@@ -301,6 +303,17 @@ pub struct Offre {
     pub recherches: Vec<i64>,
     /// La candidature faite pour elle
     pub candidature: Option<i64>,
+    /// Étape 6 : le diplôme et l'expérience demandés, lus dans son texte (rien : non dit, ou pas encore lu)
+    pub diplome: Option<Diplome>,
+    pub experience: Option<Experience>,
+    /// La note de pertinence, de 0 à 100 (rien : « Ce que je cherche » n'est pas rempli)
+    pub pertinence: Option<u8>,
+    /// Sa raison en une ligne
+    pub raison: String,
+    /// Hors sujet d'après la note
+    pub hors_sujet: bool,
+    /// Jordan a dit « Pas hors sujet »
+    pub pas_hors_sujet: bool,
 }
 
 impl Default for Offre {
@@ -326,6 +339,12 @@ impl Default for Offre {
             vue: false,
             recherches: Vec::new(),
             candidature: None,
+            diplome: None,
+            experience: None,
+            pertinence: None,
+            raison: String::new(),
+            hors_sujet: false,
+            pas_hors_sujet: false,
         }
     }
 }
@@ -333,6 +352,17 @@ impl Default for Offre {
 impl Offre {
     pub fn point(&self) -> Option<(f64, f64)> {
         Some((self.latitude?, self.longitude?))
+    }
+
+    /// Rangée dans « Hors sujet » (hors sujet d'après la note, et Jordan n'a pas dit « Pas hors sujet »).
+    pub fn rangee_hors_sujet(&self) -> bool {
+        self.hors_sujet && !self.pas_hors_sujet
+    }
+
+    /// Le niveau montré (rien : pas de note).
+    pub fn niveau(&self) -> Option<Niveau> {
+        let s = self.pertinence?;
+        Some(if self.rangee_hors_sujet() { Niveau::HorsSujet } else { Niveau::de(s) })
     }
 }
 
@@ -353,22 +383,50 @@ pub enum FiltreLieu {
 /// Les offres montrées.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Liste {
-    /// Toutes, sauf celles marquées « Pas pour moi »
+    /// Toutes, sauf celles marquées « Pas pour moi » et les hors sujet
     Toutes,
     Favoris,
     PlusTard,
+    /// Étape 6 : celles que la note range hors sujet (jamais effacées)
+    HorsSujet,
     /// Celles marquées « Pas pour moi »
     Cachees,
 }
 
+/// L'ordre de la liste.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tri {
+    /// Les plus pertinentes d'abord (puis les plus récentes)
+    Pertinence,
+    Recentes,
+}
+
+impl Tri {
+    pub fn code(self) -> &'static str {
+        match self {
+            Tri::Pertinence => "pertinence",
+            Tri::Recentes => "recentes",
+        }
+    }
+
+    pub fn depuis_code(c: &str) -> Option<Tri> {
+        match c {
+            "pertinence" => Some(Tri::Pertinence),
+            "recentes" => Some(Tri::Recentes),
+            _ => None,
+        }
+    }
+}
+
 impl Liste {
-    pub const TOUTES: [Liste; 4] = [Liste::Toutes, Liste::Favoris, Liste::PlusTard, Liste::Cachees];
+    pub const TOUTES: [Liste; 5] = [Liste::Toutes, Liste::Favoris, Liste::PlusTard, Liste::HorsSujet, Liste::Cachees];
 
     pub fn code(self) -> &'static str {
         match self {
             Liste::Toutes => "toutes",
             Liste::Favoris => "favoris",
             Liste::PlusTard => "plus_tard",
+            Liste::HorsSujet => "hors_sujet",
             Liste::Cachees => "cachees",
         }
     }
@@ -378,6 +436,7 @@ impl Liste {
             Liste::Toutes => "Toutes",
             Liste::Favoris => "Favoris",
             Liste::PlusTard => "Plus tard",
+            Liste::HorsSujet => "Hors sujet",
             Liste::Cachees => "Cachées",
         }
     }
@@ -396,6 +455,10 @@ pub struct Filtres {
     /// Le texte cherché dans tout le texte des offres (vide : rien)
     pub texte: String,
     pub liste: Liste,
+    /// Étape 6 : seulement « aucun diplôme demandé », seulement « débutant accepté »
+    pub sans_diplome: bool,
+    pub debutant: bool,
+    pub tri: Tri,
 }
 
 impl Default for Filtres {
@@ -413,6 +476,9 @@ impl Filtres {
             teletravail: Teletravail::PeuImporte,
             texte: String::new(),
             liste: Liste::Toutes,
+            sans_diplome: false,
+            debutant: false,
+            tri: Tri::Pertinence,
         }
     }
 
@@ -422,6 +488,8 @@ impl Filtres {
             || self.contrat.is_some()
             || self.teletravail != Teletravail::PeuImporte
             || !self.texte.is_empty()
+            || self.sans_diplome
+            || self.debutant
     }
 }
 
@@ -437,6 +505,9 @@ pub struct SaisieFiltres {
     pub teletravail: String,
     pub texte: String,
     pub liste: String,
+    pub sans_diplome: bool,
+    pub debutant: bool,
+    pub tri: String,
 }
 
 /// La longueur du texte cherché.
@@ -485,7 +556,11 @@ pub fn verifier_filtres(s: &SaisieFiltres) -> Result<Filtres, String> {
         "" => Liste::Toutes,
         l => Liste::depuis_code(l).ok_or("Cette liste n'existe pas.")?,
     };
-    Ok(Filtres { lieu, contrat, teletravail, texte, liste })
+    let tri = match s.tri.as_str() {
+        "" => Tri::Pertinence,
+        t => Tri::depuis_code(t).ok_or("Ce tri n'existe pas.")?,
+    };
+    Ok(Filtres { lieu, contrat, teletravail, texte, liste, sans_diplome: s.sans_diplome, debutant: s.debutant, tri })
 }
 
 /// Le centre d'une ville d'après les offres qui y sont et dont le site donne la position (la médiane de leurs
@@ -519,12 +594,18 @@ pub struct Appui<'a> {
 /// L'offre passe les filtres.
 pub fn garder(o: &Offre, f: &Filtres, appui: &Appui) -> bool {
     let liste = match f.liste {
-        Liste::Toutes => !o.cachee,
+        Liste::Toutes => !o.cachee && !o.rangee_hors_sujet(),
         Liste::Favoris => o.favori,
         Liste::PlusTard => o.plus_tard,
+        Liste::HorsSujet => !o.cachee && o.rangee_hors_sujet(),
         Liste::Cachees => o.cachee,
     };
     if !liste {
+        return false;
+    }
+    if (f.sans_diplome && o.diplome != Some(Diplome::Aucun))
+        || (f.debutant && o.experience != Some(Experience::Debutant))
+    {
         return false;
     }
     if let Some(t) = appui.textes
@@ -568,6 +649,16 @@ pub fn trier(l: &mut [Offre]) {
         let db = b.publiee_le.unwrap_or(b.ajoutee_le);
         db.cmp(&da).then(b.id.cmp(&a.id))
     });
+}
+
+/// Les offres dans l'ordre choisi : les plus pertinentes d'abord (une offre sans note après celles qui en ont), puis
+/// les plus récentes ; ou seulement les plus récentes.
+pub fn trier_selon(l: &mut [Offre], t: Tri) {
+    trier(l);
+    if t == Tri::Pertinence {
+        // (un tri stable : à note égale, l'ordre des plus récentes reste)
+        l.sort_by_key(|o| std::cmp::Reverse(o.pertinence.map_or(-1, i16::from)));
+    }
 }
 
 /// Une adresse qu'on peut ouvrir dans le navigateur : http ou https seulement, sans espace, guillemet ni caractère de
@@ -850,5 +941,48 @@ mod tests {
         assert_eq!(noms_sources(&["Adzuna"]), "Adzuna");
         assert_eq!(noms_sources(&["Adzuna", "Jooble"]), "Adzuna et Jooble");
         assert_eq!(noms_sources(&["Adzuna", "Jooble", "LinkedIn"]), "Adzuna, Jooble et LinkedIn");
+    }
+
+    /// Étape 6 : « Aucun diplôme requis », « Débutant accepté », la rubrique Hors sujet et le tri par pertinence.
+    #[test]
+    fn filtres_de_la_lecture_et_tri() {
+        let o = |id, d, e, p: Option<u8>, hors| Offre {
+            id,
+            diplome: d,
+            experience: e,
+            pertinence: p,
+            hors_sujet: hors,
+            publiee_le: Some(j(id as u32)),
+            ..Offre::default()
+        };
+        let mut l = vec![
+            o(1, Some(Diplome::Aucun), Some(Experience::Debutant), Some(60), false),
+            o(2, Some(Diplome::Bac2), Some(Experience::Debutant), Some(90), false),
+            o(3, Some(Diplome::Aucun), Some(Experience::Duree(24)), Some(75), false),
+            o(4, None, None, None, false),
+            o(5, Some(Diplome::Aucun), Some(Experience::Debutant), Some(0), true),
+        ];
+        let garde = |s: SaisieFiltres, l: &[Offre]| -> Vec<i64> {
+            let f = verifier_filtres(&s).unwrap();
+            l.iter().filter(|x| garder(x, &f, &Appui::default())).map(|x| x.id).collect()
+        };
+        assert_eq!(garde(saisie(), &l), [1, 2, 3, 4]);
+        assert_eq!(garde(SaisieFiltres { sans_diplome: true, ..saisie() }, &l), [1, 3]);
+        assert_eq!(garde(SaisieFiltres { debutant: true, ..saisie() }, &l), [1, 2]);
+        assert_eq!(garde(SaisieFiltres { sans_diplome: true, debutant: true, ..saisie() }, &l), [1]);
+        assert_eq!(garde(SaisieFiltres { liste: "hors_sujet".into(), ..saisie() }, &l), [5]);
+        // « Pas hors sujet » : de retour dans la liste
+        l[4].pas_hors_sujet = true;
+        assert_eq!(garde(saisie(), &l), [1, 2, 3, 4, 5]);
+        assert_eq!(l[4].niveau(), Some(Niveau::UnPeu));
+        assert_eq!(l[1].niveau(), Some(Niveau::TresProche));
+        assert!(verifier_filtres(&SaisieFiltres { sans_diplome: true, ..saisie() }).unwrap().actifs());
+        assert!(verifier_filtres(&SaisieFiltres { tri: "hasard".into(), ..saisie() }).is_err());
+        // Le tri : par note (sans note à la fin), ou par date
+        let mut x = l.clone();
+        trier_selon(&mut x, Tri::Pertinence);
+        assert_eq!(x.iter().map(|o| o.id).collect::<Vec<_>>(), [2, 3, 1, 5, 4]);
+        trier_selon(&mut x, Tri::Recentes);
+        assert_eq!(x.iter().map(|o| o.id).collect::<Vec<_>>(), [5, 4, 3, 2, 1]);
     }
 }

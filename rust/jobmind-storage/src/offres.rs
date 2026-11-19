@@ -9,6 +9,7 @@
 use std::collections::HashSet;
 
 use jobmind_core::Jour;
+use jobmind_core::lecture::{Diplome, Experience};
 use jobmind_core::lieux;
 use jobmind_core::offre::{
     self, Comparee, Offre, TeleOffre, contrat_lu, departement_lu, empreinte, meme_offre, teletravail_lu,
@@ -18,6 +19,7 @@ use jobmind_core::recherches::NouvelleRecherche;
 use jobmind_sources::OffreTrouvee;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
+use crate::lecture::{LectureGardee, lecture_de};
 use crate::moment::Moment;
 
 /// Ce qu'a donné l'archivage d'une réponse.
@@ -158,7 +160,7 @@ fn inserer(
         "UPDATE offres SET latitude = COALESCE(latitude, ?2), longitude = COALESCE(longitude, ?3), \
          departement = COALESCE(departement, ?4), region = COALESCE(region, ?5), contrat = COALESCE(contrat, ?6), \
          teletravail = COALESCE(teletravail, ?7), salaire = COALESCE(salaire, ?8), \
-         publiee_le = COALESCE(publiee_le, ?9) WHERE id = ?1",
+         publiee_le = COALESCE(publiee_le, ?9), lecture_version = NULL, pertinence_signature = NULL WHERE id = ?1",
         params![
             p,
             o.latitude,
@@ -186,7 +188,8 @@ const COLONNES: &str = "o.id, o.titre, o.entreprise, o.lieu, o.departement, o.re
     (SELECT group_concat(s.code) FROM offres x JOIN sources s ON s.id = x.source_id \
      WHERE x.id = o.id OR x.doublon_de = o.id), \
     (SELECT group_concat(r.recherche_id) FROM offres_recherches r WHERE r.offre_id = o.id), \
-    (SELECT MAX(k.id) FROM candidatures k WHERE k.offre_id = o.id)";
+    (SELECT MAX(k.id) FROM candidatures k WHERE k.offre_id = o.id), \
+    o.diplome, o.experience, o.pertinence, COALESCE(o.raison, ''), o.hors_sujet, o.pas_hors_sujet";
 
 fn lire_offre(r: &Row) -> rusqlite::Result<Offre> {
     let texte = |i: usize| -> rusqlite::Result<String> { Ok(r.get::<_, Option<String>>(i)?.unwrap_or_default()) };
@@ -218,6 +221,12 @@ fn lire_offre(r: &Row) -> rusqlite::Result<Offre> {
         vue: r.get::<_, i64>(16)? == 1,
         recherches: numeros(r.get(18)?),
         candidature: r.get(19)?,
+        diplome: Diplome::depuis_code(&texte(20)?),
+        experience: Experience::depuis_code(&texte(21)?),
+        pertinence: r.get::<_, Option<i64>>(22)?.map(|n| n.clamp(0, 100) as u8),
+        raison: texte(23)?,
+        hors_sujet: r.get::<_, i64>(24)? == 1,
+        pas_hors_sujet: r.get::<_, i64>(25)? == 1,
     })
 }
 
@@ -257,6 +266,8 @@ pub struct OffreComplete {
     pub retrouvee_le: Option<Jour>,
     /// Étape 5 : le nombre de candidats que la page montrait au dernier « Ajouter à Jobmind »
     pub candidats: Option<VueCandidats>,
+    /// Étape 6 : le diplôme et l'expérience lus, avec leur preuve
+    pub lecture: LectureGardee,
 }
 
 /// Le numéro de la première offre du groupe de celle-ci (elle-même si ce n'est pas un doublon).
@@ -293,7 +304,16 @@ pub fn lire(c: &Connection, id: i64) -> rusqlite::Result<Option<OffreComplete>> 
         retrouvee = retrouvee.max(q);
     }
     let candidats = candidats(c, p)?;
-    Ok(Some(OffreComplete { offre: o, description, description_de, liens, retrouvee_le: retrouvee, candidats }))
+    let lecture = lecture_de(c, p)?;
+    Ok(Some(OffreComplete {
+        offre: o,
+        description,
+        description_de,
+        liens,
+        retrouvee_le: retrouvee,
+        candidats,
+        lecture,
+    }))
 }
 
 /// Le nombre de candidats qu'une page montrait, avec le site et le jour (étape 5).
@@ -398,6 +418,8 @@ pub fn ajouter_page(
          VALUES (?1, ?2, ?3, ?4, ?5)",
         params![ligne, quand, source, nombre, texte],
     )?;
+    // (étape 6 : le texte a pu changer, la première du groupe est relue)
+    t.execute("UPDATE offres SET lecture_version = NULL, pertinence_signature = NULL WHERE id = ?1", [ajout.id])?;
     t.commit()?;
     Ok(ajout)
 }
@@ -430,6 +452,8 @@ pub enum Marque {
     Favori,
     PlusTard,
     PasPourMoi,
+    /// Étape 6 : « Pas hors sujet »
+    PasHorsSujet,
 }
 
 impl Marque {
@@ -438,6 +462,7 @@ impl Marque {
             Marque::Favori => "favori",
             Marque::PlusTard => "plus_tard",
             Marque::PasPourMoi => "pas_pour_moi",
+            Marque::PasHorsSujet => "pas_hors_sujet",
         }
     }
 }

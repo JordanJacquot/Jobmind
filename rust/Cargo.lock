@@ -1761,6 +1761,7 @@ version = "0.1.0"
 dependencies = [
  "jobmind-core",
  "jobmind-lecture",
+ "jobmind-llm",
  "jobmind-sources",
  "jobmind-storage",
  "jobmind-vie",
@@ -1794,7 +1795,10 @@ dependencies = [
 name = "jobmind-llm"
 version = "0.1.0"
 dependencies = [
+ "jobmind-core",
+ "serde_json",
  "thiserror 2.0.21",
+ "ureq",
 ]
 
 [[package]]

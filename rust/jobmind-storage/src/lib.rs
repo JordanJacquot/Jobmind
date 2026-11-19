@@ -31,6 +31,7 @@ pub mod donnees;
 pub mod dossier;
 pub mod fichiers;
 pub mod journal;
+pub mod lecture;
 pub mod moment;
 pub mod offres;
 pub mod profil;

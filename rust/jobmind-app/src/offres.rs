@@ -13,6 +13,13 @@
 //! est de 100 par jour).
 //!
 //! Le journal ne reçoit jamais une clé ni une adresse entière : seulement ce qui a été fait, et l'hôte d'un lien.
+//!
+//! Étape 6 : avant de montrer la liste, chaque offre pas encore lue est lue par les règles, et chaque note faite avec
+//! un autre « Ce que je cherche » ou un autre CV est refaite (jobmind-storage, `lecture`) ; les filtres « Aucun
+//! diplôme requis » et « Débutant accepté », le tri (les plus pertinentes ou les plus récentes), la rubrique « Hors
+//! sujet » et « Pas hors sujet ». Les offres floues (les règles n'ont pas trouvé le diplôme ou l'expérience) sont
+//! données au petit modèle de Claude, par lots de [`LOT_IA`], après une recherche ou sur un clic, jamais plus de
+//! [`PLAFOND_IA`] par jour, une seule fois chacune ; sans clé Claude, seules les règles servent, et c'est dit.
 
 use std::collections::HashSet;
 use std::sync::LazyLock;
@@ -23,12 +30,15 @@ use jobmind_core::candidature::{
 use jobmind_core::cle::{Cle, Service};
 use jobmind_core::offre::{
     self, Appui, FiltreLieu, Filtres, Offre, SaisieFiltres, centre_ville, cle_ville, garder, lien_ouvrable,
-    verifier_filtres,
+    trier_selon, verifier_filtres,
 };
+use jobmind_core::pertinence::{self, OffreANoter};
 use jobmind_core::recherche::Lieu;
 use jobmind_core::recherches::{self, NOMBRE_MAX, SaisieRechercheGardee, depuis_profil};
+use jobmind_llm::{ErreurLlm, LlmProvider, Modele};
 use jobmind_sources::{ErreurSource, OffreTrouvee, Recherche};
 use jobmind_storage::cles::{Cles, EtatCle};
+use jobmind_storage::lecture::{self as base_lecture, ResultatIa};
 use jobmind_storage::offres::{self as base_offres, Bilan, Marque, OffreComplete, RechercheGardee};
 use jobmind_storage::rusqlite;
 use jobmind_storage::{Base, Moment, candidatures, profil};
@@ -50,9 +60,14 @@ pub const DEPUIS_PROFIL: &str = "o-depuis-profil";
 pub const POSTULE: &str = "o-postule";
 pub const VOIR: &str = "o-voir";
 pub const ADZUNA: &str = "o-adzuna";
+/// Étape 6 : « Pas hors sujet » (et son contraire), « Lire avec Claude »
+pub const PAS_HORS_SUJET: &str = "o-pas-hors-sujet";
+pub const LIRE_IA: &str = "o-lire-ia";
 /// Mes clés : « Essayer la clé »
 pub const ESSAYER: &str = "cle-essayer";
-const GESTES: [&str; 14] = [
+const GESTES: [&str; 16] = [
+    PAS_HORS_SUJET,
+    LIRE_IA,
     OUVRIR,
     FAVORI,
     PLUS_TARD,
@@ -81,6 +96,83 @@ pub const LIMITE_JOOBLE: u32 = 50;
 pub const PAUSE_SECONDES: i64 = 60;
 /// La liste montre au plus ce nombre d'offres (les filtres resserrent).
 pub const LISTE_MAX: usize = 150;
+/// Étape 6 : Claude lit au plus ce nombre d'offres floues à la fois...
+pub const LOT_IA: usize = 8;
+/// ... et au plus ce nombre par jour.
+pub const PLAFOND_IA: u32 = 150;
+
+/// Une offre à faire lire par Claude : son numéro, son titre, son texte.
+pub type OffreIa = (i64, String, String);
+
+/// Ce que le fil de Claude doit lire : des offres (leur numéro, leur titre, leur texte). Aucune clé ici.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TacheIa {
+    pub jeton: u64,
+    pub offres: Vec<OffreIa>,
+}
+
+/// Ce que le fil de Claude rapporte : chaque offre lue (déjà vérifiée), et l'erreur qui a arrêté le lot.
+#[derive(Debug, Clone)]
+pub struct RetourIa {
+    pub jeton: u64,
+    pub resultats: Vec<ResultatIa>,
+    pub erreur: Option<ErreurLlm>,
+}
+
+/// Le travail du fil de Claude : chaque offre demandée l'une après l'autre, la réponse vérifiée (une citation absente
+/// de l'offre n'est jamais gardée). Une erreur de clé, de réseau, de délai ou de surcharge arrête le lot ; une réponse
+/// illisible est notée (pas de deuxième appel pour la même offre).
+pub fn lire_lot(ia: &dyn LlmProvider, t: &TacheIa) -> RetourIa {
+    let mut resultats = Vec::new();
+    let mut erreur = None;
+    for (id, titre, texte) in &t.offres {
+        let d = jobmind_llm::lecture::demande(titre, texte);
+        let base = ResultatIa {
+            offre_id: *id,
+            modele: Modele::Petit.id().into(),
+            etat: "illisible",
+            jetons_entree: 0,
+            jetons_sortie: 0,
+            cout_millioniemes: 0,
+            reponse: String::new(),
+            diplome: None,
+            experience: None,
+        };
+        match ia.repondre(&d) {
+            Ok(r) => {
+                let cout = Modele::Petit.cout_millioniemes(r.jetons_entree, r.jetons_sortie);
+                let mut x = ResultatIa {
+                    jetons_entree: r.jetons_entree,
+                    jetons_sortie: r.jetons_sortie,
+                    cout_millioniemes: cout,
+                    reponse: r.texte.clone(),
+                    ..base
+                };
+                if let Ok(lu) = jobmind_llm::lecture::comprendre(&d.texte, &r.texte) {
+                    x.etat = if lu.citation_inventee { "citation_inventee" } else { "ok" };
+                    x.diplome = lu.diplome;
+                    x.experience = lu.experience;
+                }
+                resultats.push(x);
+            }
+            Err(e) if !e.arrete_le_lot() => resultats.push(ResultatIa { reponse: e.code().into(), ..base }),
+            Err(e) => {
+                erreur = Some(e);
+                break;
+            }
+        }
+    }
+    RetourIa { jeton: t.jeton, resultats, erreur }
+}
+
+/// Un coût en millionièmes de dollar, en mots : « moins d'un centime », « environ 3 centimes ».
+pub fn cout_texte(millioniemes: u64) -> String {
+    match millioniemes.div_ceil(10_000) {
+        0 | 1 if millioniemes < 10_000 => "moins d'un centime".into(),
+        1 => "environ 1 centime".into(),
+        n => format!("environ {n} centimes"),
+    }
+}
 
 /// Le nom d'une source (« Adzuna »).
 pub fn nom_source(code: &str) -> &'static str {
@@ -164,6 +256,14 @@ pub struct VueOffres {
     pub cles: (bool, bool),
     /// « Ce que je cherche » est enregistré
     pub profil: bool,
+    /// Étape 6 : le nombre d'offres rangées hors sujet, et d'offres floues que Claude pourrait lire
+    pub hors_sujet: usize,
+    pub floues: usize,
+    /// La clé Claude est prête
+    pub claude: bool,
+    /// Claude lit (la phrase), ou ce qu'a donné sa dernière lecture
+    pub ia_en_cours: Option<String>,
+    pub ia_annonce: Option<Annonce>,
 }
 
 /// Rien encore (les tests, une base qui ne s'ouvre pas).
@@ -175,6 +275,7 @@ fn saisie_vide() -> SaisieFiltres {
         rayon: 30,
         teletravail: "peu_importe".into(),
         liste: "toutes".into(),
+        tri: "pertinence".into(),
         ..SaisieFiltres::default()
     }
 }
@@ -191,6 +292,9 @@ pub struct Offres {
     /// Le moment où chaque recherche est partie (pas deux fois dans la minute)
     parties: Vec<(i64, i64)>,
     jetons: u64,
+    /// Étape 6 : la lecture par Claude en cours (son jeton, le nombre d'offres), et ce qu'a donné la dernière
+    pub ia: Option<(u64, usize)>,
+    pub ia_annonce: Option<Annonce>,
 }
 
 impl Default for Offres {
@@ -204,6 +308,8 @@ impl Default for Offres {
             annonce: None,
             parties: Vec::new(),
             jetons: 0,
+            ia: None,
+            ia_annonce: None,
         }
     }
 }
@@ -247,6 +353,11 @@ impl Offres {
             en_cours: self.en_cours.as_ref().map(|e| e.texte.clone()),
             annonce: self.annonce.clone(),
             cles: (cle_prete(cles, Service::Adzuna), cle_prete(cles, Service::Jooble)),
+            claude: cle_prete(cles, Service::Claude),
+            ia_en_cours: self
+                .ia
+                .map(|(_, n)| format!("Claude lit {} floue{}...", n_offres(n), if n > 1 { "s" } else { "" })),
+            ia_annonce: self.ia_annonce.clone(),
             ..VueOffres::default()
         };
         let Some(b) = base else { return (v, None) };
@@ -258,8 +369,11 @@ impl Offres {
 
     fn lire(&mut self, b: &Base, v: &mut VueOffres) -> rusqlite::Result<()> {
         let c = b.connexion();
+        preparer(c)?;
         let toutes = base_offres::lister(c)?;
         v.gardees = toutes.iter().filter(|o| !o.cachee).count();
+        v.hors_sujet = toutes.iter().filter(|o| !o.cachee && o.rangee_hors_sujet()).count();
+        v.floues = base_lecture::nombre_floues(c)?;
         v.nouvelles = toutes.iter().filter(|o| !o.vue && !o.cachee).count();
         v.favoris = toutes.iter().filter(|o| o.favori).count();
         v.plus_tard = toutes.iter().filter(|o| o.plus_tard).count();
@@ -291,6 +405,7 @@ impl Offres {
         };
         let appui = Appui { textes: textes.as_ref(), centre, recherches_ville: &autour };
         let mut liste: Vec<Offre> = toutes.into_iter().filter(|o| garder(o, &self.filtres, &appui)).collect();
+        trier_selon(&mut liste, self.filtres.tri);
         v.total = liste.len();
         liste.truncate(LISTE_MAX);
         // L'offre ouverte : celle choisie si elle est dans la liste, sinon la première
@@ -342,6 +457,8 @@ impl Offres {
             DEPUIS_PROFIL => self.depuis_profil(base, maintenant),
             POSTULE => postule(base, valeur, maintenant),
             VOIR => voir(base, valeur),
+            PAS_HORS_SUJET => marquer(base, valeur, Marque::PasHorsSujet),
+            LIRE_IA => return self.lire_floues(ctx, numero(valeur), false, maintenant),
             _ => Ok(Fait::default()),
         };
         r.unwrap_or_else(|e| Fait::refus(PAS_ENREGISTRE, format!("Offres : {id} non enregistré ({e})")))
@@ -368,6 +485,9 @@ impl Offres {
             teletravail: texte(v, "teletravail"),
             texte: coupe(&texte(v, "texte"), 200),
             liste: texte(v, "liste"),
+            sans_diplome: v.get("sans_diplome").and_then(Value::as_bool).unwrap_or(false),
+            debutant: v.get("debutant").and_then(Value::as_bool).unwrap_or(false),
+            tri: texte(v, "tri"),
         };
         match verifier_filtres(&s) {
             Ok(f) => {
@@ -590,6 +710,162 @@ impl Offres {
         Fait::refus(t, "Offres : recherche trop longue, abandonnée".into())
     }
 
+    /// Étape 6 : les offres floues données à Claude (`seule` : celle-ci seulement, sur un clic dans l'offre). `auto` :
+    /// après une recherche, sans rien dire s'il n'y a rien à faire (pas de clé, rien de flou, le plafond atteint).
+    pub fn lire_floues(&mut self, ctx: &Contexte, seule: Option<i64>, auto: bool, maintenant: Moment) -> Fait {
+        let silence = |j: &str| Fait { journal: Some(j.into()), ..Fait::default() };
+        let Some(base) = ctx.base else {
+            return if auto {
+                Fait::default()
+            } else {
+                Fait::refus(crate::suivi::SANS_BASE, "IA : base fermée".into())
+            };
+        };
+        if !cle_prete(ctx.cles, Service::Claude) {
+            if auto {
+                return Fait::default();
+            }
+            let t = ErreurLlm::CleManquante.message();
+            self.ia_annonce = Some(Annonce { texte: t.clone(), genre: "attention", cles: true });
+            return Fait {
+                message: Some(t),
+                journal: Some("IA : lecture impossible, pas de clé Claude".into()),
+                change: true,
+                ..Fait::default()
+            };
+        }
+        if self.ia.is_some() {
+            return if auto {
+                silence("IA : une lecture est déjà en cours")
+            } else {
+                message("Claude lit déjà des offres : attends la fin.")
+            };
+        }
+        let c = base.connexion();
+        let lu = (|| -> rusqlite::Result<(u32, Vec<OffreIa>)> {
+            let (n, _) = base_lecture::ia_du_jour(c, maintenant.jour())?;
+            let reste = PLAFOND_IA.saturating_sub(n) as usize;
+            let l = match seule {
+                Some(id) => {
+                    let p = base_offres::principale(c, id)?.unwrap_or(id);
+                    base_lecture::a_lire_par_ia(c, 5000)?.into_iter().filter(|x| x.0 == p).take(reste.min(1)).collect()
+                }
+                None => base_lecture::a_lire_par_ia(c, LOT_IA.min(reste))?,
+            };
+            Ok((n, l))
+        })();
+        let (deja, offres) = match lu {
+            Ok(x) => x,
+            Err(e) => return Fait::refus(PAS_ENREGISTRE, format!("IA : offres floues illisibles ({e})")),
+        };
+        if offres.is_empty() {
+            if deja >= PLAFOND_IA {
+                return if auto {
+                    silence("IA : plafond du jour atteint")
+                } else {
+                    message(format!("Claude a déjà lu {PLAFOND_IA} offres aujourd'hui. La suite demain."))
+                };
+            }
+            return if auto {
+                Fait::default()
+            } else {
+                message("Aucune offre floue à lire : Jobmind a déjà tout compris.")
+            };
+        }
+        self.jetons += 1;
+        let n = offres.len();
+        self.ia = Some((self.jetons, n));
+        self.ia_annonce = None;
+        Fait {
+            ia: Some(TacheIa { jeton: self.jetons, offres }),
+            journal: Some(format!("IA : {n} offres floues données à Claude")),
+            change: true,
+            ..Fait::default()
+        }
+    }
+
+    /// Étape 6 : ce que Claude a lu, gardé, dit en une phrase.
+    pub fn ia_finie(&mut self, base: Option<&Base>, r: RetourIa, maintenant: Moment) -> Fait {
+        if self.ia.map(|x| x.0) != Some(r.jeton) {
+            return Fait {
+                journal: Some("IA : résultat d'une lecture abandonnée, laissé".into()), ..Fait::default()
+            };
+        }
+        self.ia = None;
+        let Some(base) = base else {
+            return Fait::refus(crate::suivi::SANS_BASE, "IA : résultat perdu, la base n'est pas ouverte".into());
+        };
+        let (mut trouvees, mut inventees, mut illisibles, mut cout, mut jin, mut jout) = (0, 0, 0, 0u64, 0u64, 0u64);
+        for x in &r.resultats {
+            if let Err(e) = base_lecture::garder_ia(base.connexion(), x, maintenant) {
+                return Fait::refus(PAS_ENREGISTRE, format!("IA : lecture non gardée ({e})"));
+            }
+            trouvees += usize::from(x.diplome.is_some() || x.experience.is_some());
+            inventees += usize::from(x.etat == "citation_inventee");
+            illisibles += usize::from(x.etat == "illisible");
+            cout += x.cout_millioniemes;
+            jin += u64::from(x.jetons_entree);
+            jout += u64::from(x.jetons_sortie);
+        }
+        let n = r.resultats.len();
+        let mut texte = String::new();
+        if n > 0 {
+            texte = format!(
+                "Claude a lu {} floue{} : {} en {} plus (coût : {}).",
+                n_offres(n),
+                if n > 1 { "s" } else { "" },
+                trouvees,
+                if trouvees > 1 { "disent" } else { "dit" },
+                cout_texte(cout)
+            );
+            if trouvees == 0 {
+                texte = format!(
+                    "Claude a lu {} floue{} : rien de plus n'y est dit (coût : {}).",
+                    n_offres(n),
+                    if n > 1 { "s" } else { "" },
+                    cout_texte(cout)
+                );
+            }
+        }
+        if let Some(e) = &r.erreur {
+            if !texte.is_empty() {
+                texte.push(' ');
+            }
+            texte.push_str(&e.message());
+        }
+        let genre = match (&r.erreur, n) {
+            (None, _) => "ok",
+            (Some(_), 0) => "erreur",
+            (Some(_), _) => "attention",
+        };
+        let cles = matches!(r.erreur, Some(ErreurLlm::CleRefusee(_) | ErreurLlm::CleManquante));
+        self.ia_annonce = Some(Annonce { texte: texte.clone(), genre, cles });
+        Fait {
+            message: Some(texte),
+            bravo: trouvees > 0,
+            journal: Some(format!(
+                "IA : {n} offres lues par Claude ({trouvees} avec du nouveau, {inventees} citations rejetées, \
+                 {illisibles} illisibles, {jin} et {jout} jetons, {cout} millionièmes de dollar){}",
+                r.erreur.as_ref().map(|e| format!(", arrêt : {} ({e})", e.code())).unwrap_or_default()
+            )),
+            change: true,
+            ..Fait::default()
+        }
+    }
+
+    /// Étape 6 : la lecture par Claude a duré trop longtemps : abandonnée.
+    pub fn ia_trop_longue(&mut self) -> Fait {
+        self.ia = None;
+        let t = ErreurLlm::Delai.message();
+        self.ia_annonce = Some(Annonce { texte: t.clone(), genre: "erreur", cles: false });
+        Fait::refus(t, "IA : lecture trop longue, abandonnée".into())
+    }
+
+    /// Le jeton de la lecture par Claude en cours.
+    pub fn jeton_ia(&self) -> Option<u64> {
+        self.ia.map(|x| x.0)
+    }
+
     /// Le jeton de la recherche en cours.
     pub fn jeton_en_cours(&self) -> Option<u64> {
         self.en_cours.as_ref().map(|e| e.jeton)
@@ -685,6 +961,44 @@ impl Offres {
     }
 }
 
+/// Étape 6 : avant de montrer la liste, les offres pas encore lues sont lues par les règles, et les notes faites avec
+/// un autre « Ce que je cherche » ou un autre CV sont refaites (sans « Ce que je cherche » : aucune note).
+fn preparer(c: &rusqlite::Connection) -> rusqlite::Result<()> {
+    base_lecture::relire(c)?;
+    let Some(r) = profil::lire_recherche(c)? else {
+        base_lecture::effacer_notes(c)?;
+        return Ok(());
+    };
+    let cv = profil::lister_cv(c)?.into_iter().find(|x| x.principal).map(|x| x.texte).unwrap_or_default();
+    let mut p = pertinence::Profil::nouveau(&r, &cv);
+    if let Lieu::Ville { nom, .. } = &r.lieu {
+        let toutes = base_offres::lister(c)?;
+        let cle = cle_ville(nom);
+        p.centre = centre_ville(&toutes, &cle);
+        p.departement_ville = toutes.iter().filter(|o| cle_ville(&o.lieu) == cle).find_map(|o| o.departement.clone());
+    }
+    let signature = pertinence::signature(&r, &cv);
+    base_lecture::renoter(c, &signature, |o| {
+        pertinence::noter(
+            &p,
+            &OffreANoter {
+                titre: &o.titre,
+                description: &o.description,
+                lieu: &o.lieu,
+                departement: o.departement.as_deref(),
+                region: o.region.as_deref(),
+                point: o.point,
+                contrat: o.contrat,
+                teletravail: o.teletravail,
+                salaire: &o.salaire,
+                diplome: o.diplome,
+                experience: o.experience,
+            },
+        )
+    })?;
+    Ok(())
+}
+
 /// Le résultat d'un essai de clé.
 fn essai_fini(r: Retour) -> Fait {
     let Some((s, res)) = r.resultats.into_iter().next() else { return Fait { change: true, ..Fait::default() } };
@@ -718,11 +1032,14 @@ fn marquer(base: &Base, v: &Value, m: Marque) -> rusqlite::Result<Fait> {
         (Marque::PlusTard, false) => "Retirée de « Plus tard ».",
         (Marque::PasPourMoi, true) => "Offre cachée. Tu la retrouves dans « Cachées ».",
         (Marque::PasPourMoi, false) => "L'offre est de nouveau dans la liste.",
+        (Marque::PasHorsSujet, true) => "C'est noté : l'offre revient dans la liste.",
+        (Marque::PasHorsSujet, false) => "L'offre est de nouveau rangée dans « Hors sujet ».",
     };
     let code = match m {
         Marque::Favori => "favori",
         Marque::PlusTard => "plus tard",
         Marque::PasPourMoi => "pas pour moi",
+        Marque::PasHorsSujet => "pas hors sujet",
     };
     Ok(Fait {
         message: Some(texte.into()),
@@ -919,7 +1236,8 @@ mod tests {
                 .starts_with(&format!("Offres : recherche {recherche_id} finie (adzuna : 12 offres"))
         );
         let (v, _) = o.vue(Some(&b), Some(&cles));
-        assert_eq!((v.gardees, v.total, v.nouvelles, v.liste.len()), (17, 17, 17, 17));
+        // (étape 6 : les offres qui ne parlent ni d'agent de quai ni de cariste sont rangées dans « Hors sujet »)
+        assert_eq!((v.gardees, v.total, v.nouvelles, v.liste.len(), v.hors_sujet), (17, 6, 17, 6, 11));
         assert_eq!(v.recherches[0].dernier_nombre, Some(19));
         assert!(v.en_cours.is_none());
         // Un résultat qui arrive trop tard : laissé
@@ -946,7 +1264,10 @@ mod tests {
         assert_eq!(v.liste.iter().map(|x| x.titre.as_str()).collect::<Vec<_>>(), ["Cariste CACES 3"]);
         assert_eq!(v.ouverte.as_ref().unwrap().offre.titre, "Cariste CACES 3");
         o.geste(&ctx, FILTRES, &json!({ "genre": "departement", "departement": "54" }), m(9, 5));
-        // (Nancy chez Adzuna, Pont-à-Mousson ; « Nancy » seul chez Jooble ne dit pas son département)
+        // (Nancy chez Adzuna, Pont-à-Mousson ; « Nancy » seul chez Jooble ne dit pas son département ; étape 6 : les
+        // deux sont hors sujet pour « agent de quai, cariste »)
+        assert_eq!(o.vue(Some(&b), Some(&cles)).0.total, 0);
+        o.geste(&ctx, FILTRES, &json!({ "genre": "departement", "departement": "54", "liste": "hors_sujet" }), m(9, 5));
         assert_eq!(o.vue(Some(&b), Some(&cles)).0.total, 2);
         let f = o.geste(&ctx, FILTRES, &json!({ "genre": "departement", "departement": "99" }), m(9, 5));
         assert_eq!(f.message.as_deref(), Some("Choisis un département dans la liste."));
@@ -1088,6 +1409,200 @@ mod tests {
             f.message.as_deref(),
             Some("Adzuna et Jooble ne répondent pas. Vérifie ta connexion à internet, puis réessaie.")
         );
+    }
+
+    /// Une fausse IA : rend ces réponses dans l'ordre (aucun réseau).
+    struct FausseIa(std::sync::Mutex<Vec<Result<jobmind_llm::Reponse, ErreurLlm>>>);
+    impl LlmProvider for FausseIa {
+        fn nom(&self) -> &str {
+            "Fausse"
+        }
+        fn repondre(&self, _: &jobmind_llm::Demande) -> Result<jobmind_llm::Reponse, ErreurLlm> {
+            let mut l = self.0.lock().unwrap();
+            if l.is_empty() { Err(ErreurLlm::Reseau("plus rien".into())) } else { l.remove(0) }
+        }
+    }
+
+    fn rep(t: &str) -> Result<jobmind_llm::Reponse, ErreurLlm> {
+        Ok(jobmind_llm::Reponse { texte: t.into(), jetons_entree: 800, jetons_sortie: 60 })
+    }
+
+    const FLOU: &str = "Notre magasin recrute un employé polyvalent pour la mise en rayon, l'accueil des clients et la \
+                        caisse. Vous aimez le contact avec les clients et le travail en équipe. L'équipe vous accueille \
+                        avec plaisir du mardi au samedi, horaires en journée.";
+
+    /// Étape 6 : la note et la raison dans la liste, « Aucun diplôme requis », Hors sujet et « Pas hors sujet ».
+    #[test]
+    fn la_note_les_filtres_et_hors_sujet() {
+        let (b, _) = Base::en_memoire(m(9, 0)).unwrap();
+        let c = b.connexion();
+        let t = |id: &str, titre: &str, d: &str| OffreTrouvee {
+            id_source: id.into(),
+            titre: titre.into(),
+            entreprise: "Exemple".into(),
+            lieu: "Metz (57)".into(),
+            zones: Vec::new(),
+            url: String::new(),
+            description: d.into(),
+            contrat: String::new(),
+            salaire: String::new(),
+            publiee_le: String::new(),
+            latitude: None,
+            longitude: None,
+            brut: "{}".into(),
+        };
+        base_offres::ajouter_trouvees(
+            c,
+            "adzuna",
+            &[
+                t("1", "Cariste", "Sans diplôme, débutant accepté."),
+                t("2", "Cariste confirmé", "CACES 3, 2 ans d'expérience exigés."),
+                t("3", "Infirmier de nuit", "Diplôme d'État exigé."),
+            ],
+            None,
+            m(9, 0),
+        )
+        .unwrap();
+        let mut o = Offres::default();
+        // Sans « Ce que je cherche » : pas de note, la phrase qui le demande
+        let (v, _) = o.vue(Some(&b), None);
+        assert!(v.liste.iter().all(|x| x.pertinence.is_none()));
+        let s = jobmind_core::recherche::verifier_recherche(&jobmind_core::recherche::SaisieRecherche {
+            postes: "cariste".into(),
+            lieu: "ville".into(),
+            ville: "Metz".into(),
+            rayon: 30,
+            teletravail: "peu_importe".into(),
+            sans_diplome: true,
+            debutant: true,
+            ..Default::default()
+        })
+        .unwrap();
+        profil::enregistrer_recherche(c, &s, m(9, 0)).unwrap();
+        let (v, _) = o.vue(Some(&b), None);
+        assert_eq!(v.liste.iter().map(|x| x.titre.as_str()).collect::<Vec<_>>(), ["Cariste", "Cariste confirmé"]);
+        assert_eq!(v.liste[0].raison, "Aucun diplôme demandé, à Metz, débutant accepté");
+        assert_eq!(v.hors_sujet, 1);
+        // Les filtres de la lecture
+        let ctx = Contexte { base: Some(&b), cles: None };
+        o.geste(&ctx, FILTRES, &json!({ "genre": "partout", "sans_diplome": true }), m(9, 1));
+        assert_eq!(o.vue(Some(&b), None).0.total, 1);
+        o.geste(&ctx, FILTRES, &json!({ "genre": "partout", "liste": "hors_sujet" }), m(9, 1));
+        let (v, _) = o.vue(Some(&b), None);
+        let infirmier = v.liste[0].id;
+        assert_eq!(v.liste[0].titre, "Infirmier de nuit");
+        let f = o.geste(&ctx, PAS_HORS_SUJET, &json!({ "id": infirmier }), m(9, 2));
+        assert_eq!(f.message.as_deref(), Some("C'est noté : l'offre revient dans la liste."));
+        assert_eq!(o.vue(Some(&b), None).0.total, 0);
+        o.geste(&ctx, FILTRES, &json!({ "genre": "partout", "tri": "recentes" }), m(9, 3));
+        let (v, _) = o.vue(Some(&b), None);
+        assert_eq!(v.liste.len(), 3);
+        // « Ce que je cherche » change : la note suit
+        let s2 = jobmind_core::recherche::SaisieRecherche {
+            postes: "infirmier".into(),
+            lieu: "partout".into(),
+            teletravail: "peu_importe".into(),
+            ..Default::default()
+        };
+        profil::enregistrer_recherche(c, &jobmind_core::recherche::verifier_recherche(&s2).unwrap(), m(9, 4)).unwrap();
+        let (v, _) = o.vue(Some(&b), None);
+        assert_eq!(v.liste.iter().map(|x| x.titre.as_str()).collect::<Vec<_>>(), ["Infirmier de nuit"]);
+        assert!(o.geste(&ctx, FILTRES, &json!({ "tri": "hasard" }), m(9, 5)).message.is_some());
+    }
+
+    /// Étape 6 : Claude lit les offres floues ; sans clé, rien ne part et c'est dit ; une citation inventée est
+    /// rejetée ; 429 arrête le lot ; pas de deuxième appel pour la même offre.
+    #[test]
+    fn claude_lit_les_offres_floues() {
+        let d = essai("offres-ia");
+        let (b, _) = Base::en_memoire(m(9, 0)).unwrap();
+        let c = b.connexion();
+        let t = |id: &str, titre: &str| OffreTrouvee {
+            id_source: id.into(),
+            titre: titre.into(),
+            entreprise: "Exemple".into(),
+            lieu: "Metz".into(),
+            zones: Vec::new(),
+            url: String::new(),
+            description: FLOU.into(),
+            contrat: String::new(),
+            salaire: String::new(),
+            publiee_le: String::new(),
+            latitude: None,
+            longitude: None,
+            brut: "{}".into(),
+        };
+        base_offres::ajouter_trouvees(
+            c,
+            "adzuna",
+            &[t("1", "Employé polyvalent"), t("2", "Vendeur"), t("3", "Caissier")],
+            None,
+            m(9, 0),
+        )
+        .unwrap();
+        let (mut cles, _) = Cles::ouvrir(&d, Box::new(Faux));
+        let mut o = Offres::default();
+        let (v, _) = o.vue(Some(&b), Some(&cles));
+        assert_eq!((v.floues, v.claude), (3, false));
+        // Sans clé : rien ne part ; après une recherche, rien n'est dit
+        let ctx = Contexte { base: Some(&b), cles: Some(&cles) };
+        assert!(o.lire_floues(&ctx, None, true, m(9, 1)).ia.is_none());
+        let f = o.geste(&ctx, LIRE_IA, &json!({}), m(9, 1));
+        assert!(f.ia.is_none());
+        assert_eq!(
+            f.message.as_deref(),
+            Some(
+                "Ajoute ta clé Claude dans Mon profil, rubrique Mes clés, pour que Jobmind lise aussi les offres floues."
+            )
+        );
+        // Avec la clé : un lot, sans clé dedans
+        cles.garder(Cle::Claude, "sk-ant-api03-InventeeInventeeInventeeInventeeInventee_0000-AAAA").unwrap();
+        let ctx = Contexte { base: Some(&b), cles: Some(&cles) };
+        let f = o.geste(&ctx, LIRE_IA, &json!({}), m(9, 2));
+        let tache = f.ia.clone().unwrap();
+        assert_eq!(tache.offres.len(), 3);
+        assert!(!format!("{f:?}").contains("sk-ant"));
+        assert!(o.vue(Some(&b), Some(&cles)).0.ia_en_cours.unwrap().starts_with("Claude lit 3 offres floues"));
+        // La fausse IA : une réponse juste, une citation inventée, puis 429
+        let ia = FausseIa(std::sync::Mutex::new(vec![
+            rep(
+                r#"{"diplome":"non_dit","diplome_citation":"","experience":"souhaitee","experience_mois":0,"experience_citation":"Vous aimez le contact avec les clients"}"#,
+            ),
+            rep(
+                r#"{"diplome":"bac","diplome_citation":"Bac exigé pour ce poste","experience":"non_dit","experience_mois":0,"experience_citation":""}"#,
+            ),
+            Err(ErreurLlm::Limite),
+        ]));
+        let r = lire_lot(&ia, &tache);
+        assert_eq!((r.resultats.len(), r.erreur.clone()), (2, Some(ErreurLlm::Limite)));
+        assert_eq!(r.resultats[1].etat, "citation_inventee");
+        let f = o.ia_finie(Some(&b), r, m(9, 3));
+        assert_eq!(
+            f.message.as_deref(),
+            Some(
+                "Claude a lu 2 offres floues : 1 en dit plus (coût : moins d'un centime). Claude reçoit trop de demandes pour l'instant. Réessaie dans quelques minutes."
+            )
+        );
+        assert!(f.journal.unwrap().contains("1 citations rejetées"));
+        // La troisième n'a pas été lue : elle reste floue ; les deux autres ne seront plus jamais redonnées
+        let (v, _) = o.vue(Some(&b), Some(&cles));
+        assert_eq!(v.floues, 1);
+        let lue = v.liste.iter().find(|x| x.experience.is_some()).unwrap().id;
+        let x = base_offres::lire(c, lue).unwrap().unwrap();
+        assert_eq!(x.lecture.experience.unwrap().par, jobmind_core::lecture::LuPar::Ia);
+        // Une seule offre, sur un clic : celle qui reste
+        let f = o.geste(&ctx, LIRE_IA, &json!({ "id": lue }), m(9, 4));
+        assert_eq!(f.message.as_deref(), Some("Aucune offre floue à lire : Jobmind a déjà tout compris."));
+        // Un résultat arrivé après l'abandon : laissé
+        let f = o.geste(&ctx, LIRE_IA, &json!({}), m(9, 5));
+        let jeton = f.ia.unwrap().jeton;
+        o.ia_trop_longue();
+        assert!(
+            o.ia_finie(Some(&b), RetourIa { jeton, resultats: Vec::new(), erreur: None }, m(9, 6)).message.is_none()
+        );
+        assert_eq!(cout_texte(150), "moins d'un centime");
+        assert_eq!(cout_texte(25_000), "environ 3 centimes");
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     /// Contre-épreuve : des gestes mal formés ne changent rien et ne plantent pas.

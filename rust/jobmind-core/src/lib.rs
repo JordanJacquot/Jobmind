@@ -16,13 +16,18 @@
 //! - [`cle`] (étape 3) : les clés des sources d'offres et de l'IA, leur forme vérifiée ;
 //! - [`offre`] (étape 4) : ce qui se lit dans une offre (contrat, télétravail, département), la règle des doublons,
 //!   les filtres de l'onglet Offres ;
-//! - [`recherches`] (étape 4) : les recherches gardées, tirées de « Ce que je cherche » ou tapées.
+//! - [`recherches`] (étape 4) : les recherches gardées, tirées de « Ce que je cherche » ou tapées ;
+//! - [`lecture`] (étape 6) : le diplôme et l'expérience demandés, lus dans le texte d'une offre par des règles, avec
+//!   leur preuve ; le permis et le CACES ;
+//! - [`pertinence`] (étape 6) : la note d'une offre et sa raison en une ligne, hors sujet.
 
 pub mod candidature;
 pub mod cle;
 pub mod jour;
+pub mod lecture;
 pub mod lieux;
 pub mod offre;
+pub mod pertinence;
 pub mod profil;
 pub mod recherche;
 pub mod recherches;

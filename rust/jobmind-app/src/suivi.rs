@@ -59,6 +59,8 @@ pub struct Fait {
     pub importer: bool,
     /// Offres (étape 4) : la tâche du fil des recherches (« Chercher maintenant », « Essayer la clé »)
     pub reseau: Option<crate::offres::Tache>,
+    /// Étape 6 : un lot d'offres floues à faire lire par Claude, sur un fil à part (sans la clé)
+    pub ia: Option<crate::offres::TacheIa>,
     /// Étape 5 bis : ce que la vue des sites doit faire (charger une page en coulisse, la lire, la montrer...)
     pub coulisse: Vec<crate::coulisse::Ordre>,
     /// Étape 5 bis : la page d'un site à montrer dans la petite fenêtre (« Voir sur le site »), adresse déjà vérifiée

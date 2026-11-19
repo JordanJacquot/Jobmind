@@ -270,7 +270,7 @@ try {
         try { $tete = New-Object byte[] 16; [void]$f.Read($tete, 0, 16) } finally { $f.Dispose() }
         Verifier ([Text.Encoding]::ASCII.GetString($tete, 0, 15) -ceq 'SQLite format 3') 'la base est une base SQLite'
     }
-    Verifier ((Compter 'Base : data\jobmind.db prête (version 5, migrations 1, 2, 3, 4, 5 appliquées)') -eq 1) 'la base est migrée (version 5, journal)'
+    Verifier ((Compter 'Base : data\jobmind.db prête (version 6, migrations 1, 2, 3, 4, 5, 6 appliquées)') -eq 1) 'la base est migrée (version 6, journal)'
     Verifier ((Compter 'Base : non ouverte') -eq 0) 'aucune erreur de la base (journal)'
     Verifier ((Compter 'Écran : menu du clic droit, raccourcis du navigateur, saisie automatique, mots de passe, outils de développement et zoom coupés') -ge 1 -or (Attendre { (Compter 'outils de développement et zoom coupés') -ge 1 } 10000)) 'réglages de WebView2 coupés et relus (journal)'
     Verifier (Attendre { (Compter 'Écran : page chargée http://tauri.localhost/index.html') -ge 1 } 15000) 'la page de Jobmind est chargée (journal)'
@@ -521,7 +521,7 @@ try {
         Verifier ((-not $p) -or $p.WaitForExit(6000)) "« Tout quitter » (quitter.demande) : elle quitte en moins de 6 s ($($t.ElapsedMilliseconds) ms)"
         Verifier (-not (Test-Path -LiteralPath (Join-Path $donnees 'quitter.demande'))) 'quitter.demande effacé'
         Verifier ((Compter 'Fermeture demandée par Mindset') -ge 1) 'fermeture demandée par Mindset (journal)'
-        Verifier ((Compter 'Base : data\jobmind.db prête (version 5)') -eq 1) 'relancée : la base est rouverte, aucune migration rejouée (journal)'
+        Verifier ((Compter 'Base : data\jobmind.db prête (version 6)') -eq 1) 'relancée : la base est rouverte, aucune migration rejouée (journal)'
     }
 } catch {
     Echec "l'essai s'est arrêté : $($_.Exception.Message) (ligne $($_.InvocationInfo.ScriptLineNumber))"

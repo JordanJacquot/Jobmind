@@ -1,14 +1,22 @@
 [package]
 name = "jobmind-llm"
 version = "0.1.0"
-description = "L'IA de Jobmind : le trait LlmProvider, puis Claude (un modèle fort pour les lettres, un petit pour lire et trier les offres) et plus tard un moteur sur le PC. Sans écran et sans Windows"
+description = "L'IA de Jobmind : le trait LlmProvider, le client de Claude (un modèle fort pour les lettres, un petit pour lire et trier les offres) et plus tard un moteur sur le PC. Sans écran et sans Windows"
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
+# Versions figées (« = ») : une nouvelle version n'entre que par un changement relu. Les mêmes que jobmind-sources.
 # Les erreurs de l'IA, nommées (la même version que celle déjà tirée par Tauri)
 thiserror = "=2.0.21"
+# Les demandes et les réponses JSON de l'API Messages de Claude
+serde_json = { version = "=1.0.154", features = ["preserve_order"] }
+# Le client HTTP, bloquant (il tourne sur un fil à part de l'appli), chiffré par SChannel (Windows) : le même que les
+# sources d'offres, sans ses options par défaut
+ureq = { version = "=3.1.4", default-features = false, features = ["native-tls"] }
+# Les codes du diplôme et de l'expérience, et la vérification des citations (rien d'inventé)
+jobmind-core = { path = "../jobmind-core" }
 
 [lints]
 workspace = true

@@ -1,0 +1,203 @@
+use super::*;
+
+/// Le code d'une lecture, comme dans les jeux de phrases : diplôme et expérience (« non_dit » : rien).
+fn codes(l: &LectureOffre) -> (String, String) {
+    (
+        l.diplome.as_ref().map_or("non_dit".into(), |d| d.valeur.code().to_string()),
+        l.experience.as_ref().map_or("non_dit".into(), |e| e.valeur.code()),
+    )
+}
+
+/// Le jeu écrit avec les règles : de vraies tournures d'annonces, et leurs pièges.
+const JEU: &[(&str, &str, &str)] = &[
+    ("Aucun diplôme requis. Débutants acceptés.", "aucun", "debutant"),
+    ("Poste accessible sans diplôme, formation assurée en interne.", "aucun", "debutant"),
+    ("Pas de diplôme exigé, vous serez formé au poste.", "aucun", "debutant"),
+    ("Diplôme : non exigé. Expérience : débutant accepté.", "aucun", "debutant"),
+    ("Débutants acceptés, formation assurée.", "aucun", "debutant"),
+    ("Bac+2 souhaité mais débutants acceptés.", "bac2", "debutant"),
+    ("Diplôme non exigé.", "aucun", "non_dit"),
+    ("2 ans d'expérience minimum sur un poste similaire.", "non_dit", "duree:24"),
+    ("Première expérience appréciée.", "non_dit", "souhaitee"),
+    ("Expérience exigée : non", "non_dit", "debutant"),
+    ("Expérience exigée : oui", "non_dit", "demandee"),
+    ("EXPERIENCE EXIGEE : NON", "non_dit", "debutant"),
+    ("DEBUTANTS ACCEPTES - SANS DIPLOME", "aucun", "debutant"),
+    ("diplome non exige, debutant accepte", "aucun", "debutant"),
+    ("Titulaire d'un CAP/BEP en électricité, vous avez 3 ans d'expérience.", "cap_bep", "duree:36"),
+    ("Vous êtes titulaire d'un BTS MCO et justifiez d'une première expérience en magasin.", "bac2", "souhaitee"),
+    ("De formation Bac+5 (école d'ingénieur ou master), vous avez au moins 5 ans d'expérience.", "bac5", "duree:60"),
+    ("Licence professionnelle exigée.", "bac3", "non_dit"),
+    ("Niveau Bac minimum, une expérience dans la vente est un plus.", "bac", "souhaitee"),
+    ("Bac pro logistique apprécié. Débutant(e) accepté(e).", "bac", "debutant"),
+    ("CACES 1, 3 et 5 obligatoires. Expérience de 6 mois en entrepôt.", "non_dit", "duree:6"),
+    ("Vous avez une expérience de 1 an et demi en restauration.", "non_dit", "duree:18"),
+    ("Expérience significative de 2 à 3 ans dans le BTP.", "non_dit", "duree:24"),
+    ("Profil expérimenté, débutants s'abstenir.", "non_dit", "demandee"),
+    ("Pas de débutant.", "non_dit", "demandee"),
+    ("Cariste confirmé H/F", "non_dit", "demandee"),
+    ("Aide à domicile H/F, débutante acceptée, permis B indispensable.", "non_dit", "debutant"),
+    ("CDD de 6 mois renouvelable. Poste à pourvoir rapidement.", "non_dit", "non_dit"),
+    ("Contrat de 12 mois, période d'essai de 2 mois.", "non_dit", "non_dit"),
+    ("Vous devez avoir 18 ans minimum.", "non_dit", "non_dit"),
+    ("Entreprise créée il y a 20 ans, nous recrutons un vendeur.", "non_dit", "non_dit"),
+    ("Salaire selon expérience.", "non_dit", "non_dit"),
+    ("Nettoyage des bacs à sable et des bacs de rétention.", "non_dit", "non_dit"),
+    ("Cap sur l'avenir avec notre entreprise !", "non_dit", "non_dit"),
+    ("Le restaurant dispose d'une licence IV.", "non_dit", "non_dit"),
+    ("Vous travaillerez en équipe dans une ambiance conviviale.", "non_dit", "non_dit"),
+    ("Le bac n'est pas obligatoire.", "aucun", "non_dit"),
+    ("Pas besoin d'avoir de diplôme ni d'expérience.", "aucun", "debutant"),
+    ("Aucune expérience n'est requise, nous vous formons.", "aucun", "debutant"),
+    ("Sans expérience ? Pas de problème : on vous forme !", "aucun", "debutant"),
+    ("Poste ouvert à tous, avec ou sans diplôme.", "aucun", "non_dit"),
+    ("Accessible aux débutants.", "non_dit", "debutant"),
+    ("Jeune diplômé accepté.", "non_dit", "debutant"),
+    ("Une première expérience serait un plus.", "non_dit", "souhaitee"),
+    ("Expérience souhaitée dans la grande distribution.", "non_dit", "souhaitee"),
+    ("Expérience indispensable en conduite d'engins.", "non_dit", "demandee"),
+    ("Vous justifiez d'une solide expérience en comptabilité.", "non_dit", "demandee"),
+    ("Exp. 2 ans mini en préparation de commandes.", "non_dit", "duree:24"),
+    ("Experience : 1 an", "non_dit", "duree:12"),
+    ("Experience de deux ans exigee", "non_dit", "duree:24"),
+    ("BTS ou DUT en informatique, 5 ans d'expérience en développement.", "bac2", "duree:60"),
+    ("Du CAP au Bac+2 selon le poste.", "cap_bep", "non_dit"),
+    ("CAP Petite enfance exigé.", "cap_bep", "non_dit"),
+    ("Vous avez un CAP cuisine et 2 ans d'expérience.", "cap_bep", "duree:24"),
+    ("Diplôme d'ingénieur exigé, 10 ans d'expérience minimum.", "bac5", "duree:120"),
+    ("Formation de niveau Bac+3 en ressources humaines.", "bac3", "non_dit"),
+    ("Bac+2/3 en commerce, une première expérience est appréciée.", "bac2", "souhaitee"),
+    ("Vous êtes débutant ou confirmé ? Rejoignez-nous.", "non_dit", "debutant"),
+    ("Expérience non exigée, mais une première expérience en vente serait appréciée.", "non_dit", "debutant"),
+    ("Aucune qualification requise. Travail en extérieur.", "aucun", "non_dit"),
+    ("Débutants bienvenus ! Formation au poste assurée.", "aucun", "debutant"),
+    ("Le permis C est exigé.", "non_dit", "non_dit"),
+    ("Agent de quai (H/F) - CDI - Ennery", "non_dit", "non_dit"),
+    ("Nous offrons une expérience enrichissante au sein d'une équipe soudée.", "non_dit", "non_dit"),
+    ("Bac + 5 en finance, minimum 3 ans d'expérience en audit.", "bac5", "duree:36"),
+    ("Expérience de 6 mois minimum souhaitée en caisse.", "non_dit", "duree:6"),
+    ("Experience exigee de 3 ans", "non_dit", "duree:36"),
+    ("Mission d'intérim de 3 mois, expérience en manutention appréciée.", "non_dit", "souhaitee"),
+    ("Vous avez au moins trois ans d'expérience en tant que chef d'équipe.", "non_dit", "duree:36"),
+    ("Baccalauréat obligatoire pour ce poste.", "bac", "non_dit"),
+];
+
+#[test]
+fn le_jeu_des_regles() {
+    assert!(JEU.len() >= 60, "{}", JEU.len());
+    let mut fautes = Vec::new();
+    for (phrase, d, e) in JEU {
+        let l = lire("", phrase);
+        let (ld, le) = codes(&l);
+        if ld != *d || le != *e {
+            fautes.push(format!("{phrase} : {ld} {le} (attendu {d} {e})"));
+        }
+    }
+    assert!(fautes.is_empty(), "{} fautes :\n{}", fautes.len(), fautes.join("\n"));
+}
+
+/// Les jeux jamais vus pendant l'écriture des règles (écrits à part, après, sans voir les règles) : le taux de bonnes
+/// réponses, et chaque faute. Le premier a servi ensuite à corriger les règles (81 % à sa première mesure) ; le second
+/// n'a jamais servi à les corriger.
+#[test]
+fn le_jeu_jamais_vu() {
+    mesurer("1", include_str!("../../tests/jeu_jamais_vu.tsv"));
+}
+
+#[test]
+fn le_second_jeu_jamais_vu() {
+    mesurer("2", include_str!("../../tests/jeu_jamais_vu_2.tsv"));
+}
+
+fn mesurer(nom: &str, jeu: &str) {
+    let (mut bons_d, mut bons_e, mut bons, mut n) = (0, 0, 0, 0);
+    let mut fautes = Vec::new();
+    for ligne in jeu.lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()) {
+        let c: Vec<&str> = ligne.split('\t').collect();
+        assert_eq!(c.len(), 3, "{ligne}");
+        let (ld, le) = codes(&lire("", c[0]));
+        n += 1;
+        bons_d += usize::from(ld == c[1]);
+        bons_e += usize::from(le == c[2]);
+        if ld == c[1] && le == c[2] {
+            bons += 1;
+        } else {
+            fautes.push(format!("{} : {ld} {le} (attendu {} {})", c[0], c[1], c[2]));
+        }
+    }
+    println!(
+        "Jeu jamais vu {nom} : {bons}/{n} phrases justes ({} %), diplôme {bons_d}/{n}, expérience {bons_e}/{n}",
+        bons * 100 / n
+    );
+    for f in &fautes {
+        println!("  {f}");
+    }
+    assert!(n >= 60);
+    assert!(bons * 100 / n >= 70, "trop de fautes : {}", fautes.join("\n"));
+}
+
+#[test]
+fn les_preuves_sont_tirees_du_texte() {
+    let texte = "Nous recherchons un préparateur de commandes.\nVous êtes titulaire d'un CAP/BEP.\n\
+                 Débutant accepté, formation assurée par nos équipes. Permis B et CACES R489 cat 1, 3 et 5.";
+    let l = lire("Préparateur de commandes (H/F)", texte);
+    let d = l.diplome.unwrap();
+    assert_eq!((d.valeur, d.confiance), (Diplome::CapBep, Confiance::Forte));
+    assert_eq!(d.preuve, "Vous êtes titulaire d'un CAP/BEP");
+    assert!(texte.contains(&d.preuve));
+    let e = l.experience.unwrap();
+    assert_eq!(e.valeur, Experience::Debutant);
+    assert!(texte.contains(&e.preuve), "{}", e.preuve);
+    assert!(e.preuve.starts_with("Débutant accepté"));
+    assert_eq!(l.autres, ["Permis B", "CACES R489 1, 3, 5"]);
+    // (une longue phrase : seulement le bout autour)
+    let long = format!("{} vous êtes sans diplôme ? {}", "mot ".repeat(40), "suite ".repeat(40));
+    let p = lire("", &long).diplome.unwrap().preuve;
+    assert!(p.contains("sans diplôme") && p.split(' ').count() <= 20, "{p}");
+    // Une tournure : confiance moyenne
+    let l = lire("", "Débutants acceptés, formation assurée.");
+    assert_eq!(l.diplome.unwrap().confiance, Confiance::Moyenne);
+    assert!(!lire("", "Rien à voir.").classee());
+    assert!(lire("", "Sans diplôme, débutant accepté.").classee());
+}
+
+#[test]
+fn codes_et_noms() {
+    for d in Diplome::TOUS {
+        assert_eq!(Diplome::depuis_code(d.code()), Some(d));
+    }
+    for e in [Experience::Debutant, Experience::Duree(18), Experience::Demandee, Experience::Souhaitee] {
+        assert_eq!(Experience::depuis_code(&e.code()), Some(e));
+    }
+    assert_eq!(Experience::depuis_code("duree:0"), None);
+    assert_eq!(Experience::depuis_code("duree:x"), None);
+    assert_eq!(Experience::Duree(24).nom(), "2 ans d'expérience");
+    assert_eq!(Experience::Duree(6).demande(), "demande 6 mois d'expérience");
+    assert_eq!(duree_texte(12), "1 an");
+    assert_eq!(duree_texte(18), "1 an et demi");
+    assert_eq!(duree_texte(14), "1 an et 2 mois");
+    assert_eq!(LuPar::Ia.nom(), "lu par Claude");
+    for t in Diplome::TOUS.iter().flat_map(|d| [d.nom(), d.demande()]) {
+        assert!(!t.contains(['\u{2013}', '\u{2014}']), "{t}");
+    }
+}
+
+#[test]
+fn les_citations() {
+    let t = "Poste ouvert aux débutants. Le CAP n'est pas exigé.";
+    assert!(citation_presente(t, "ouvert aux débutants"));
+    assert!(citation_presente(t, "OUVERT AUX DEBUTANTS"));
+    assert!(citation_presente(t, "le CAP n'est pas exigé"));
+    // Inventée, ou trop courte pour prouver quoi que ce soit
+    assert!(!citation_presente(t, "aucun diplôme demandé"));
+    assert!(!citation_presente(t, "débutants"));
+    assert!(!citation_presente(t, ""));
+    assert!(!citation_presente(t, "ouvert aux débutant"));
+}
+
+#[test]
+fn textes_extremes_sans_planter() {
+    for t in ["", ".", "bac", "cap", "2 ans", "permis", "caces", "•••", &"é".repeat(5000), "Bac+", "niveau 9"] {
+        let _ = lire(t, t);
+    }
+}

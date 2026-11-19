@@ -535,3 +535,37 @@ button.jm-cal-d.oui:hover, button.jm-cal-d.oui:focus { background: color-mix(in 
 @media (prefers-reduced-motion: reduce) {
   .jm-modale.entree, .jm-pf.entree, .jm-modale.entree .jm-modale-boite { animation: none; }
 }
+
+/* Étape 6 : la lecture et le tri. La pastille d'une note, sa raison, ce que demande l'offre (et sa preuve), les
+   interrupteurs « Aucun diplôme requis » et « Débutant accepté », le tri, Claude et les offres floues. */
+.jm-pert { --c: var(--pale); display: inline-flex; align-items: center; gap: 5px; flex: none; padding: 2px 8px 2px 7px; border-radius: 99px; font-size: 11.5px; font-weight: 700; font-style: normal; white-space: nowrap;
+  background: color-mix(in srgb, var(--c) 16%, transparent); color: color-mix(in srgb, var(--c) 80%, var(--texte)); }
+.jm-pert::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--c); }
+.jm-pert.tres_proche { --c: var(--vert); }
+.jm-pert.proche { --c: var(--jm); }
+.jm-pert.un_peu { --c: var(--pale); }
+.jm-pert.hors_sujet { --c: var(--rouge); }
+.jm-c4 { display: flex; align-items: center; gap: 7px; min-width: 0; margin-top: 3px; font-size: 12.5px; color: var(--pale); }
+.jm-c4 > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jm-pourquoi { display: flex; align-items: center; gap: 10px; margin: 14px 0 0; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.45; color: var(--texte); background: rgba(255, 255, 255, 0.035); }
+.jm-pourquoi .jm-pert { font-size: 12.5px; padding: 3px 10px 3px 9px; }
+.jm-hors { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 10px 0 0; font-size: 13.5px; color: var(--doux); }
+.jm-hors > svg { width: 15px; height: 15px; color: var(--jm); flex: none; }
+.jm-hors .jm-bt.discret { height: 30px; color: var(--jm); }
+.jm-lu { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.jm-lu-l { display: grid; grid-template-columns: 120px 1fr; column-gap: 14px; row-gap: 2px; align-items: baseline; }
+.jm-lu-n { grid-row: span 3; font-size: 12.5px; color: var(--pale); }
+.jm-lu-l b { font-size: 15px; font-weight: 650; color: var(--texte); }
+.jm-lu-l.pas b { color: var(--doux); font-weight: 550; }
+.jm-lu-l q { font-size: 13px; line-height: 1.45; color: var(--doux); font-style: italic; quotes: "« " " »"; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.jm-lu-l small { font-size: 11.5px; color: color-mix(in srgb, var(--jm) 70%, var(--pale)); }
+.jm-bascules { display: flex; flex-wrap: wrap; gap: 6px; }
+.jm-rch .jm-bascules { margin-top: 10px; }
+.jm-bascule svg { width: 13px; height: 13px; margin-right: 4px; }
+.jm-tri { flex: none; }
+.jm-tri select { font-size: 12.5px; }
+.jm-ia { display: flex; gap: 9px; align-items: flex-start; margin-top: 10px; padding: 9px 11px; border-radius: 12px; font-size: 13px; line-height: 1.45; color: var(--doux); background: color-mix(in srgb, var(--jm) 7%, transparent); border: 1px dashed color-mix(in srgb, var(--jm) 30%, transparent); }
+.jm-ia > svg { width: 16px; height: 16px; flex: none; margin-top: 1px; color: var(--jm); }
+.jm-ia > div { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.jm-ia .jm-bt.discret { height: 30px; margin-left: -10px; color: var(--jm); }
+.jm-sans-note { margin-top: 8px; }

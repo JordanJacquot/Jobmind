@@ -15,7 +15,8 @@
 # menu des statuts du dossier ouvert), « entretien » (le petit formulaire de son entretien), « calendrier » (le petit
 # calendrier de la date ouverte : celle du formulaire, sinon celle de l'entretien), « jour:<n> » (un clic sur le jour n
 # du mois en cours dans ce calendrier : le champ se remplit), « clic:<data-k> » (un clic sur cet élément de l'écran, par
-# exemple clic:f:enregistrer ou clic:e:ok), « bas » (le dossier ouvert descendu tout en bas), « importer:<chemin> » (étape 3 : ce CV d'essai importé comme par « Importer un
+# exemple clic:f:enregistrer ou clic:e:ok), « bas » (le dossier ouvert descendu tout en bas), « liste » (étape 6 : la
+# liste des offres descendue jusqu'à ses offres), « importer:<chemin> » (étape 3 : ce CV d'essai importé comme par « Importer un
 # fichier », sans la boîte « Ouvrir » : import.demande, lu seulement par la construction d'essai), « dialogue:<chemin> »
 # (étape 3 : un clic sur « Importer un fichier », puis la VRAIE boîte « Ouvrir » de Windows trouvée parmi les fenêtres de
 # l'essai, capturée dans <Prefixe>-<vue>-boite.png, le chemin tapé dans son champ et « Importer » cliqué). Chaque vue est
@@ -233,6 +234,8 @@ try {
         elseif ($v -eq 'modifier') { Ordre '{"kit":"accueil","modifier":true}' }
         elseif ($v -in 'menu-statut', 'entretien') { Ordre ('{"kit":"accueil","statut":"' + $v.Replace('menu-statut', 'menu') + '"}') }
         elseif ($v -eq 'bas') { Ordre '{"kit":"accueil","defiler":"bas"}' }
+        # (étape 6 : la liste des offres descendue jusqu'à ses offres)
+        elseif ($v -eq 'liste') { Ordre '{"kit":"accueil","defiler":"liste"}' }
         # Étape 4 : l'onglet Offres
         elseif ($v -match '^offre:(\d{1,6})$') { Ordre ('{"kit":"accueil","offre":' + $Matches[1] + '}') }
         elseif ($v -eq 'recherches') { Ordre '{"kit":"accueil","offres":"recherches"}' }

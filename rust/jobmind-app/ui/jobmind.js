@@ -518,6 +518,7 @@
     h += annonceSitesHTML(c.annonce, s);
     const oui = s.connecte === true;
     h += `<div class="jm-cx-etat${oui ? ' ok' : ''}"><i class="jm-point${oui ? ' ok' : ''}" aria-hidden="true"></i><span>${esc(texteSur(s.etat))}</span>${oui ? '' : bouton('cs-connexion', 'cs:connecter', t('connecter'), 'cadenas', 'discret', ` data-id="${s.id}"`)}</div>`;
+    h += basculesHTML(to);
     h += '</div>';
     const l = c.liste && typeof c.liste === 'object' && c.liste.site === s.id ? c.liste : null;
     if (l && liste(l.lignes).length) {
@@ -527,7 +528,7 @@
         const sel = r.sel === true;
         h += `<button type="button" class="jm-cand jm-off f${sel ? ' sel' : ''}" data-perso="cs-ouvrir" data-i="${r.i}" data-k="csl:${r.i}" aria-current="${sel}">
           <span class="jm-c1"><b>${esc(texteSur(r.titre))}</b></span>
-          <span class="jm-c2">${esc(texteSur(r.sous))}</span><span class="jm-c3 pale">${esc(texteSur(r.l3))}</span></button>`;
+          <span class="jm-c2">${esc(texteSur(r.sous))}</span><span class="jm-c3 pale">${esc(texteSur(r.l3))}</span>${texteSur(r.lu) ? `<span class="jm-c4"><span>${esc(r.lu)}</span></span>` : ''}</button>`;
       }
       if (l.suivante === true) h += `<div class="jm-btns centre jm-cs-suite">${bouton('cs-suivante', 'cs:suivante', t('suivante'), 'droite', 'second')}</div>`;
     }
@@ -541,6 +542,7 @@
     h += `<div class="jm-o-src"><span>${esc(texteSur(f.source))}</span></div>`;
     if (texteSur(f.candidats)) h += `<p class="jm-o-double jm-o-cand">${icone('profil')}<span>${esc(texteSur(f.candidats))}</span></p>`;
     h += `<div class="jm-infos">${liste(f.infos).map((i) => `<div><span>${esc(texteSur(i?.nom))}</span><b>${esc(texteSur(i?.valeur))}</b></div>`).join('')}</div>`;
+    h += luHTML(f.lecture, tO(offresDe()));
     const voir = bouton('cs-voir', 'cs:voir', t('voir'), 'ext', '', ` data-id="${s.id}"`);
     if (numSur(f.ajoutee)) {
       h += `<div class="jm-action calme-o"><span class="jm-a-ic">${icone('coche')}</span><div class="jm-a-txt"><b>${esc(t('ajoutee'))}</b></div><div class="jm-a-bts">${bouton('cs-offre', 'cs:offre', t('voir_offre'), 'dossier', '', ` data-id="${f.ajoutee}"`)}</div></div><div class="jm-btns">${voir}</div>`;
@@ -1443,7 +1445,10 @@
   const offresDe = () => { const o = onglets().find((x) => x.id === 'offres'); return o?.offres && typeof o.offres === 'object' ? o.offres : null; };
   const tO = (x) => { const t = objet(x?.textes); return (k) => texteSur(t[k]); };
   const rchDossier = () => objet(rubriquesDe(ongletDe('profil')).find((r) => r.id === 'recherche')?.dossier);
-  const OF_CHAMPS = ['texte', 'genre', 'ville', 'rayon', 'departement', 'region', 'contrat', 'teletravail', 'liste'];
+  const OF_CHAMPS = ['texte', 'genre', 'ville', 'rayon', 'departement', 'region', 'contrat', 'teletravail', 'liste', 'sans_diplome', 'debutant', 'tri'];
+  // (étape 6 : « Aucun diplôme requis » et « Débutant accepté » sont des oui ou non)
+  const OF_BASCULES = ['sans_diplome', 'debutant'];
+  const valChamp = (k, v) => (k === 'rayon' ? (Number.isInteger(Number(v)) ? Number(v) : 30) : OF_BASCULES.includes(k) ? v === true || v === 'oui' || v === 'true' : texteSur(String(v ?? '')));
   let ofFiltres = null;    // les filtres en cours de saisie (une copie de ceux reçus)
   let ofMinuteur = 0;      // l'envoi des filtres, un peu après la frappe
   let ofVue = 'offre';     // à droite : 'offre' ou 'recherches' (Mes recherches)
@@ -1455,7 +1460,8 @@
   function suivreOffres(x) {
     if (!ofFiltres) {
       const f = objet(x.filtres);
-      ofFiltres = Object.fromEntries(OF_CHAMPS.map((k) => [k, k === 'rayon' ? (Number.isInteger(f.rayon) ? f.rayon : 30) : texteSur(f[k])]));
+      ofFiltres = Object.fromEntries(OF_CHAMPS.map((k) => [k, valChamp(k, f[k])]));
+      if (!ofFiltres.tri) ofFiltres.tri = 'pertinence';
       if (!ofFiltres.genre) ofFiltres.genre = 'partout';
       if (!ofFiltres.liste) ofFiltres.liste = 'toutes';
     }
@@ -1493,6 +1499,7 @@
       <div class="jm-b-rang">
         <label class="jm-cherche">${icone('loupe')}<input class="f" data-perso="of-champ" data-champ="texte" data-k="of:texte" maxlength="100" autocomplete="off" spellcheck="false" placeholder="${esc(t('i_texte'))}" value="${esc(f.texte)}"></label>
         <div class="jm-b-lieu${f.genre !== 'partout' ? ' on' : ''}">${icone('lieu')}<select class="f" data-perso="of-champ" data-champ="genre" data-k="of:genre" aria-label="${esc(t('lieu'))}">${optionsHTML(x.lieux, f.genre, codeSurP)}</select>${ou}</div>
+        ${basculesHTML(t)}
       </div>
       <div class="jm-b-rang">
         <span class="jm-b-sel${f.contrat ? ' on' : ''}"><select class="f" data-perso="of-champ" data-champ="contrat" data-k="of:contrat" aria-label="${esc(t('contrat'))}">${optionsHTML(x.contrats, f.contrat, choixSur)}</select>${icone('bas')}</span>
@@ -1501,6 +1508,28 @@
         <div class="jm-puces" role="radiogroup">${listes}</div>
         <span class="jm-compte">${esc(texteSur(x.compte))}</span>
       </div></div>`;
+  }
+
+  // Étape 6 : « Aucun diplôme requis » et « Débutant accepté », des interrupteurs (aussi pour les résultats des sites)
+  function basculesHTML(t) {
+    const { esc } = O, f = ofFiltres || {};
+    return `<div class="jm-bascules">${OF_BASCULES.map((k) => {
+      const oui = f[k] === true;
+      return `<button type="button" role="switch" aria-checked="${oui}" class="jm-puce petite jm-bascule f${oui ? ' oui' : ''}" data-perso="of-bascule" data-champ="${k}" data-k="of:${k === 'sans_diplome' ? 'sd' : 'deb'}">${icone(oui ? 'coche' : 'plus')}${esc(t(k))}</button>`;
+    }).join('')}</div>`;
+  }
+
+  // La pastille d'une note (« Très proche », « Proche », « Un peu », « Hors sujet »)
+  const pastilleNote = (n) => (codeSurP(n?.code) ? `<i class="jm-pert ${n.code}">${O.esc(texteSur(n.nom))}</i>` : '');
+
+  // Ce que demande l'offre : la valeur, la preuve (le bout de phrase de l'offre) et qui l'a lu
+  function luHTML(l, t) {
+    const { esc } = O, items = liste(l).filter((i) => texteSur(i?.nom));
+    if (!items.length) return '';
+    return `<h2 class="jm-h2">${esc(t('lu_t'))}</h2><div class="jm-lu">${items.map((i) => {
+      const preuve = texteSur(i.preuve);
+      return `<div class="jm-lu-l${i.dit === true ? '' : ' pas'}"><span class="jm-lu-n">${esc(texteSur(i.nom))}</span><b>${esc(texteSur(i.valeur))}</b>${preuve ? `<q title="${esc(preuve)}">${esc(preuve)}</q>` : ''}${texteSur(i.par) ? `<small>${esc(texteSur(i.par))}</small>` : ''}</div>`;
+    }).join('')}</div>`;
   }
 
   function listeOffresHTML(o, x) {
@@ -1525,10 +1554,24 @@
       const g = ['ok', 'attention', 'erreur'].includes(a.genre) ? a.genre : 'ok';
       h += `<div class="jm-annonce ${g}" role="status">${icone(g === 'ok' ? 'coche' : 'attention')}<div><span>${esc(texteSur(a.texte))}</span>${a.cles === true ? bouton('of-cles', 'or:cles', t('ouvrir_cles'), 'cle', 'discret') : ''}</div></div>`;
     }
+    // (étape 6 : Claude lit les offres floues, ou la clé qui lui manque)
+    const ia = objet(x.ia), iaA = objet(ia.annonce);
+    if (typeof ia.en_cours === 'string' && ia.en_cours) {
+      h += `<div class="jm-attente petite" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(ia.en_cours)}</span></div>`;
+    } else {
+      if (texteSur(iaA.texte)) {
+        const g = ['ok', 'attention', 'erreur'].includes(iaA.genre) ? iaA.genre : 'ok';
+        h += `<div class="jm-annonce ${g}" role="status">${icone(g === 'ok' ? 'coche' : 'attention')}<div><span>${esc(iaA.texte)}</span>${iaA.cles === true ? bouton('of-cles', 'or:ia-cles', t('ouvrir_cles'), 'cle', 'discret') : ''}</div></div>`;
+      }
+      if (numSur(ia.floues) && texteSur(ia.texte) && !(iaA.cles === true)) {
+        h += `<div class="jm-ia">${icone(ia.claude === true ? 'loupe' : 'cle')}<div><span>${esc(ia.texte)}</span>${ia.claude === true ? bouton('of-lire-ia', 'or:ia', t('lire_floues'), 'droite', 'discret') : bouton('of-cles', 'or:ia-cle', t('ouvrir_cles'), 'cle', 'discret')}</div></div>`;
+      }
+    }
+    if (texteSur(x.sans_note)) h += `<p class="jm-rch-sous jm-sans-note">${esc(x.sans_note)}</p>`;
     h += '</div>';
     const lignes = liste(x.lignes).filter((l) => numSur(l?.id));
     const ouverte = ofChoisie ?? x.fiche?.id;
-    if (lignes.length) h += `<div class="jm-liste-tete"><span class="jm-liste-t">${esc(t('liste_t'))}</span></div>`;
+    if (lignes.length) h += `<div class="jm-liste-tete"><span class="jm-b-sel jm-tri"><select class="f" data-perso="of-champ" data-champ="tri" data-k="of:tri" aria-label="${esc(t('tri'))}">${optionsHTML(x.tris, ofFiltres?.tri || 'pertinence', codeSurP)}</select>${icone('bas')}</span></div>`;
     for (const l of lignes) {
       const sel = l.id === ouverte && ofVue === 'offre';
       const marques = (l.postule === true ? `<span class="jm-o-m ok" title="${esc(t('postule'))}">${icone('coche')}</span>` : '')
@@ -1537,7 +1580,7 @@
         + (l.nouvelle === true ? `<span class="jm-neuf" title="${esc(t('nouvelle_l'))}"></span>` : '');
       h += `<button type="button" class="jm-cand jm-off f${sel ? ' sel' : ''}${l.cachee === true ? ' fini' : ''}" data-perso="of-ouvrir" data-id="${l.id}" data-k="ol:${l.id}" aria-current="${sel}">
         <span class="jm-c1"><b>${esc(texteSur(l.titre))}</b>${marques}</span>
-        <span class="jm-c2">${esc(texteSur(l.sous))}</span><span class="jm-c3 pale">${esc(texteSur(l.l3))}</span></button>`;
+        <span class="jm-c2">${esc(texteSur(l.sous))}</span><span class="jm-c3 pale">${esc(texteSur(l.l3))}</span>${pastilleNote(l.note) ? `<span class="jm-c4">${pastilleNote(l.note)}<span>${esc(texteSur(l.raison))}</span></span>` : ''}</button>`;
     }
     if (!lignes.length && texteSur(x.vide_liste)) h += `<p class="jm-vide-l">${esc(texteSur(x.vide_liste))}</p>`;
     if (x.plus) h += `<p class="jm-vide-l petit">${esc(texteSur(x.plus))}</p>`;
@@ -1555,7 +1598,17 @@
     if (f.double === true) h += `<p class="jm-o-double">${icone('copie')}<span>${esc(t('doublon'))}</span></p>`;
     // (étape 5 : « 34 candidats sur LinkedIn, vu le 18 nov. »)
     if (texteSur(f.candidats)) h += `<p class="jm-o-double jm-o-cand">${icone('profil')}<span>${esc(texteSur(f.candidats))}</span></p>`;
+    // (étape 6 : la note et sa raison, hors sujet)
+    const n = objet(f.note);
+    if (pastilleNote(n)) h += `<div class="jm-pourquoi ${n.code}" title="${esc(t('pourquoi'))}">${pastilleNote(n)}<span>${esc(texteSur(n.raison))}</span></div>`;
+    if (f.hors_sujet === true) {
+      const pas = f.pas_hors_sujet === true;
+      h += `<div class="jm-hors">${icone(pas ? 'coche' : 'attention')}<span>${esc(pas ? t('pas_hors_sujet_t') : t('hors_sujet_t'))}</span>${bouton('of-pas-hors', 'ov:hors', pas ? t('remettre_hors_sujet') : t('pas_hors_sujet'), pas ? 'cacher' : 'coche', 'discret')}</div>`;
+    }
     h += `<div class="jm-infos">${liste(f.infos).map((i) => `<div><span>${esc(texteSur(i?.nom))}</span><b>${esc(texteSur(i?.valeur))}</b></div>`).join('')}</div>`;
+    h += luHTML(f.lecture, t);
+    if (f.ia === 'lire') h += `<div class="jm-ia">${icone('loupe')}<div><span>${esc(t('lire_ia_t'))}</span>${bouton('of-lire-ia', 'ov:ia', t('lire_ia'), 'droite', 'discret', ` data-id="${f.id}"`)}</div></div>`;
+    else if (f.ia === 'cle') h += `<div class="jm-ia">${icone('cle')}<div><span>${esc(t('cle_ia_t'))}</span>${bouton('of-cles', 'ov:ia-cle', t('ouvrir_cles'), 'cle', 'discret')}</div></div>`;
     const liens = liste(f.liens).filter((l) => codeSurP(l?.source));
     const voir = liens.map((l, i) => bouton('of-voir', `ov:voir-${l.source}`, texteSur(l.nom), 'ext', i ? '' : 'principal', ` data-source="${l.source}"`)).join('');
     if (numSur(f.candidature)) {
@@ -1674,8 +1727,11 @@
         if (el.tagName === 'INPUT') envoyerFiltres(false);
         return true;
       case 'of-liste': if (ofFiltres && codeSurP(d.id) && ofFiltres.liste !== d.id) { ofFiltres.liste = d.id; O.son?.bascule?.(); envoyerFiltres(false); } return true;
+      case 'of-bascule': if (ofFiltres && OF_BASCULES.includes(d.champ)) { ofFiltres[d.champ] = !ofFiltres[d.champ]; O.son?.bascule?.(); envoyerFiltres(false); dessinerTout(el.dataset.k); } return true;
+      case 'of-pas-hors': if (f && numSur(f.id)) { O.son?.ok?.(); O.action('o-pas-hors-sujet', { id: f.id }); } return true;
+      case 'of-lire-ia': if (!el.disabled) { el.disabled = true; O.son?.ok?.(); const id = Number(d.id); O.action('o-lire-ia', numSur(id) ? { id } : {}); } return true;
       case 'of-retirer':
-        ofFiltres = { texte: '', genre: 'partout', ville: '', rayon: 30, departement: '', region: '', contrat: '', teletravail: 'peu_importe', liste: 'toutes' };
+        ofFiltres = { texte: '', genre: 'partout', ville: '', rayon: 30, departement: '', region: '', contrat: '', teletravail: 'peu_importe', liste: 'toutes', sans_diplome: false, debutant: false, tri: ofFiltres?.tri || 'pertinence' };
         O.son?.ok?.(); envoyerFiltres(false); return true;
       case 'of-ouvrir': {
         const id = Number(d.id);
@@ -1782,7 +1838,7 @@
     if (o.offres === 'filtres') {
       // (pour les captures) des filtres posés comme si Jordan les avait choisis
       const f = objet(o.filtres);
-      if (ofFiltres) for (const k of OF_CHAMPS) if (Object.hasOwn(f, k)) ofFiltres[k] = k === 'rayon' ? Number(f[k]) : String(f[k]);
+      if (ofFiltres) for (const k of OF_CHAMPS) if (Object.hasOwn(f, k)) ofFiltres[k] = valChamp(k, f[k]);
       envoyerFiltres(false);
       return true;
     }
@@ -1887,6 +1943,8 @@
       }
       // (pour les captures) le dossier ouvert descendu tout en bas
       if (o.defiler === 'bas') { const d = hote.querySelector('.jm-dossier'); if (d) d.scrollTop = d.scrollHeight; return; }
+      // (pour les captures, étape 6) la liste descendue jusqu'à ses offres
+      if (o.defiler === 'liste') { const l = hote.querySelector('.jm-liste'), e = hote.querySelector('.jm-liste .jm-liste-tete'); if (l && e) l.scrollTop = e.offsetTop - 12; return; }
       // (pour les captures) un clic sur un élément de l'écran, par son data-k (« cal:2026-11-10 », « f:enregistrer »)
       if (typeof o.cliquer === 'string' && /^[a-z]{1,4}:[a-z0-9-]{1,12}$/.test(o.cliquer)) {
         hote.querySelector(`#jm [data-k="${o.cliquer}"]`)?.click();

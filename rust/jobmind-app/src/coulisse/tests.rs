@@ -532,3 +532,22 @@ fn le_secret_ne_se_montre_pas_et_s_efface() {
     c.petite = Some(Petite { raison: Raison::Captcha, site: Site::Indeed, offre: false, lecture: None, annonce: None });
     sans_tiret_long(&c.vue(jour()));
 }
+
+/// Étape 6 : ce que les règles lisent dans une offre d'un site, et les filtres « Aucun diplôme requis » et « Débutant
+/// accepté » sur les résultats dont le texte est connu (un résultat pas encore ouvert reste montré).
+#[test]
+fn lecture_et_filtres_des_resultats() {
+    let sans = lecture::lire("Agent de tri", "Poste sans diplôme. Débutants acceptés.");
+    let bac = lecture::lire("Comptable", "BTS exigé, 3 ans d'expérience.");
+    assert_eq!(lu_court(&sans), "Aucun diplôme demandé · Débutant accepté");
+    assert_eq!(lu_court(&bac), "Bac+2 · 3 ans d'expérience");
+    assert!(passe(Some(&sans), (true, true)));
+    assert!(!passe(Some(&bac), (true, false)));
+    assert!(!passe(Some(&bac), (false, true)));
+    assert!(passe(Some(&bac), (false, false)));
+    assert!(passe(None, (true, true)));
+    let v = lecture_vue(&sans);
+    assert_eq!(v[0]["valeur"], "Aucun diplôme demandé");
+    assert_eq!(v[0]["preuve"], "Poste sans diplôme");
+    assert_eq!(v[1]["par"], "lu par Jobmind");
+}

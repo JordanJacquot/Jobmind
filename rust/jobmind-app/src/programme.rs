@@ -59,7 +59,7 @@ use tauri::{App, AppHandle, LogicalPosition, LogicalSize, Manager, Url, Webview,
 
 use crate::coulisse::{self, Coulisse, Lecture, Ordre, Secret};
 use crate::fenetre::{EvenementSites, LABEL, TAILLE_MIN, creer_principale};
-use crate::offres::{self, Offres, Retour, Tache};
+use crate::offres::{self, Offres, Retour, RetourIa, Tache, TacheIa};
 use crate::pont::MessagePage;
 use crate::profil::{self, Contexte, Import, Profil};
 use crate::suivi::{self, Fait, Suivi};
@@ -80,6 +80,8 @@ const VERIFICATION: Duration = Duration::from_secs(30);
 const LECTURE_MAX: Duration = Duration::from_secs(60);
 /// Une recherche d'offres : abandonnée après ce temps (chaque demande a déjà son délai de 25 s).
 const RESEAU_MAX: Duration = Duration::from_secs(90);
+/// Étape 6 : la lecture d'un lot d'offres par Claude, abandonnée après ce temps (chaque demande a son délai de 30 s).
+const IA_MAX: Duration = Duration::from_secs(360);
 
 /// Tout ce que l'appli garde pendant qu'elle tourne, sur le fil de la fenêtre.
 struct Etat {
@@ -108,6 +110,8 @@ struct Etat {
     offres: Offres,
     /// La recherche d'offres en cours a commencé à ce moment
     reseau_depuis: Option<Instant>,
+    /// Étape 6 : la lecture par Claude en cours a commencé à ce moment
+    ia_depuis: Option<Instant>,
     /// Étape 5 bis : les sites en coulisse (leurs listes, l'offre lue, la connexion, la petite fenêtre)
     coulisse: Coulisse,
     /// Ce que la vue des sites doit faire au prochain pas (hors du verrou de l'état)
@@ -380,6 +384,7 @@ pub fn lancer() -> ! {
             lecture_depuis: None,
             offres,
             reseau_depuis: None,
+            ia_depuis: None,
             coulisse: Coulisse::default(),
             actions_vue: Vec::new(),
             evenements_sites: Arc::new(Mutex::new(Vec::new())),
@@ -520,6 +525,7 @@ fn tour(app: &AppHandle) {
             etat.bulles(app);
             etat.lecture_trop_longue(app);
             etat.reseau_trop_long(app);
+            etat.ia_trop_longue(app);
             etat.evenements_des_sites(app);
             etat.minuteries_des_sites(app);
         }
@@ -1061,6 +1067,26 @@ fn rapporter_reseau(app: &AppHandle, r: Retour) {
     });
 }
 
+/// Rapporte la lecture par Claude au fil de la fenêtre (occupé : réessayé juste après).
+fn rapporter_ia(app: &AppHandle, r: RetourIa) {
+    let a = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let pour_etat = a.clone();
+        let reste = ETAT.with(move |e| match e.try_borrow_mut() {
+            Ok(mut e) => {
+                if let Some(etat) = e.as_mut() {
+                    etat.retour_ia(&pour_etat, r);
+                }
+                None
+            }
+            Err(_) => Some(r),
+        });
+        if let Some(r) = reste {
+            rapporter_ia(&a, r);
+        }
+    });
+}
+
 /// Rapporte une étape de l'import au fil de la fenêtre (occupé : réessayé juste après).
 fn rapporter(app: &AppHandle, r: RetourImport) {
     let a = app.clone();
@@ -1136,6 +1162,7 @@ impl Etat {
         }
         // (étape 5 bis : les sites lus en coulisse, la carte de connexion, la petite fenêtre du site)
         if let Some(perso) = e.pointer_mut("/accueil/perso").and_then(Value::as_object_mut) {
+            self.coulisse.filtres = (self.offres.filtres.sans_diplome, self.offres.filtres.debutant);
             perso.insert("coulisse".into(), self.coulisse.vue(self.jour));
         }
         e
@@ -1173,6 +1200,9 @@ impl Etat {
         }
         if let Some(t) = fait.reseau {
             self.lancer_reseau(app, t);
+        }
+        if let Some(t) = fait.ia {
+            self.lancer_ia(app, t);
         }
         for o in fait.coulisse {
             self.programmer(o);
@@ -1351,7 +1381,76 @@ impl Etat {
         if self.offres.jeton_en_cours() == Some(r.jeton) {
             self.reseau_depuis = None;
         }
-        self.faire(app, |etat, d| etat.offres.fini(d.base.as_ref(), r, heure::maintenant()));
+        self.faire(app, |etat, d| {
+            let maintenant = heure::maintenant();
+            let mut f = etat.offres.fini(d.base.as_ref(), r, maintenant);
+            // (étape 6 : les nouvelles offres floues données à Claude, s'il a sa clé ; sinon rien)
+            let ctx = offres::Contexte { base: d.base.as_ref(), cles: Some(&etat.cles) };
+            let ia = etat.offres.lire_floues(&ctx, None, true, maintenant);
+            if ia.ia.is_some() {
+                f.ia = ia.ia;
+                f.journal = Some(format!("{} ; {}", f.journal.unwrap_or_default(), ia.journal.unwrap_or_default()));
+            }
+            f
+        });
+    }
+
+    /// Étape 6 : lance la lecture d'un lot d'offres floues par Claude, sur un fil à part. La clé est lue ici, au
+    /// dernier moment, et donnée seulement à ce fil (jamais au journal ni à la page).
+    fn lancer_ia(&mut self, app: &AppHandle, t: TacheIa) {
+        let cle = offres::cles_claires(&self.cles, Service::Claude).and_then(|v| v.into_iter().next());
+        let (adresse, https) = self.adresse_claude();
+        let a = app.clone();
+        let r = std::thread::Builder::new().name("offres-ia".into()).spawn(move || {
+            let r = match cle {
+                Some(cle) => {
+                    let claude =
+                        jobmind_llm::claude::Claude::nouveau(&adresse, &cle, https, jobmind_llm::claude::DELAI);
+                    offres::lire_lot(&claude, &t)
+                }
+                None => RetourIa {
+                    jeton: t.jeton,
+                    resultats: Vec::new(),
+                    erreur: Some(jobmind_llm::ErreurLlm::CleManquante),
+                },
+            };
+            rapporter_ia(&a, r);
+        });
+        match r {
+            Ok(_) => self.ia_depuis = Some(Instant::now()),
+            Err(e) => {
+                self.journal.ecrire(&format!("IA : fil de lecture non lancé ({e})"));
+                let _ = self.offres.ia_trop_longue();
+            }
+        }
+    }
+
+    /// L'adresse de Claude et « https seulement » : la vraie.
+    #[cfg(not(feature = "essai"))]
+    fn adresse_claude(&self) -> (String, bool) {
+        (jobmind_llm::claude::ADRESSE.into(), true)
+    }
+
+    /// Construction d'essai : jamais la vraie API (le port 9 de la machine, où personne n'écoute).
+    #[cfg(feature = "essai")]
+    fn adresse_claude(&self) -> (String, bool) {
+        ("http://127.0.0.1:9/v1/messages".into(), false)
+    }
+
+    /// Le résultat de la lecture par Claude.
+    fn retour_ia(&mut self, app: &AppHandle, r: RetourIa) {
+        if self.offres.jeton_ia() == Some(r.jeton) {
+            self.ia_depuis = None;
+        }
+        self.faire(app, |etat, d| etat.offres.ia_finie(d.base.as_ref(), r, heure::maintenant()));
+    }
+
+    /// Une lecture par Claude qui dure trop longtemps : abandonnée (un résultat arrivé ensuite est laissé).
+    fn ia_trop_longue(&mut self, app: &AppHandle) {
+        if self.ia_depuis.is_some_and(|t| t.elapsed() > IA_MAX) {
+            self.ia_depuis = None;
+            self.faire(app, |etat, _| etat.offres.ia_trop_longue());
+        }
     }
 
     /// Une recherche qui dure trop longtemps : abandonnée (un résultat qui arriverait ensuite est laissé).

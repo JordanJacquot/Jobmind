@@ -25,6 +25,7 @@
 //! Ce module ne fait que décider (testable sans fenêtre) : chaque geste donne des [`Ordre`] que le programme exécute
 //! sur la vue des sites (src\programme.rs), et ce que la vue rapporte (une page chargée, une page lue) revient ici.
 
+use jobmind_core::lecture::{self, Confiance, LectureOffre};
 use jobmind_core::recherche::Lieu;
 use jobmind_sources::page::{PageLue, Site};
 use jobmind_sources::sites::{self, Comprise, Ecran, LieuSite, Resultat};
@@ -314,6 +315,33 @@ pub struct Coulisse {
     /// La lecture attendue (son numéro)
     pub attendue: Option<u64>,
     ids: u64,
+    /// Étape 6 : ce que les règles ont lu dans les offres des sites déjà ouvertes (leur adresse), et les filtres
+    /// « Aucun diplôme requis » et « Débutant accepté » de l'onglet Offres, appliqués aux résultats dont le texte est
+    /// connu
+    pub lus: Vec<(String, LectureOffre)>,
+    pub filtres: (bool, bool),
+}
+
+/// Au plus ce nombre d'offres des sites lues gardées en mémoire (le temps que Jobmind est ouverte).
+const LUS_MAX: usize = 300;
+
+/// « Aucun diplôme demandé · Débutant accepté » : ce que les règles ont lu, en une ligne (rien : rien de lu).
+fn lu_court(l: &LectureOffre) -> String {
+    let mut x: Vec<String> = Vec::new();
+    if let Some(d) = &l.diplome {
+        x.push(d.valeur.nom().to_string());
+    }
+    if let Some(e) = &l.experience {
+        x.push(e.valeur.nom());
+    }
+    x.join(" · ")
+}
+
+/// Le résultat passe les filtres « Aucun diplôme requis » et « Débutant accepté » (un texte pas encore lu : oui).
+fn passe(l: Option<&LectureOffre>, (sans_diplome, debutant): (bool, bool)) -> bool {
+    let Some(l) = l else { return true };
+    (!sans_diplome || l.diplome.as_ref().is_some_and(|d| d.valeur == lecture::Diplome::Aucun))
+        && (!debutant || l.experience.as_ref().is_some_and(|e| e.valeur == lecture::Experience::Debutant))
 }
 
 /// La place de la petite fenêtre dans la page de Jobmind, en pixels de la page (avant l'échelle de la fenêtre).
@@ -1003,6 +1031,13 @@ impl Coulisse {
                         lue.lu_par.code(),
                         lue.candidats.as_ref().map(|c| format!(", {}", c.texte)).unwrap_or_default()
                     );
+                    // (étape 6 : ce que les règles y lisent, gardé pour la liste et ses filtres)
+                    let l = lecture::lire(&lue.offre.titre, &lue.offre.description);
+                    self.lus.retain(|(u, _)| *u != url);
+                    self.lus.push((url.clone(), l));
+                    if self.lus.len() > LUS_MAX {
+                        self.lus.remove(0);
+                    }
                     self.fiche = Some(FicheSite { site: a.site, url, lue, ajoutee: None });
                     Fait { journal: Some(j), change: true, ..Fait::default() }
                 }
@@ -1180,15 +1215,21 @@ impl Coulisse {
             But::Connexion => format!("Connexion à {}...", a.site.nom()),
         });
         let liste = source.and_then(|s| self.liste_de(s)).map(|l| {
+            let lu = |r: &Resultat| self.lus.iter().find(|(u, _)| !u.is_empty() && *u == r.url).map(|x| &x.1);
+            let caches = l.resultats.iter().filter(|r| !passe(lu(r), self.filtres)).count();
+            let mut sous = match l.resultats.len() { 0 => format!("Page {}", l.page), 1 => format!("Page {}, 1 offre", l.page), n => format!("Page {}, {n} offres", l.page) };
+            if caches > 0 {
+                sous.push_str(&format!(", {caches} cachée{} par tes filtres", if caches > 1 { "s" } else { "" }));
+            }
             json!({
                 "site": l.site.code(),
                 "titre": format!("Sur {}", l.site.nom()),
-                "sous": match l.resultats.len() { 0 => format!("Page {}", l.page), 1 => format!("Page {}, 1 offre", l.page), n => format!("Page {}, {n} offres", l.page) },
+                "sous": sous,
                 "suivante": l.suivante && self.attente.is_none(),
-                "lignes": l.resultats.iter().enumerate().map(|(i, r)| {
+                "lignes": l.resultats.iter().enumerate().filter(|(_, r)| passe(lu(r), self.filtres)).map(|(i, r)| {
                     let sous = [r.entreprise.as_str(), r.lieu.as_str()].iter().filter(|x| !x.is_empty()).copied().collect::<Vec<_>>().join(" · ");
                     let l3 = [Some(r.date.as_str()), r.candidats.as_deref()].into_iter().flatten().filter(|x| !x.is_empty()).collect::<Vec<_>>().join(" · ");
-                    json!({ "i": i, "titre": r.titre, "sous": sous, "l3": l3, "sel": l.ouvert == Some(i) })
+                    json!({ "i": i, "titre": r.titre, "sous": sous, "l3": l3, "sel": l.ouvert == Some(i), "lu": lu(r).map(lu_court).unwrap_or_default() })
                 }).collect::<Vec<_>>(),
             })
         });
@@ -1314,7 +1355,36 @@ fn fiche_vue(f: &FicheSite, aujourdhui: jobmind_core::Jour) -> Value {
         ],
         "texte": o.description,
         "ajoutee": f.ajoutee,
+        // (étape 6 : le diplôme et l'expérience lus par les règles, avec leur preuve)
+        "lecture": lecture_vue(&lecture::lire(&o.titre, &o.description)),
     })
+}
+
+/// Ce que demande une offre d'un site, comme pour une offre gardée.
+fn lecture_vue(l: &LectureOffre) -> Vec<Value> {
+    let par = |c: Confiance| if c == Confiance::Moyenne { "déduit par Jobmind" } else { "lu par Jobmind" };
+    let mut v = vec![
+        match &l.diplome {
+            Some(d) => {
+                json!({ "nom": "Diplôme", "valeur": d.valeur.nom(), "preuve": d.preuve, "par": par(d.confiance), "dit": true })
+            }
+            None => {
+                json!({ "nom": "Diplôme", "valeur": "Non dit dans l'offre", "preuve": "", "par": "lu par Jobmind", "dit": false })
+            }
+        },
+        match &l.experience {
+            Some(e) => {
+                json!({ "nom": "Expérience", "valeur": e.valeur.nom(), "preuve": e.preuve, "par": par(e.confiance), "dit": true })
+            }
+            None => {
+                json!({ "nom": "Expérience", "valeur": "Non dit dans l'offre", "preuve": "", "par": "lu par Jobmind", "dit": false })
+            }
+        },
+    ];
+    if !l.autres.is_empty() {
+        v.push(json!({ "nom": "Permis et CACES", "valeur": l.autres.join(", "), "preuve": "", "par": "lu par Jobmind", "dit": true }));
+    }
+    v
 }
 
 /// Garde une offre lue dans l'archive (la même table et la même fusion des doublons que les autres sources) : son

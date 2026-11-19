@@ -50,6 +50,8 @@ jobmind-core = { path = "../jobmind-core" }
 jobmind-lecture = { path = "../jobmind-lecture" }
 # Les offres d'Adzuna et de Jooble (étape 4), demandées sur un fil à part
 jobmind-sources = { path = "../jobmind-sources" }
+# Étape 6 : le petit modèle de Claude, pour les offres que les règles n'ont pas su lire (sur un fil à part)
+jobmind-llm = { path = "../jobmind-llm" }
 
 # Ce qui parle à Windows (verrou, signal, fenêtre, registre, heure, capture de l'essai ; étape 3 : le coffre des clés,
 # DPAPI, et la boîte « Ouvrir » pour choisir un CV, COM). La même version que wry, tao

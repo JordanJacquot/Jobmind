@@ -231,7 +231,7 @@ pub const ADZUNA: [Inventee; 12] = [
         0,
         0,
         16,
-        "Mission d'intérim de 3 mois renouvelable. Préparation des commandes au scanner, filmage des palettes. Horaires en équipe 5 h à 12 h.",
+        "Mission d'intérim de 3 mois renouvelable. Préparation des commandes au scanner, filmage des palettes. Horaires en équipe 5 h à 12 h. Première expérience en entrepôt appréciée.",
     ),
     (
         "5100000003",
@@ -246,7 +246,7 @@ pub const ADZUNA: [Inventee; 12] = [
         23000,
         25000,
         15,
-        "Conduite de chariot élévateur, réception des livraisons, inventaires. CACES 3 à jour exigé.",
+        "Conduite de chariot élévateur, réception des livraisons, inventaires. CACES 3 à jour exigé, 2 ans d'expérience minimum.",
     ),
     (
         "5100000004",
@@ -261,7 +261,7 @@ pub const ADZUNA: [Inventee; 12] = [
         1750,
         1900,
         14,
-        "Accueil et conseil des clients au rayon outillage, mise en rayon, encaissement. Temps partiel 28 h.",
+        "Accueil et conseil des clients au rayon outillage, mise en rayon, encaissement. Temps partiel 28 h. BTS commerce exigé.",
     ),
     (
         "5100000005",
@@ -291,7 +291,7 @@ pub const ADZUNA: [Inventee; 12] = [
         0,
         0,
         12,
-        "CDD de 6 mois. Réception et rangement des pièces, préparation des expéditions du matin.",
+        "CDD de 6 mois. Réception et rangement des pièces, préparation des expéditions du matin. Bac pro logistique souhaité.",
     ),
     (
         "5100000007",
@@ -321,7 +321,7 @@ pub const ADZUNA: [Inventee; 12] = [
         24000,
         26000,
         10,
-        "Préparation et contrôle des expéditions de nuit, 21 h à 5 h. Prime de nuit.",
+        "Préparation et contrôle des expéditions de nuit, 21 h à 5 h. Prime de nuit. Sans diplôme, vous serez formé au poste.",
     ),
     (
         "5100000009",

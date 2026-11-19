@@ -4,12 +4,18 @@
 //! texte gardé sur ce PC, ses sources et « Voir sur le site », la mention « Adzuna » liée à adzuna.fr pour chaque offre
 //! d'Adzuna, favori, plus tard, « Pas pour moi », « J'ai postulé »), ou « Mes recherches ».
 //!
+//! Étape 6 : chaque offre a sa pastille (« Très proche », « Proche », « Un peu », « Hors sujet ») et sa raison en une
+//! ligne ; l'offre ouverte dit le diplôme et l'expérience demandés avec leur preuve (le bout de phrase de l'offre) et
+//! qui les a lus (« lu par Jobmind » ou « lu par Claude ») ; la barre a « Aucun diplôme requis », « Débutant accepté »
+//! et le tri ; la liste, la rubrique « Hors sujet » et ce que Claude peut lire (ou la clé qui lui manque).
+//!
 //! Tous les textes sont écrits ici, en français simple, sans tiret long ni demi-cadratin ; la page les échappe. Les
 //! listes des départements et des régions ne sont pas répétées : la page les prend dans Mon profil (« Ce que je
 //! cherche »). Aucune adresse d'offre n'est envoyée à la page : « Voir sur le site » la demande à l'appli.
 
 use jobmind_core::Heure;
 use jobmind_core::Jour;
+use jobmind_core::lecture::{Confiance, LuPar};
 use jobmind_core::offre::{Offre, TeleOffre, noms_sources};
 use jobmind_core::recherche::{Contrat, GenreLieu, Lieu, RAYONS, Teletravail};
 use jobmind_core::recherches::NOMBRE_MAX;
@@ -19,6 +25,7 @@ use serde_json::{Value, json};
 
 use crate::ecran::{AUCUNE_OFFRE, OFFRES};
 use crate::offres::{LISTE_MAX, VueOffres, n_offres, nom_source};
+use jobmind_storage::lecture::TEXTE_MIN_IA;
 
 /// Les textes de l'onglet (la page les pose tels quels), en objet.
 fn textes(paires: &[(&str, &str)]) -> Value {
@@ -98,12 +105,68 @@ fn ligne(o: &Offre, ouverte: Option<i64>, aujourdhui: Jour) -> Value {
         "plus_tard": o.plus_tard,
         "cachee": o.cachee,
         "postule": o.candidature.is_some(),
+        // (étape 6 : la pastille et la raison)
+        "note": o.niveau().map(|n| json!({ "code": n.code(), "nom": n.nom() })),
+        "raison": o.raison,
     })
 }
 
+/// Ce qui a été lu, pour l'offre ouverte : la valeur, la preuve et qui l'a lu.
+fn lu_vue(nom: &str, lu: Option<(String, &str, LuPar, Confiance)>, lue: bool) -> Value {
+    match lu {
+        Some((valeur, preuve, par, confiance)) => json!({
+            "nom": nom,
+            "valeur": valeur,
+            "preuve": preuve,
+            "par": if par == LuPar::Regles && confiance == Confiance::Moyenne {
+                "déduit par Jobmind".to_string()
+            } else {
+                par.nom().to_string()
+            },
+            "dit": true,
+        }),
+        None => json!({
+            "nom": nom,
+            "valeur": "Non dit dans l'offre",
+            "preuve": "",
+            "par": if lue { "lu par Jobmind" } else { "" },
+            "dit": false,
+        }),
+    }
+}
+
 /// L'offre ouverte.
-fn fiche(x: &OffreComplete, aujourdhui: Jour) -> Value {
+fn fiche(x: &OffreComplete, aujourdhui: Jour, claude: bool) -> Value {
     let o = &x.offre;
+    let l = &x.lecture;
+    let mut lecture = vec![
+        lu_vue(
+            "Diplôme",
+            l.diplome.as_ref().map(|d| (d.valeur.nom().to_string(), d.preuve.as_str(), d.par, d.confiance)),
+            l.lue,
+        ),
+        lu_vue(
+            "Expérience",
+            l.experience.as_ref().map(|e| (e.valeur.nom(), e.preuve.as_str(), e.par, e.confiance)),
+            l.lue,
+        ),
+    ];
+    if !l.autres.is_empty() {
+        lecture.push(
+            json!({ "nom": "Permis et CACES", "valeur": l.autres, "preuve": "", "par": "lu par Jobmind", "dit": true }),
+        );
+    }
+    // (Claude peut lire cette offre : quelque chose n'est pas dit, jamais demandé, et assez de texte)
+    let floue = l.lue
+        && (l.diplome.is_none() || l.experience.is_none())
+        && !l.par_ia
+        && x.description.chars().count() >= TEXTE_MIN_IA
+        && !o.rangee_hors_sujet();
+    let ia = match (floue, claude) {
+        (false, _) => None,
+        (true, true) => Some("lire"),
+        (true, false) => Some("cle"),
+    };
     let pas_dit = "Non précisé";
     let tele = match o.teletravail {
         Some(TeleOffre::Partiel) => "Possible",
@@ -169,6 +232,12 @@ fn fiche(x: &OffreComplete, aujourdhui: Jour) -> Value {
         "candidats": x.candidats.as_ref().map(|c| {
             format!("{} sur {}, vu le {}", c.texte, nom_source(&c.site), c.vu_le.court(aujourdhui))
         }),
+        // (étape 6)
+        "note": o.niveau().map(|n| json!({ "code": n.code(), "nom": n.nom(), "raison": o.raison })),
+        "lecture": lecture,
+        "hors_sujet": o.hors_sujet,
+        "pas_hors_sujet": o.pas_hors_sujet,
+        "ia": ia,
     })
 }
 
@@ -291,8 +360,23 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
         { "id": "toutes", "nom": "Toutes" },
         { "id": "favoris", "nom": "Favoris", "nombre": v.favoris },
         { "id": "plus_tard", "nom": "Plus tard", "nombre": v.plus_tard },
+        { "id": "hors_sujet", "nom": "Hors sujet", "nombre": v.hors_sujet },
         { "id": "cachees", "nom": "Cachées", "nombre": v.cachees },
     ]);
+    let tri = if v.saisie.tri == "recentes" { "recentes" } else { "pertinence" };
+    let ia = json!({
+        "floues": v.floues,
+        "claude": v.claude,
+        "en_cours": v.ia_en_cours,
+        "annonce": v.ia_annonce.as_ref().map(|a| json!({ "texte": a.texte, "genre": a.genre, "cles": a.cles })),
+        "texte": if v.floues == 0 {
+            String::new()
+        } else if v.claude {
+            format!("{} que Jobmind n'a pas su lire en entier.", if v.floues == 1 { "1 offre floue".to_string() } else { format!("{} offres floues", v.floues) })
+        } else {
+            "Ajoute ta clé Claude pour que Jobmind lise aussi les offres floues.".to_string()
+        },
+    });
     let annonce = v.annonce.as_ref().map(|a| json!({ "texte": a.texte, "genre": a.genre, "cles": a.cles }));
     json!({
         "id": OFFRES,
@@ -319,7 +403,17 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
                 "contrat": v.saisie.contrat,
                 "teletravail": if v.saisie.teletravail.is_empty() { "peu_importe" } else { v.saisie.teletravail.as_str() },
                 "liste": if v.saisie.liste.is_empty() { "toutes" } else { v.saisie.liste.as_str() },
+                "sans_diplome": v.saisie.sans_diplome,
+                "debutant": v.saisie.debutant,
+                "tri": tri,
             },
+            "tris": [
+                { "id": "pertinence", "nom": "Les plus pertinentes en haut" },
+                { "id": "recentes", "nom": "Les plus récentes en haut" },
+            ],
+            "liste_t": if tri == "pertinence" { "Les plus pertinentes en haut" } else { "Les plus récentes en haut" },
+            "sans_note": if v.profil || v.gardees == 0 { "" } else { "Remplis « Ce que je cherche » dans Mon profil : Jobmind triera les offres pour toi." },
+            "ia": ia,
             "actifs": v.filtres_actifs,
             "lieux": lieux,
             "rayons": RAYONS,
@@ -337,11 +431,11 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
             "cles": v.cles.0 || v.cles.1,
             "lignes": v.liste.iter().map(|o| ligne(o, ouverte, aujourdhui)).collect::<Vec<_>>(),
             "plus": if v.total > LISTE_MAX {
-                format!("Seules les {LISTE_MAX} plus récentes sont montrées : précise les filtres pour voir les autres.")
+                format!("Seules les {LISTE_MAX} premières sont montrées : précise les filtres pour voir les autres.")
             } else {
                 String::new()
             },
-            "fiche": v.ouverte.as_ref().map(|o| fiche(o, aujourdhui)),
+            "fiche": v.ouverte.as_ref().map(|o| fiche(o, aujourdhui, v.claude)),
             "vide": vide(v),
             "gestion": gestion(v, aujourdhui),
             "textes": textes(&[
@@ -395,6 +489,19 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
                 ("oui", "Oui, supprimer"),
                 ("non", "Non, garder"),
                 ("fermer", "Revenir aux offres"),
+                ("sans_diplome", "Aucun diplôme requis"),
+                ("debutant", "Débutant accepté"),
+                ("tri", "Trier les offres"),
+                ("pourquoi", "Pourquoi cette note"),
+                ("lu_t", "Ce que demande l'offre"),
+                ("pas_hors_sujet", "Pas hors sujet"),
+                ("remettre_hors_sujet", "Remettre dans Hors sujet"),
+                ("hors_sujet_t", "Jobmind a rangé cette offre dans « Hors sujet ». Elle reste gardée ici."),
+                ("pas_hors_sujet_t", "Tu as dit que cette offre n'est pas hors sujet."),
+                ("lire_ia", "Demander à Claude"),
+                ("lire_ia_t", "Jobmind n'a pas tout trouvé dans cette offre. Claude peut la lire."),
+                ("lire_floues", "Lire avec Claude"),
+                ("cle_ia_t", "Ajoute ta clé Claude pour que Jobmind lise aussi les offres floues."),
                 ("plein", "Tu as déjà 20 recherches : supprime-en une pour en ajouter une autre."),
             ]),
         },
@@ -405,6 +512,9 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
 mod tests {
     use super::*;
     use crate::offres::Annonce;
+    use jobmind_core::lecture::{Diplome, Experience};
+    use jobmind_core::pertinence::Niveau;
+    use jobmind_storage::lecture::{LectureGardee, Lu};
     use jobmind_storage::offres::{Lien, VueCandidats};
 
     fn j(d: u32) -> Jour {
@@ -428,6 +538,10 @@ mod tests {
         a.vue = true;
         a.teletravail = Some(TeleOffre::Partiel);
         a.salaire = "21 800 à 23 500 € par an".into();
+        a.pertinence = Some(92);
+        a.raison = "Aucun diplôme demandé, à 12 km, débutant accepté".into();
+        a.diplome = Some(Diplome::Aucun);
+        a.experience = Some(Experience::Debutant);
         let b = o(2, "Agent de tri", "", "Forbach (57)", &["jooble"]);
         let r = RechercheGardee {
             id: 4,
@@ -459,6 +573,18 @@ mod tests {
                     nombre: Some(100),
                     vu_le: j(17),
                 }),
+                lecture: LectureGardee {
+                    diplome: Some(Lu {
+                        valeur: Diplome::Aucun,
+                        preuve: "Sans diplôme".into(),
+                        confiance: Confiance::Forte,
+                        par: LuPar::Regles,
+                    }),
+                    experience: None,
+                    autres: "Permis B".into(),
+                    lue: true,
+                    par_ia: false,
+                },
             }),
             recherches: vec![r],
             recherche: Some(4),
@@ -528,6 +654,53 @@ mod tests {
                 assert!(!e.to_string().contains(&format!("\"{nom}\":")), "{nom}");
             }
         }
+    }
+
+    /// Étape 6 : la pastille, la raison, ce que demande l'offre avec sa preuve, Claude (clé ou non), le tri.
+    #[test]
+    fn la_lecture_et_la_note_montrees() {
+        let mut v = exemple();
+        let e = onglet(&v, j(18));
+        let o = &e["offres"];
+        assert_eq!(o["lignes"][0]["note"]["nom"], "Très proche");
+        assert_eq!(o["lignes"][0]["raison"], "Aucun diplôme demandé, à 12 km, débutant accepté");
+        assert!(o["lignes"][1]["note"].is_null());
+        let f = &o["fiche"];
+        assert_eq!(f["note"]["code"], "tres_proche");
+        assert_eq!(f["lecture"][0]["valeur"], "Aucun diplôme demandé");
+        assert_eq!(f["lecture"][0]["preuve"], "Sans diplôme");
+        assert_eq!(f["lecture"][0]["par"], "lu par Jobmind");
+        assert_eq!(f["lecture"][1]["valeur"], "Non dit dans l'offre");
+        assert_eq!(f["lecture"][2]["valeur"], "Permis B");
+        // Le texte est trop court pour Claude
+        assert!(f["ia"].is_null());
+        assert_eq!(o["liste_t"], "Les plus pertinentes en haut");
+        assert_eq!(o["filtres"]["tri"], "pertinence");
+        // Un texte assez long, sans clé Claude : la clé est demandée ; avec : « Demander à Claude »
+        let x = v.ouverte.as_mut().unwrap();
+        x.description = "Un long texte d'offre. ".repeat(20);
+        assert_eq!(onglet(&v, j(18))["offres"]["fiche"]["ia"], "cle");
+        v.claude = true;
+        v.floues = 3;
+        let e = onglet(&v, j(18));
+        assert_eq!(e["offres"]["fiche"]["ia"], "lire");
+        assert_eq!(e["offres"]["ia"]["texte"], "3 offres floues que Jobmind n'a pas su lire en entier.");
+        v.claude = false;
+        assert_eq!(
+            onglet(&v, j(18))["offres"]["ia"]["texte"],
+            "Ajoute ta clé Claude pour que Jobmind lise aussi les offres floues."
+        );
+        // Hors sujet
+        let x = v.ouverte.as_mut().unwrap();
+        x.offre.hors_sujet = true;
+        x.offre.pertinence = Some(0);
+        let f = onglet(&v, j(18))["offres"]["fiche"].clone();
+        assert_eq!((f["note"]["nom"].as_str(), f["hors_sujet"].as_bool()), (Some("Hors sujet"), Some(true)));
+        assert!(f["ia"].is_null());
+        assert_eq!(v.ouverte.as_ref().unwrap().offre.niveau(), Some(Niveau::HorsSujet));
+        // Sans « Ce que je cherche » : la phrase qui le demande
+        v.profil = false;
+        assert!(onglet(&v, j(18))["offres"]["sans_note"].as_str().unwrap().contains("Ce que je cherche"));
     }
 
     #[test]

@@ -82,8 +82,33 @@ l'étape 13.
     abandonnée après 40 s (jamais pendant que Jordan fait une vérification) ; aucune boucle, aucun contournement.
   Aucune nouvelle commande Tauri : tout passe par `action`. Les règles des vrais sites (blocs, connexion, captcha)
   sont celles de leur structure connue en novembre 2026 ; les essais ne les ont jamais essayées sur les vrais sites.
-- [ ] **6. La lecture et le tri** : diplôme et expérience trouvés dans le texte (règles, puis petit modèle Claude), note
-  de pertinence et sa raison, hors sujet ; filtres « Aucun diplôme requis », « Débutant accepté ».
+- [x] **6. La lecture et le tri** (`jobmind-core\src\lecture.rs`, `pertinence.rs` ; `jobmind-llm` ; `jobmind-storage\src\lecture.rs`) :
+  - le diplôme demandé (aucun, CAP ou BEP, Bac, Bac+2, Bac+3, Bac+5 et plus, non dit) et l'expérience demandée
+    (débutant accepté, une durée, exigée, appréciée, non dit) trouvés dans le titre et le texte de chaque offre par des
+    règles (les tournures des annonces, « sans diplôme », « diplôme non exigé », « expérience exigée : non »,
+    « débutants s'abstenir », « 2 à 3 ans », les fautes de frappe courantes ; jamais « CDD de 6 mois », « avoir 18 ans »,
+    « bac à sable », « licence IV ») ; le permis et le CACES ; chaque résultat garde sa preuve (le bout de phrase de
+    l'offre, tel quel) et sa confiance (« lu » ou « déduit par Jobmind ») ; mesuré sur deux jeux de 90 phrases écrits à
+    part, sans voir les règles (`jobmind-core\tests\jeu_jamais_vu*.tsv`) : 81 % puis 94 % de phrases justes ;
+  - les offres que les règles n'ont pas su classer (le diplôme ou l'expérience non dits, un texte d'au moins 200
+    caractères, ni cachées ni hors sujet) lues par le petit modèle de Claude (`claude-haiku-5-5`, API Messages, réponse
+    en JSON imposé par un schéma, effort bas, réflexion coupée), seulement avec la clé Claude de Mes clés (lue au dernier
+    moment, jamais dans le journal ni la page) : 8 offres à la fois, sur un fil à part, après « Chercher maintenant » ou
+    sur « Lire avec Claude » / « Demander à Claude », 150 par jour au plus, une seule fois par offre (table
+    `lectures_ia`, avec les jetons et le coût) ; chaque citation de Claude est cherchée dans l'offre : absente, rien
+    n'est gardé (rien d'inventé) ; ce que les règles ont trouvé reste toujours ; sans clé : « Ajoute ta clé Claude pour
+    que Jobmind lise aussi les offres floues » ;
+  - la note de pertinence (0 à 100) et sa raison en une ligne (« Aucun diplôme demandé, à 12 km, débutant accepté »),
+    calculées en Rust d'après « Ce que je cherche », le CV principal (ses mots, son plus haut diplôme) et l'offre :
+    le poste, la distance (position des offres, sinon le département de la ville), le contrat, le télétravail, le
+    diplôme, l'expérience, le salaire ; « Très proche », « Proche », « Un peu », « Hors sujet » ; refaite seule quand
+    « Ce que je cherche » ou le CV change (une empreinte gardée avec chaque note) ; les offres hors sujet rangées dans
+    la rubrique « Hors sujet », jamais effacées, avec « Pas hors sujet » ;
+  - onglet Offres : « Aucun diplôme requis » et « Débutant accepté » (aussi sur les résultats des sites en coulisse
+    dont l'offre a été ouverte), le tri (les plus pertinentes ou les plus récentes en haut), la pastille et la raison
+    de chaque offre, et dans l'offre ouverte « Ce que demande l'offre » (le diplôme, l'expérience, le permis, avec la
+    preuve et « lu par Jobmind » ou « lu par Claude ») ; migration 6. La vraie API de Claude n'a jamais été appelée
+    (les essais parlent à un faux serveur local).
 - [ ] **7. Gmail** : branchement guidé ; alertes d'offres ajoutées seules ; réponses des recruteurs rangées dans le
   dossier, bulle, statut proposé.
 - [ ] **8. La candidature préparée par Claude** : lettre, réponses aux questions, conseil pour le CV ; texte brut gardé.
@@ -106,11 +131,11 @@ Jobmind est écrite en Rust avec Tauri, sur le modèle de Paymind (`rust\`, Rust
 | `jobmind-vie` | la vie dans Mindset (verrou, demandes, accrochage, thème, carte), reprise de Paymind |
 | `jobmind-relais` | `Jobmind.exe`, le relais qui lance `Mindset.exe` |
 | `jobmind-app` | `Mindset.exe` : la fenêtre Tauri, le kit d'écrans de la suite, les onglets (`ui\jobmind.js`), les gestes du suivi, des offres (`offres.rs`, `vue_offres.rs` ; le fil des recherches) et du profil, les sites en coulisse (`coulisse.rs` : la source, la liste et l'offre lues sur un site, « Ajouter à Jobmind », la connexion et son mot de passe effacé dès qu'il est tapé, la petite fenêtre du site ; `fenetre.rs` : la vue des sites dans la fenêtre ; `programme.rs` : ses chargements, lectures et saisies ; `src\windows\sites.rs` : ses réglages de WebView2), le coffre DPAPI et la boîte « Ouvrir » (`src\windows`) |
-| `jobmind-storage` | dossier de données, journal, réglages, carte de Mindset, base SQLite et migrations, candidatures, bulles, profil (CV et leurs fichiers, style, ce que je cherche), clés chiffrées (`data\cles.json`) ; offres archivées, doublons rattachés, recherche FTS5, recherches gardées, demandes du jour ; les offres lues sur les sites et le nombre de candidats vu à chaque clic (`offres.rs`, table `offres_vues`) |
-| `jobmind-core` | modèles, statuts, jours, saisie vérifiée, groupes du suivi, relances, bilan, bulles dues ; profil, ce que je cherche, régions et départements, forme des clés ; ce qui se lit dans une offre (contrat, télétravail, département), règle des doublons, filtres de l'onglet Offres, recherches gardées ; pertinence à venir (étape 6) |
+| `jobmind-storage` | dossier de données, journal, réglages, carte de Mindset, base SQLite et migrations, candidatures, bulles, profil (CV et leurs fichiers, style, ce que je cherche), clés chiffrées (`data\cles.json`) ; offres archivées, doublons rattachés, recherche FTS5, recherches gardées, demandes du jour ; les offres lues sur les sites et le nombre de candidats vu à chaque clic (`offres.rs`, table `offres_vues`) ; la lecture par les règles et par Claude, les notes refaites quand le profil change (`lecture.rs`, migration 6) |
+| `jobmind-core` | modèles, statuts, jours, saisie vérifiée, groupes du suivi, relances, bilan, bulles dues ; profil, ce que je cherche, régions et départements, forme des clés ; ce qui se lit dans une offre (contrat, télétravail, département), règle des doublons, filtres de l'onglet Offres, recherches gardées ; la lecture d'une offre (diplôme, expérience, permis, avec leur preuve) et la note de pertinence et sa raison (étape 6) |
 | `jobmind-lecture` | le texte d'un CV en PDF (pdf-extract, MIT) ou en Word .docx (zip et XML lus ici), en Rust pur ; fichier trop gros, scanné, abîmé ou protégé : une phrase simple |
 | `jobmind-sources` | le trait `JobSource`, Adzuna (GET, API France) et Jooble (POST), le client HTTP (ureq, chiffrement SChannel de Windows, délais de 10 s et 25 s), le texte des offres remis au propre ; la page lue (`html.rs` : le HTML découpé sans navigateur, donnée non fiable ; `page.rs` : l'offre et le nombre de candidats, par JSON-LD, règles de LinkedIn, Indeed, Welcome to the Jungle et France Travail, microdonnées ou texte principal) ; les sites en coulisse (`sites.rs` : l'adresse d'une page de résultats, et ce que montre une page : une liste, une offre, un formulaire de connexion en un ou deux écrans, un captcha, une vérification, connecté ou non) ; option `faux` : un faux serveur local (127.0.0.1) qui imite Adzuna et Jooble avec des offres inventées, sert les pages d'exemple des sites (`src\page\exemples`) et imite les quatre sites (`src\sites\exemples.rs` : listes, offres, connexions avec un mail et un mot de passe inventés, sessions factices, captcha, page cassée). Les alertes mail viendront |
-| `jobmind-llm` | le trait `LlmProvider` (Claude, puis un moteur sur le PC) |
+| `jobmind-llm` | le trait `LlmProvider` ; le client de Claude (API Messages par ureq, SChannel ; erreurs 401, 429, 529, délai) ; la lecture d'une offre par le petit modèle, sa réponse JSON vérifiée (citations cherchées dans l'offre) |
 | `jobmind-humanizer` | le style de Jordan |
 | `jobmind-mail` | Gmail (IMAP et SMTP) |
 
@@ -175,7 +200,7 @@ livrée :
   `wttj`, `francetravail`, `mes`) choisit la source, `chercher-site` clique « Chercher sur le site » et attend la
   lecture en coulisse, `resultat:<n>` ouvre le résultat n, `connexion:linkedin` remplit la carte de connexion avec les
   identifiants inventés (`connexion.demande`), `connecter:linkedin` la remplit et l'envoie, `sites:captcha` et
-  `sites:casse` changent la prochaine liste (`sites.essai`), `pause:<s>` attend ; `clic:pf:fermer`, `clic:cs:voir`,
+  `sites:casse` changent la prochaine liste (`sites.essai`), `pause:<s>` attend ; `liste` (étape 6) descend la liste des offres jusqu'à ses offres, `clic:pf:fermer`, `clic:cs:voir`,
   `clic:cs:a-voir` et `clic:pn:decon` cliquent dans la petite fenêtre, l'offre, la phrase d'une lecture qui casse et
   Réglages, par exemple
   `-Vues 'site:linkedin,chercher-site,resultat:1,connexion:linkedin,connecter:linkedin,sites:captcha,chercher-site'` ;
