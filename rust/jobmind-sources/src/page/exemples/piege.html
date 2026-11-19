@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title><script>alert(1)</script>Page piégée</title>
+<script>window.__piege = 1; document.title = "<img src=x onerror=alert(2)>";</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"JobPosting","title":"<img src=x onerror=alert(3)>Employé <b>libre-service</b> &lt;script&gt;alert(4)&lt;/script&gt;","hiringOrganization":{"@type":"Organization","name":"<script>alert('x')<\/script>Épicerie Fine de l'Est"},"description":"<p>Bonjour.</p><script>document.location='https://mal.exemple.invalid/'<\/script><style>body{display:none}</style><p onclick=\"alert(5)\">Mise en rayon et accueil des clients.</p><iframe src=\"https://mal.exemple.invalid/\"></iframe>","jobLocation":{"@type":"Place","address":{"@type":"PostalAddress","addressLocality":"Lunéville <b>centre</b>","postalCode":"54300"}},"employmentType":["CDI","<script>x<\/script>"],"baseSalary":{"@type":"MonetaryAmount","currency":"<script>","value":{"@type":"QuantitativeValue","value":"1900","unitText":"MONTH"}}}</script>
+</head>
+<body onload="alert(6)">
+<main>
+<h1 onmouseover="alert(7)">Employé libre-service</h1>
+<iframe src="javascript:alert(8)"></iframe>
+<object data="x.swf"></object>
+<a href="javascript:alert(9)">Cliquer</a>
+<p>Une page d'exemple pleine de pièges, pour vérifier que rien n'est jamais exécuté ni réaffiché en HTML.</p>
+</main>
+</body>
+</html>

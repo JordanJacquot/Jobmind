@@ -198,3 +198,68 @@ fn une_adresse_exterieure_ne_peut_rien_appeler() {
     }
     assert_eq!(app.state::<Page>().visible(), None);
 }
+
+/// Une vue (la vue des sites), vue comme `get_ipc_response` la demande.
+struct Vue(tauri::Webview<MockRuntime>);
+impl AsRef<tauri::Webview<MockRuntime>> for Vue {
+    fn as_ref(&self) -> &tauri::Webview<MockRuntime> {
+        &self.0
+    }
+}
+
+/// Étape 5 : la vue des sites vit DANS la fenêtre « principale » (une seconde vue de la même fenêtre), mais ses pages
+/// n'appellent aucune commande de Jobmind. Depuis l'adresse d'un site : refusé par les permissions de Tauri (aucune
+/// capability `remote`). Même avec l'adresse d'une page de l'appli (que la vue des sites n'affiche jamais : sa
+/// navigation la refuse) : refusé par les commandes elles-mêmes, qui ne répondent qu'à la vue « principale ». Rien
+/// n'arrive au receveur ; la page de Jobmind, elle, appelle toujours ses commandes.
+#[test]
+fn la_vue_des_sites_ne_peut_rien_appeler() {
+    let essai = Essai::new("sites");
+    let (app, lignes) = appli_avec_journal();
+    let f = principale(&app, &essai);
+    let recus = Arc::new(Mutex::new(Vec::new()));
+    let pour_receveur = Arc::clone(&recus);
+    app.state::<Page>().recevoir(move |m| pour_receveur.lock().unwrap().push(m));
+    let fenetre = app.get_window(fenetre::LABEL).expect("la fenêtre principale");
+    let site: tauri::Url = "https://www.linkedin.com/jobs/".parse().unwrap();
+    let sites = fenetre
+        .add_child(
+            tauri::webview::WebviewBuilder::new(jobmind_app::panneau::LABEL, WebviewUrl::External(site)),
+            tauri::LogicalPosition::new(0.0, 120.0),
+            tauri::LogicalSize::new(900.0, 500.0),
+        )
+        .expect("la vue des sites");
+    assert_eq!(sites.window().label(), fenetre::LABEL);
+    let sites = Vue(sites);
+    let appels = [
+        ("noter_visibilite", json!({ "visible": false })),
+        ("suivre_page", json!({ "canal": "__CHANNEL__:7" })),
+        (
+            "action",
+            json!({ "message": { "type": "action", "id": "o-favori", "valeur": { "id": 1 }, "ecran": "accueil" } }),
+        ),
+        ("action", json!({ "message": { "type": "menu" } })),
+    ];
+    for adresse in
+        ["https://www.linkedin.com/jobs/", "http://127.0.0.1:5000/essai/piege-ipc", "http://ipc.localhost/action"]
+    {
+        for (commande, corps) in &appels {
+            refusee(get_ipc_response(&sites, demande(commande, adresse, corps.clone())), commande);
+        }
+    }
+    for (commande, corps) in &appels {
+        let r = get_ipc_response(&sites, demande(commande, PAGES, corps.clone()));
+        assert_eq!(r.err(), Some(json!("refusé")), "{commande} depuis la vue des sites");
+    }
+    assert!(recus.lock().unwrap().is_empty());
+    assert_eq!(app.state::<Page>().visible(), None);
+    assert_eq!(
+        lignes.lock().unwrap().iter().filter(|l| l.ends_with("refusé (pas la page de Jobmind)")).count(),
+        appels.len()
+    );
+    // La page de Jobmind, dans la même fenêtre, appelle toujours ses commandes
+    assert!(get_ipc_response(&f, demande("noter_visibilite", PAGES, json!({ "visible": true }))).is_ok());
+    assert_eq!(app.state::<Page>().visible(), Some(true));
+    assert!(get_ipc_response(&f, demande("action", PAGES, json!({ "message": { "type": "menu" } }))).is_ok());
+    assert_eq!(recus.lock().unwrap().len(), 1);
+}

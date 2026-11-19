@@ -14,6 +14,9 @@
 //!   pour le style, les clés chiffrées ; ses gestes vérifiés, puis ce que l'écran en montre ;
 //! - [`offres`] et [`vue_offres`] : l'onglet Offres (étape 4) : les gestes (filtres, recherches gardées, « Chercher
 //!   maintenant » sur un fil à part, favoris, « J'ai postulé », « Voir sur le site »), puis ce que l'écran en montre ;
+//! - [`panneau`] : le panneau des sites (étape 5) : sa barre (les gestes vérifiés, les ordres pour la vue des sites),
+//!   « Ajouter à Jobmind » (la page lue gardée dans l'archive, avec le nombre de candidats) ; la vue des sites elle-même
+//!   est créée par [`fenetre::creer_panneau`], dans la fenêtre « principale », sans aucun accès aux commandes ;
 //! - [`pont`] : les messages du kit vérifiés, l'habillage du thème, le retour à la console de Mindset ;
 //! - [`pack`] : la réponse du protocole `pack` (les images et polices du thème, règle 6), par suite-commun ;
 //! - [`preparer`] et [`contexte`] : ce que le programme et les tests donnent à Tauri ;
@@ -33,6 +36,7 @@ pub mod essai;
 pub mod fenetre;
 pub mod offres;
 pub mod pack;
+pub mod panneau;
 #[cfg(any(feature = "essai", test))]
 pub mod png;
 pub mod pont;

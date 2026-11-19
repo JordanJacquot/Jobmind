@@ -1,7 +1,7 @@
 //! Les gestes de l'onglet Offres (étape 4 du plan) : ouvrir une offre, favori, « plus tard », « Pas pour moi », les
 //! filtres, les recherches gardées (tirées de « Ce que je cherche » ou tapées), « Chercher maintenant », « J'ai
-//! postulé », « Voir sur le site » ; et dans Mes clés, « Essayer la clé ». Chaque saisie est vérifiée ici par
-//! jobmind-core (jamais confiance dans la page), puis écrite dans la base.
+//! postulé », « Voir sur le site » (étape 5 : dans le panneau des sites, crate::panneau) ; et dans Mes clés, « Essayer
+//! la clé ». Chaque saisie est vérifiée ici par jobmind-core (jamais confiance dans la page), puis écrite dans la base.
 //!
 //! « Chercher maintenant » ne bloque jamais la fenêtre : le geste prépare la tâche ([`Tache`], sans aucune clé) ; le
 //! programme lit les clés au dernier moment et la fait tourner sur un fil à part (une demande à chaque source, jamais
@@ -87,6 +87,11 @@ pub fn nom_source(code: &str) -> &'static str {
     match code {
         "adzuna" => "Adzuna",
         "jooble" => "Jooble",
+        // (étape 5 : les sites du panneau)
+        "linkedin" => "LinkedIn",
+        "indeed" => "Indeed",
+        "wttj" => "Welcome to the Jungle",
+        "francetravail" => "France Travail",
         _ => "un autre site",
     }
 }
@@ -307,8 +312,9 @@ impl Offres {
         }
         if id == ADZUNA {
             return Fait {
-                lien: Some(jobmind_sources::adzuna::SITE.to_string()),
-                journal: Some("Offres : site d'Adzuna demandé".into()),
+                panneau: Some(crate::panneau::Ordre::Ouvrir(Some(jobmind_sources::adzuna::SITE.to_string()))),
+                journal: Some("Offres : site d'Adzuna demandé (panneau des sites)".into()),
+                change: true,
                 ..Fait::default()
             };
         }
@@ -751,7 +757,8 @@ fn voir(base: &Base, v: &Value) -> rusqlite::Result<Fait> {
         o.liens.iter().find(|l| l.source == source && !l.url.is_empty()).or(o.liens.iter().find(|l| !l.url.is_empty()));
     match lien {
         Some(l) if lien_ouvrable(&l.url) => Ok(Fait {
-            lien: Some(l.url.clone()),
+            panneau: Some(crate::panneau::Ordre::Ouvrir(Some(l.url.clone()))),
+            change: true,
             journal: Some(format!("Offres : offre {id} ouverte sur le site ({})", offre::hote(&l.url))),
             ..Fait::default()
         }),
@@ -961,7 +968,9 @@ mod tests {
         assert_eq!(o.geste(&ctx, POSTULE, &json!({ "id": quai }), m(10, 0)).candidature, Some(k));
         // « Voir sur le site » : l'adresse de la source choisie, jamais dans le journal
         let f = o.geste(&ctx, VOIR, &json!({ "id": quai, "source": "jooble" }), m(10, 0));
-        assert!(f.lien.as_deref().unwrap().starts_with("https://jooble.org/desc/"));
+        assert!(
+            matches!(&f.panneau, Some(crate::panneau::Ordre::Ouvrir(Some(u))) if u.starts_with("https://jooble.org/desc/"))
+        );
         assert_eq!(f.journal.as_deref(), Some(&*format!("Offres : offre {quai} ouverte sur le site (jooble.org)")));
         let _ = std::fs::remove_dir_all(&d);
     }
@@ -1104,12 +1113,15 @@ mod tests {
             (ESSAYER, json!({ "service": "google" })),
         ] {
             let f = o.geste(&ctx, id, &v, m(9, 0));
-            assert!(!f.bravo && f.reseau.is_none() && f.lien.is_none() && f.candidature.is_none(), "{id} {v} {f:?}");
+            assert!(!f.bravo && f.reseau.is_none() && f.panneau.is_none() && f.candidature.is_none(), "{id} {v} {f:?}");
         }
         assert_eq!(base_offres::nombre_recherches(b.connexion()).unwrap(), 0);
         assert!(est_geste(CHERCHER) && est_geste(ESSAYER) && !est_geste("c-ouvrir"));
         // Le site d'Adzuna : toujours le même lien
-        assert_eq!(o.geste(&ctx, ADZUNA, &Value::Null, m(9, 0)).lien.as_deref(), Some("https://www.adzuna.fr"));
+        assert_eq!(
+            o.geste(&ctx, ADZUNA, &Value::Null, m(9, 0)).panneau,
+            Some(crate::panneau::Ordre::Ouvrir(Some("https://www.adzuna.fr".into())))
+        );
         // Sans base
         let f = o.geste(&Contexte { base: None, cles: None }, OUVRIR, &json!({ "id": 1 }), m(9, 0));
         assert_eq!(f.message.as_deref(), Some(crate::suivi::SANS_BASE));

@@ -32,7 +32,9 @@ essai = ["jobmind-sources/faux"]
 # Versions figées (« = ») : une nouvelle version n'entre que par un changement relu. Les mêmes que Mindcare.
 # Tauri sans ses options par défaut (ni « dynamic-acl », ni « x11 », ni « dbus ») ; jamais « devtools » (règle 5 de
 # regles-tauri.md). « custom-protocol » en dur : sans lui, l'exe chercherait un serveur de développement.
-tauri = { version = "=2.12.5", default-features = false, features = ["wry", "compression", "common-controls-v6", "custom-protocol"] }
+# « unstable » (étape 5) : une seconde vue dans la même fenêtre (`Window::add_child`), le panneau des sites ; aucune
+# bibliothèque de plus (l'option de tauri-runtime-wry du même nom est vide), ni permission, ni commande.
+tauri ={ version = "=2.12.5", default-features = false, features = ["wry", "compression", "common-controls-v6", "custom-protocol", "unstable"] }
 # L'état envoyé à la page (le même serde_json que jobmind-storage et suite-commun)
 serde_json = { version = "=1.0.154", features = ["preserve_order"] }
 # Le dossier WebView2 des applis Tauri et les options fixes du navigateur (règle 7), les thèmes de la suite, la lecture
@@ -82,7 +84,7 @@ tauri-build = { version = "=2.7.4", default-features = false }
 [dev-dependencies]
 # Les tests des permissions : la même dépendance, plus l'option « test » de Tauri (son faux Windows : aucune vraie
 # fenêtre, aucune page chargée). Les options de développement n'entrent que dans les tests, jamais dans l'exe.
-tauri = { version = "=2.12.5", default-features = false, features = ["wry", "compression", "common-controls-v6", "custom-protocol", "test"] }
+tauri = { version = "=2.12.5", default-features = false, features = ["wry", "compression", "common-controls-v6", "custom-protocol", "unstable", "test"] }
 # Les tests de l'onglet Offres : les réponses inventées d'Adzuna et de Jooble (le faux serveur de jobmind-sources)
 jobmind-sources = { path = "../jobmind-sources", features = ["faux"] }
 

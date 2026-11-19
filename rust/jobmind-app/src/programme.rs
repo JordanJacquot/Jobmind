@@ -17,8 +17,13 @@
 //!    geste du profil passe par crate::profil ; « Importer un fichier » ouvre la boîte « Ouvrir » de Windows sur un fil
 //!    à part, qui lit ensuite le fichier et rapporte chaque étape au fil de la fenêtre (lecture abandonnée après 60 s).
 //!    Offres (étape 4) : « Chercher maintenant » et « Essayer la clé » tournent sur un fil à part (les clés lues au
-//!    dernier moment, données à ce fil seulement), qui rapporte au fil de la fenêtre (abandonné après 90 s) ; « Voir
-//!    sur le site » ouvre le navigateur par défaut (jamais dans la construction d'essai, qui parle à un faux serveur).
+//!    dernier moment, données à ce fil seulement), qui rapporte au fil de la fenêtre (abandonné après 90 s).
+//!    Le panneau des sites (étape 5) : la vue des sites, seconde vue DANS la fenêtre « principale » (jamais une fenêtre
+//!    à part), créée la première fois qu'il s'ouvre (« Ouvrir les sites », « Voir sur le site »), cachée quand il se
+//!    ferme ; chaque pas de la minuterie exécute les ordres de sa barre hors du verrou de l'état, suit sa place (la zone
+//!    que la page lui laisse, à l'échelle de la fenêtre) et traite ce qu'elle a rapporté (son adresse, une nouvelle
+//!    fenêtre demandée, ouverte dans le panneau, un téléchargement refusé) ; « Ajouter à Jobmind » lit la page par un
+//!    petit script (son adresse et son HTML), lu ensuite sur un fil à part (abandonné après 20 s).
 //!    L'échelle de la page dans un panneau de Mindset plus petit que la fenêtre suit chaque nouvelle
 //!    taille (`Resized`), et chaque pas. La croix et `WM_CLOSE` (le bouton « Fermer » de Mindset) quittent.
 //! 5. La fin : la relance si le thème a changé, puis `std::process::exit` (aucun fil ne garde le processus en vie sans
@@ -27,9 +32,10 @@
 //! Tout l'état vit sur le fil de la fenêtre (celui de Tauri) : la vie, les données, le verrou (qui appartient au fil
 //! qui l'a pris) et la fenêtre. La minuterie, sur un autre fil, ne fait que demander un tour à ce fil-là.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::thread::LocalKey;
 use std::time::{Duration, Instant};
 
@@ -45,10 +51,11 @@ use jobmind_vie::{
 };
 use serde_json::{Value, json};
 use suite_commun::themes;
-use tauri::{App, AppHandle, Manager, Window, WindowEvent};
+use tauri::{App, AppHandle, LogicalPosition, LogicalSize, Manager, Url, Webview, Window, WindowEvent};
 
-use crate::fenetre::{LABEL, TAILLE_MIN, creer_principale};
+use crate::fenetre::{EvenementSites, LABEL, TAILLE_MIN, creer_principale};
 use crate::offres::{self, Offres, Retour, Tache};
+use crate::panneau::{self, Lecture, Ordre, Panneau};
 use crate::pont::MessagePage;
 use crate::profil::{self, Contexte, Import, Profil};
 use crate::suivi::{self, Fait, Suivi};
@@ -97,6 +104,17 @@ struct Etat {
     offres: Offres,
     /// La recherche d'offres en cours a commencé à ce moment
     reseau_depuis: Option<Instant>,
+    /// Étape 5 : le panneau des sites (sa barre, la lecture en cours), et ce que sa vue doit faire au prochain pas
+    panneau: Panneau,
+    ordres_panneau: Vec<Ordre>,
+    /// Ce que la vue des sites a rapporté pendant ses événements, traité au prochain pas
+    evenements_sites: Arc<Mutex<Vec<EvenementSites>>>,
+    /// La lecture de la page du panneau a commencé à ce moment
+    page_depuis: Option<Instant>,
+    /// La place donnée en dernier à la vue des sites (en pixels logiques)
+    place_sites: Option<(f64, f64, f64, f64)>,
+    /// Le dossier de données de Jobmind (la session du panneau y est gardée)
+    donnees_appli: PathBuf,
     /// Construction d'essai : le faux serveur local qui imite Adzuna et Jooble, et son mode
     #[cfg(feature = "essai")]
     faux: Option<(jobmind_sources::faux::FauxServeur, FauxMode)>,
@@ -115,6 +133,11 @@ struct Etat {
 
 thread_local! {
     static ETAT: RefCell<Option<Etat>> = const { RefCell::new(None) };
+    /// Étape 5 : la vue des sites, créée la première fois que le panneau s'ouvre, jamais recréée (cachée quand le
+    /// panneau se ferme : sa page et sa session restent)
+    static SITES: RefCell<Option<Webview>> = const { RefCell::new(None) };
+    /// La vue des sites est en train d'être créée (WebView2 laisse passer d'autres événements pendant ce temps)
+    static CREATION: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Construction d'essai : le mode du faux serveur (normal, trop de demandes, clé refusée).
@@ -328,6 +351,12 @@ pub fn lancer() -> ! {
             lecture_depuis: None,
             offres,
             reseau_depuis: None,
+            panneau: Panneau::default(),
+            ordres_panneau: Vec::new(),
+            evenements_sites: Arc::new(Mutex::new(Vec::new())),
+            page_depuis: None,
+            place_sites: None,
+            donnees_appli: l.dossier_donnees.clone(),
             #[cfg(feature = "essai")]
             faux,
             jour,
@@ -344,9 +373,11 @@ pub fn lancer() -> ! {
     let montree = l.fenetre_montree();
     let donnees_appli = l.dossier_donnees.clone();
     let constructeur = crate::preparer(tauri::Builder::default(), page)
-        .register_uri_scheme_protocol("pack", move |_, demande| {
+        .register_uri_scheme_protocol("pack", move |contexte, demande| {
             let chemin = demande.uri().path();
-            let (reponse, refus) = pack::repondre(dossier_pack.as_deref(), chemin);
+            // (étape 5 : les images du thème ne sont servies qu'à la page de Jobmind, jamais à la vue des sites)
+            let dossier = if contexte.webview_label() == LABEL { dossier_pack.as_deref() } else { None };
+            let (reponse, refus) = pack::repondre(dossier, chemin);
             if let Some(r) = refus {
                 pour_pack.ecrire(&format!("Thème : fichier refusé ({}) : {}", r.raison(), court(chemin)));
             }
@@ -452,19 +483,369 @@ fn tour(app: &AppHandle) {
             etat.bulles(app);
             etat.lecture_trop_longue(app);
             etat.reseau_trop_long(app);
+            etat.page_trop_longue(app);
+            etat.evenements_du_panneau(app);
         }
         #[cfg(feature = "essai")]
         {
             capture_demandee(etat);
             ordre_demande(etat, app);
             import_demande(etat, app);
+            panneau_demande(etat, app);
         }
         etat.fin = fin;
         fin
     });
     if fin.is_some() {
         app.exit(0);
+        return;
     }
+    // (hors du verrou : créer ou commander la vue des sites laisse passer d'autres événements de la fenêtre)
+    vue_des_sites(app);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Le panneau des sites (étape 5)
+// ---------------------------------------------------------------------------------------------------------------
+
+/// La lecture de la page du panneau : abandonnée après ce temps (une page qui ne répond pas).
+const PAGE_MAX: Duration = Duration::from_secs(20);
+/// La réponse de la page lue, au plus (en octets).
+const LECTURE_MAX_OCTETS: usize = 8_000_000;
+
+/// Le petit script qui lit la page affichée, sur le clic « Ajouter à Jobmind » seulement : son adresse et son HTML
+/// (une copie sans scripts, styles, images ni vidéos ; coupée à 3 millions de caractères). Il ne change rien à la
+/// page. Ce qu'il rend est une donnée non fiable (la page peut avoir changé ses propres fonctions) : vérifié, borné,
+/// lu comme du texte par jobmind-sources, jamais exécuté.
+const SCRIPT_LECTURE: &str = "(function () { try { var d = document.documentElement; if (!d) { return null; } \
+    var c = d.cloneNode(true); var q = c.querySelectorAll('script:not([type=\"application/ld+json\"]),style,svg,\
+    noscript,template,iframe,link,img,video,audio,canvas,picture,source,code[id^=\"bpr-guid\"]'); \
+    for (var i = 0; i < q.length; i++) { q[i].remove(); } var h = String(c.outerHTML); \
+    if (h.length > 3000000) { h = h.slice(0, 3000000); } \
+    return { u: String(location.href).slice(0, 4000), h: h }; } catch (e) { return null; } })()";
+
+/// Ce que la vue des sites doit faire à ce pas, pris dans l'état.
+struct Travail {
+    ordres: Vec<Ordre>,
+    ouvert: bool,
+    zone: Option<panneau::Zone>,
+    echelle: f64,
+    dossier: PathBuf,
+    journal: Journal,
+    rapport: crate::fenetre::Rapport,
+    permise: crate::fenetre::Permise,
+    hwnd: usize,
+    place: Option<(f64, f64, f64, f64)>,
+    /// L'adresse affichée en dernier (vide : aucune page, par exemple après « Me déconnecter »)
+    derniere: String,
+    adresse_locale: Box<dyn Fn(&str) -> String>,
+}
+
+/// Le pas de la vue des sites : les ordres de la barre exécutés (la vue créée la première fois), puis sa place
+/// suivie (la place que lui laisse la page de Jobmind, à l'échelle de la fenêtre).
+fn vue_des_sites(app: &AppHandle) {
+    if CREATION.with(Cell::get) {
+        return;
+    }
+    let Some(t) = ETAT.with(|e| {
+        let mut e = e.try_borrow_mut().ok()?;
+        let etat = e.as_mut()?;
+        if etat.fin.is_some() {
+            return None;
+        }
+        let ordres = std::mem::take(&mut etat.ordres_panneau);
+        if ordres.is_empty() && SITES.with(|s| s.borrow().is_none()) {
+            return None;
+        }
+        let evenements = Arc::clone(&etat.evenements_sites);
+        let rapport: crate::fenetre::Rapport = Arc::new(move |ev| {
+            if let Ok(mut l) = evenements.lock()
+                && l.len() < 200
+            {
+                l.push(ev);
+            }
+        });
+        Some(Travail {
+            ordres,
+            ouvert: etat.panneau.ouvert,
+            zone: etat.panneau.zone,
+            echelle: etat.vie.echelle(),
+            dossier: etat.donnees_appli.join(panneau::DOSSIER),
+            journal: etat.journal.clone(),
+            rapport,
+            permise: etat.permise(),
+            hwnd: etat.fenetre.as_ref().map_or(0, FenetreTauri::hwnd),
+            place: etat.place_sites,
+            derniere: etat.panneau.adresse.clone(),
+            adresse_locale: etat.vers_local(),
+        })
+    }) else {
+        return;
+    };
+    let Some(fenetre) = app.get_window(LABEL) else { return };
+    let mut place = t.place;
+    let mut lecture: Option<u64> = None;
+    let mut erreur: Option<String> = None;
+    for o in t.ordres {
+        let vue = SITES.with(|s| s.borrow().clone());
+        match (o, vue) {
+            (Ordre::Ouvrir(adresse), None) => {
+                let a = (t.adresse_locale)(adresse.as_deref().unwrap_or(panneau::RACCOURCIS[0].adresse));
+                let Ok(url) = a.parse::<Url>() else { continue };
+                let p = place_logique(&fenetre, t.zone, t.echelle);
+                CREATION.with(|c| c.set(true));
+                let r = crate::fenetre::creer_panneau(
+                    &fenetre,
+                    t.dossier.clone(),
+                    url,
+                    (LogicalPosition::new(p.0, p.1), LogicalSize::new(p.2, p.3)),
+                    Arc::clone(&t.permise),
+                    Arc::clone(&t.rapport),
+                );
+                CREATION.with(|c| c.set(false));
+                match r {
+                    Ok(v) => {
+                        place = Some(p);
+                        let j = t.journal.clone();
+                        if let Err(e) = crate::windows::panneau::preparer_sites(&v, move |x| j.ecrire(x)) {
+                            t.journal.ecrire(&format!("Panneau : réglages de WebView2 non posés ({e})"));
+                        }
+                        let (j, h) = (t.journal.clone(), t.hwnd);
+                        let _ = crate::windows::panneau::fenetre_parente(&v, move |p| {
+                            j.ecrire(if crate::windows::panneau::dans_la_fenetre(h, p) {
+                                "Panneau : vue des sites créée dans la fenêtre de Jobmind"
+                            } else {
+                                "Panneau : vue des sites créée HORS de la fenêtre de Jobmind"
+                            })
+                        });
+                        SITES.with(|s| *s.borrow_mut() = Some(v));
+                    }
+                    Err(e) => {
+                        t.journal.ecrire(&format!("Panneau : vue des sites non créée ({e})"));
+                        erreur = Some("Le panneau des sites n'a pas pu s'ouvrir. Ferme Jobmind et rouvre-la.".into());
+                    }
+                }
+            }
+            (Ordre::Ouvrir(adresse), Some(v)) => {
+                // (rouvert sans adresse sur une page vide : le premier raccourci)
+                let adresse =
+                    adresse.or_else(|| t.derniere.is_empty().then(|| panneau::RACCOURCIS[0].adresse.to_string()));
+                if let Some(a) = adresse
+                    && let Ok(url) = (t.adresse_locale)(&a).parse::<Url>()
+                {
+                    let _ = v.navigate(url);
+                }
+                let _ = v.show();
+                place = None;
+            }
+            (Ordre::Aller(a), Some(v)) => {
+                if let Ok(url) = (t.adresse_locale)(&a).parse::<Url>() {
+                    let _ = v.navigate(url);
+                }
+            }
+            (Ordre::Retour, Some(v)) => {
+                let _ = crate::windows::panneau::naviguer(&v, false);
+            }
+            (Ordre::Avancer, Some(v)) => {
+                let _ = crate::windows::panneau::naviguer(&v, true);
+            }
+            (Ordre::Recharger, Some(v)) => {
+                let _ = v.reload();
+            }
+            (Ordre::Fermer, Some(v)) => {
+                let _ = v.hide();
+            }
+            (Ordre::Lire(jeton), Some(v)) => {
+                lecture = Some(jeton);
+                let a = app.clone();
+                let r = v.eval_with_callback(SCRIPT_LECTURE, move |rendu| lecture_rendue(&a, jeton, rendu));
+                if let Err(e) = r {
+                    t.journal.ecrire(&format!("Panneau : page non lue ({e})"));
+                }
+            }
+            (Ordre::Lire(jeton), None) => {
+                rapporter_page(app, Lecture { jeton, resultat: Err(jobmind_sources::page::PageRefusee::Vide) });
+            }
+            (Ordre::Effacer, vue) => {
+                let fait = effacer_sites(vue.as_ref(), &t.dossier, &t.journal);
+                if vue.is_some() {
+                    place = None;
+                }
+                rapporter_message(app, fait);
+            }
+            (_, None) => {}
+        }
+    }
+    // La place de la vue : celle que lui laisse la page, à l'échelle de la fenêtre
+    if t.ouvert
+        && let Some(v) = SITES.with(|s| s.borrow().clone())
+    {
+        let p = place_logique(&fenetre, t.zone, t.echelle);
+        if place != Some(p) {
+            let r = v.set_bounds(tauri::Rect {
+                position: LogicalPosition::new(p.0, p.1).into(),
+                size: LogicalSize::new(p.2, p.3).into(),
+            });
+            if r.is_ok() {
+                place = Some(p);
+            }
+        }
+    }
+    ETAT.with(|e| {
+        if let Ok(mut e) = e.try_borrow_mut()
+            && let Some(etat) = e.as_mut()
+        {
+            etat.place_sites = place;
+            if lecture.is_some() {
+                etat.page_depuis = Some(Instant::now());
+            }
+            if let Some(m) = erreur {
+                etat.panneau.ouvert = false;
+                etat.faire(app, |_, _| crate::suivi::Fait { message: Some(m), change: true, ..Default::default() });
+            }
+        }
+    });
+}
+
+/// La place de la vue des sites en pixels logiques (x, y, largeur, hauteur) : la zone que la page lui laisse, à
+/// l'échelle de la fenêtre, dans la fenêtre ; sans zone encore, tout sous les 150 premiers pixels de la page.
+fn place_logique(fenetre: &Window, zone: Option<panneau::Zone>, echelle: f64) -> (f64, f64, f64, f64) {
+    let e = if echelle.is_finite() && echelle > 0.0 { echelle } else { 1.0 };
+    let (lf, hf) = match (fenetre.inner_size(), fenetre.scale_factor()) {
+        (Ok(t), Ok(s)) if s > 0.0 => (f64::from(t.width) / s, f64::from(t.height) / s),
+        _ => (crate::fenetre::TAILLE.0, crate::fenetre::TAILLE.1),
+    };
+    let z = zone.unwrap_or(panneau::Zone { x: 0.0, y: 150.0, l: lf / e, h: (hf / e - 150.0).max(40.0) });
+    let x = (z.x * e).clamp(0.0, lf);
+    let y = (z.y * e).clamp(0.0, hf);
+    let l = (z.l * e).min(lf - x).max(1.0);
+    let h = (z.h * e).min(hf - y).max(1.0);
+    ((x * 100.0).round() / 100.0, (y * 100.0).round() / 100.0, (l * 100.0).round() / 100.0, (h * 100.0).round() / 100.0)
+}
+
+/// « Me déconnecter de tous les sites » : la vue des sites existe, ses données sont effacées par WebView2 (cookies,
+/// stockage, cache) et elle revient à une page vide ; sinon, le dossier de la session est effacé (seulement lui, sans
+/// suivre de lien).
+fn effacer_sites(vue: Option<&Webview>, dossier: &Path, journal: &Journal) -> crate::suivi::Fait {
+    let ok = match vue {
+        Some(v) => {
+            let r = v.clear_all_browsing_data();
+            if let Ok(u) = "about:blank".parse::<Url>() {
+                let _ = v.navigate(u);
+            }
+            let _ = v.hide();
+            match r {
+                Ok(()) => true,
+                Err(e) => {
+                    journal.ecrire(&format!("Panneau : données des sites non effacées ({e})"));
+                    false
+                }
+            }
+        }
+        None => match std::fs::symlink_metadata(dossier) {
+            Err(_) => true,
+            Ok(m) if m.file_type().is_symlink() => {
+                journal.ecrire("Panneau : le dossier de la session est un lien, laissé");
+                false
+            }
+            Ok(_) => match std::fs::remove_dir_all(dossier) {
+                Ok(()) => true,
+                Err(e) => {
+                    journal.ecrire(&format!("Panneau : dossier de la session non effacé ({e})"));
+                    false
+                }
+            },
+        },
+    };
+    if ok {
+        journal.ecrire("Panneau : déconnecté de tous les sites (session effacée)");
+        crate::suivi::Fait {
+            message: Some("C'est fait : tu es déconnecté de tous les sites du panneau.".into()),
+            bravo: true,
+            change: true,
+            ..Default::default()
+        }
+    } else {
+        crate::suivi::Fait {
+            message: Some("La déconnexion n'a pas pu se faire. Ferme Jobmind, rouvre-la, puis réessaie.".into()),
+            change: true,
+            ..Default::default()
+        }
+    }
+}
+
+/// La réponse du script de lecture (sur le fil de la fenêtre) : vérifiée, puis lue sur un fil à part.
+fn lecture_rendue(app: &AppHandle, jeton: u64, rendu: String) {
+    let lu = (rendu.len() <= LECTURE_MAX_OCTETS)
+        .then(|| serde_json::from_str::<Value>(&rendu).ok())
+        .flatten()
+        .and_then(|v| Some((v.get("u")?.as_str()?.to_string(), v.get("h")?.as_str()?.to_string())));
+    let a = app.clone();
+    let vers_site = ETAT.with(|e| e.try_borrow().ok().and_then(|e| e.as_ref().map(Etat::vers_site)));
+    let r = std::thread::Builder::new().name("lecture-page".into()).spawn(move || {
+        let resultat = match lu {
+            Some((u, h)) => {
+                let u = match &vers_site {
+                    Some(f) => f(&u),
+                    None => u,
+                };
+                jobmind_sources::page::lire(&u, &h)
+            }
+            None => Err(jobmind_sources::page::PageRefusee::Vide),
+        };
+        rapporter_page(&a, Lecture { jeton, resultat });
+    });
+    if r.is_err() {
+        rapporter_page(app, Lecture { jeton, resultat: Err(jobmind_sources::page::PageRefusee::Vide) });
+    }
+}
+
+/// Rapporte la page lue au fil de la fenêtre (occupé : réessayé juste après).
+fn rapporter_page(app: &AppHandle, l: Lecture) {
+    let a = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let pour_etat = a.clone();
+        let reste = ETAT.with(move |e| match e.try_borrow_mut() {
+            Ok(mut e) => {
+                if let Some(etat) = e.as_mut() {
+                    etat.page_depuis = None;
+                    etat.faire(&pour_etat, |etat, d| etat.panneau.lu(d.base.as_ref(), l, heure::maintenant()));
+                }
+                None
+            }
+            Err(_) => Some(l),
+        });
+        if let Some(l) = reste {
+            // (réessayé un peu plus tard, depuis un autre fil : jamais en boucle sur celui de la fenêtre)
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(20));
+                rapporter_page(&a, l);
+            });
+        }
+    });
+}
+
+/// Ce qu'a donné « Me déconnecter », appliqué sur le fil de la fenêtre dès qu'il est libre.
+fn rapporter_message(app: &AppHandle, fait: crate::suivi::Fait) {
+    let a = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let pour_etat = a.clone();
+        let reste = ETAT.with(move |e| match e.try_borrow_mut() {
+            Ok(mut e) => {
+                if let Some(etat) = e.as_mut() {
+                    etat.faire(&pour_etat, |_, _| fait);
+                }
+                None
+            }
+            Err(_) => Some(fait),
+        });
+        if let Some(f) = reste {
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(20));
+                rapporter_message(&a, f);
+            });
+        }
+    });
 }
 
 /// Un message de la page, en court pour le journal.
@@ -549,7 +930,7 @@ impl Etat {
                 crate::pont::demander_menu(&self.dossier_mindset, &mut self.systeme, &mut self.disque)
             }
             MessagePage::Action { id, valeur, .. }
-                if suivi::est_geste(id) || profil::est_geste(id) || offres::est_geste(id) =>
+                if suivi::est_geste(id) || profil::est_geste(id) || offres::est_geste(id) || panneau::est_geste(id) =>
             {
                 self.geste(id, valeur);
                 return;
@@ -569,9 +950,13 @@ impl Etat {
         if let Some(r) = raison {
             self.journal.ecrire(&r);
         }
-        let (e, raison) = self.suivi.etat_complet(VERSION, d.base.as_ref(), self.jour, &vue, &vue_offres);
+        let (mut e, raison) = self.suivi.etat_complet(VERSION, d.base.as_ref(), self.jour, &vue, &vue_offres);
         if let Some(r) = raison {
             self.journal.ecrire(&r);
+        }
+        // (étape 5 : la barre du panneau des sites)
+        if let Some(perso) = e.pointer_mut("/accueil/perso").and_then(Value::as_object_mut) {
+            perso.insert("panneau".into(), self.panneau.vue());
         }
         e
     }
@@ -607,8 +992,12 @@ impl Etat {
         if let Some(t) = fait.reseau {
             self.lancer_reseau(app, t);
         }
-        if let Some(l) = &fait.lien {
-            self.ouvrir_lien(l);
+        if let Some(o) = fait.panneau {
+            self.panneau.noter(&o);
+            self.ordres_panneau.push(o);
+        }
+        if let Some(id) = fait.offre {
+            self.offres.ouverte = Some(id);
         }
         if fait.change {
             let e = self.etat_page(d);
@@ -633,6 +1022,9 @@ impl Etat {
             if offres::est_geste(id) {
                 let ctx = offres::Contexte { base: d.base.as_ref(), cles: Some(&etat.cles) };
                 return etat.offres.geste(&ctx, id, valeur, maintenant);
+            }
+            if panneau::est_geste(id) {
+                return etat.panneau.geste(id, valeur);
             }
             if profil::est_geste(id) {
                 let dossier = d.dossier().to_path_buf();
@@ -784,18 +1176,97 @@ impl Etat {
         }
     }
 
-    /// « Voir sur le site » : le navigateur par défaut de Windows (l'adresse est déjà vérifiée : http ou https).
-    #[cfg(not(feature = "essai"))]
-    fn ouvrir_lien(&self, url: &str) {
-        let j = self.journal.clone();
-        crate::windows::lien::ouvrir(url, move |t| j.ecrire(t));
+    /// La lecture de la page du panneau qui dure trop longtemps : abandonnée (un résultat qui arriverait ensuite est
+    /// laissé).
+    fn page_trop_longue(&mut self, app: &AppHandle) {
+        if self.page_depuis.is_some_and(|t| t.elapsed() > PAGE_MAX) {
+            self.page_depuis = None;
+            self.faire(app, |etat, _| etat.panneau.lecture_perdue("la page n'a pas répondu"));
+        }
     }
 
-    /// Construction d'essai : le vrai navigateur n'est jamais ouvert ; la demande est seulement notée (l'hôte).
+    /// Ce que la vue des sites a rapporté depuis le dernier pas : l'adresse affichée (la barre la suit), une nouvelle
+    /// fenêtre demandée (ouverte dans le panneau à la place, si son adresse est permise), un téléchargement refusé, une
+    /// adresse refusée.
+    fn evenements_du_panneau(&mut self, app: &AppHandle) {
+        let evenements = match self.evenements_sites.lock() {
+            Ok(mut l) if !l.is_empty() => std::mem::take(&mut *l),
+            _ => return,
+        };
+        let mut renvoyer = false;
+        let vers_site = self.vers_site();
+        let permise = self.permise();
+        for ev in evenements {
+            match ev {
+                EvenementSites::Adresse(u) => renvoyer |= self.panneau.adresse_vue(&vers_site(&u)),
+                EvenementSites::NouvelleFenetre(u) => match u.parse::<Url>() {
+                    Ok(url) if permise(&url) => {
+                        self.journal.ecrire(&format!(
+                            "Panneau : nouvelle fenêtre demandée, ouverte dans le panneau ({})",
+                            jobmind_core::offre::hote(&u)
+                        ));
+                        self.ordres_panneau.push(Ordre::Aller(vers_site(&u)));
+                    }
+                    _ => self
+                        .journal
+                        .ecrire(&format!("Panneau : nouvelle fenêtre refusée ({})", jobmind_core::offre::hote(&u))),
+                },
+                EvenementSites::Telechargement(h) => {
+                    self.journal.ecrire(&format!("Panneau : téléchargement refusé ({h})"));
+                    self.panneau.annonce = Some(panneau::Annonce {
+                        texte: "Les téléchargements ne se font pas dans le panneau.".into(),
+                        genre: "attention",
+                        offre: None,
+                    });
+                    renvoyer = true;
+                }
+                EvenementSites::Refusee(h) => self.journal.ecrire(&format!("Panneau : adresse refusée ({h})")),
+                EvenementSites::Titre(_t) => {
+                    #[cfg(feature = "essai")]
+                    self.journal.ecrire(&format!("Essai : titre du panneau « {} »", court(&_t)));
+                }
+            }
+        }
+        if renvoyer {
+            self.renvoyer(app);
+        }
+    }
+
+    /// Les adresses que le panneau affiche : les sites (jamais `*.localhost` ni la machine elle-même).
+    #[cfg(not(feature = "essai"))]
+    fn permise(&self) -> crate::fenetre::Permise {
+        Arc::new(crate::fenetre::adresse_site_permise)
+    }
+
+    /// Construction d'essai : seulement le faux serveur local qui imite les sites (jamais internet), et la page vide.
     #[cfg(feature = "essai")]
-    fn ouvrir_lien(&self, url: &str) {
-        self.journal
-            .ecrire(&format!("Essai : navigateur demandé pour {} (pas ouvert)", jobmind_core::offre::hote(url)));
+    fn permise(&self) -> crate::fenetre::Permise {
+        let base = self.faux.as_ref().map(|(s, _)| s.adresse()).unwrap_or_default();
+        Arc::new(move |u: &Url| crate::essai::adresse_essai_permise(&base, u))
+    }
+
+    /// L'adresse à ouvrir dans le panneau pour l'adresse d'un site (la même ; l'essai la change pour son faux serveur).
+    #[cfg(not(feature = "essai"))]
+    fn vers_local(&self) -> Box<dyn Fn(&str) -> String> {
+        Box::new(str::to_string)
+    }
+
+    #[cfg(feature = "essai")]
+    fn vers_local(&self) -> Box<dyn Fn(&str) -> String> {
+        let base = self.faux.as_ref().map(|(s, _)| s.adresse()).unwrap_or_default();
+        Box::new(move |u: &str| crate::essai::vers_local(&base, u))
+    }
+
+    /// L'adresse du site d'une page affichée dans le panneau (la même ; l'essai rend celle du site qu'il imite).
+    #[cfg(not(feature = "essai"))]
+    fn vers_site(&self) -> Box<dyn Fn(&str) -> String + Send> {
+        Box::new(str::to_string)
+    }
+
+    #[cfg(feature = "essai")]
+    fn vers_site(&self) -> Box<dyn Fn(&str) -> String + Send> {
+        let base = self.faux.as_ref().map(|(s, _)| s.adresse()).unwrap_or_default();
+        Box::new(move |u: &str| crate::essai::vers_site(&base, u))
     }
 
     /// L'état renvoyé à la page d'après la base (et la carte de Mindset réécrite si elle a changé). Faux si les données
@@ -1012,6 +1483,21 @@ fn import_demande(etat: &mut Etat, app: &AppHandle) {
     });
 }
 
+/// Construction d'essai (étape 5) : un fichier `panneau.demande` (une adresse) ouvre le panneau des sites sur cette
+/// page, comme « Voir sur le site » ; le faux serveur local la sert (jamais un vrai site).
+#[cfg(feature = "essai")]
+fn panneau_demande(etat: &mut Etat, app: &AppHandle) {
+    let demande = etat.dossier.join(crate::essai::PANNEAU_DEMANDE);
+    if !demande.is_file() {
+        return;
+    }
+    let texte = std::fs::read_to_string(&demande).unwrap_or_default();
+    let _ = std::fs::remove_file(&demande);
+    let adresse = texte.trim_start_matches('\u{feff}').trim().chars().take(2000).collect::<String>();
+    etat.journal.ecrire(&format!("Essai : panneau demandé sur {}", court(&adresse)));
+    etat.faire(app, move |e, _| e.panneau.ouvrir(Some(adresse)));
+}
+
 /// La boucle de la fenêtre (`run_return`), protégée : tao attrape une panique d'un rappel de la fenêtre (une page, une
 /// commande) et la relance à la sortie de sa boucle. Sans cette garde, elle remonterait hors de `lancer()` et
 /// sauterait la fin propre ([`finir`]). Ici, elle est notée au journal et la fin propre suit.
@@ -1039,6 +1525,9 @@ fn finir() -> ! {
             etat.vie.terminer(fin, &mut etat.systeme, &mut etat.disque);
         }
     });
+    // (la vue des sites non plus n'est pas lâchée : Windows ferme tout avec le processus)
+    let sites = SITES.with(|s| s.try_borrow_mut().ok().and_then(|mut s| s.take()));
+    std::mem::forget(sites);
     quitter_sans_rien_lacher(&ETAT, 0)
 }
 

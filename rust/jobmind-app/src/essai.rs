@@ -18,8 +18,13 @@
 //! d'essai) l'importe comme « Importer un fichier », sans la boîte « Ouvrir ».
 //!
 //! Étape 4 : les recherches d'offres partent vers un faux serveur local (127.0.0.1) qui imite Adzuna et Jooble avec des
-//! offres inventées (jobmind-sources, option « faux ») ; `reseau.essai` change sa réponse ; « Voir sur le site »
-//! n'ouvre jamais le vrai navigateur (la demande est seulement notée au journal).
+//! offres inventées (jobmind-sources, option « faux ») ; `reseau.essai` change sa réponse.
+//!
+//! Étape 5 : le panneau des sites n'affiche que ce même faux serveur, qui sert les pages d'exemple des sites (une
+//! adresse `https://www.linkedin.com/...` est changée pour la page qui l'imite, `http://127.0.0.1:<port>/site/...`) et
+//! les pages des essais du panneau (`/essai/...` : la page piégée qui essaie d'appeler Jobmind, la session, un nouvel
+//! onglet, un téléchargement) ; jamais un vrai site. `panneau.demande` (une adresse) ouvre le panneau sur cette page ;
+//! le titre de chaque page du panneau est noté au journal.
 
 use std::path::{Path, PathBuf};
 
@@ -309,9 +314,83 @@ pub fn lire() -> Result<Essai, String> {
     depuis(v("JOBMIND_DONNEES"), v("JOBMIND_ESSAI_LOCAL"), v("JOBMIND_ESSAI_NOM"))
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// Étape 5 : le panneau des sites de l'essai, sur le faux serveur local (jamais un vrai site)
+// ---------------------------------------------------------------------------------------------------------------
+
+/// Ce fichier (une adresse) ouvre le panneau sur cette page, comme « Voir sur le site » : une adresse d'un site
+/// (`https://www.linkedin.com/...`, changée pour la page qui l'imite sur le faux serveur) ou une page d'essai du faux
+/// serveur (`/essai/piege-ipc`).
+pub const PANNEAU_DEMANDE: &str = "panneau.demande";
+
+/// L'essai n'affiche dans le panneau que son faux serveur local (`base` : « http://127.0.0.1:<port> »), et la page
+/// vide : jamais internet, jamais une page de Jobmind.
+pub fn adresse_essai_permise(base: &str, u: &tauri::Url) -> bool {
+    if u.as_str() == "about:blank" {
+        return true;
+    }
+    !base.is_empty()
+        && u.scheme() == "http"
+        && u.host_str() == Some("127.0.0.1")
+        && base.ends_with(&format!(":{}", u.port().unwrap_or(80)))
+        && u.username().is_empty()
+        && u.password().is_none()
+}
+
+/// L'adresse d'un site changée pour sa page d'exemple sur le faux serveur (`https://www.linkedin.com/jobs/` :
+/// `http://127.0.0.1:<port>/site/www.linkedin.com/jobs/`) ; un chemin du faux serveur (« /essai/... ») y est
+/// complété ; une autre adresse reste telle quelle (elle sera refusée).
+pub fn vers_local(base: &str, u: &str) -> String {
+    if let Some(chemin) = u.strip_prefix('/') {
+        return format!("{base}/{chemin}");
+    }
+    match u.strip_prefix("https://").or_else(|| u.strip_prefix("http://")) {
+        Some(reste) if !base.is_empty() && !u.starts_with(base) => format!("{base}/site/{reste}"),
+        _ => u.to_string(),
+    }
+}
+
+/// L'adresse du site qu'imite une page du faux serveur (`http://127.0.0.1:<port>/site/www.linkedin.com/jobs/` :
+/// `https://www.linkedin.com/jobs/`) ; une autre adresse reste telle quelle.
+pub fn vers_site(base: &str, u: &str) -> String {
+    match u.strip_prefix(&format!("{base}/site/")) {
+        Some(reste) if !base.is_empty() => format!("https://{reste}"),
+        _ => u.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adresses_du_panneau_d_essai() {
+        let base = "http://127.0.0.1:5123";
+        let u = |a: &str| a.parse::<tauri::Url>().unwrap();
+        assert!(adresse_essai_permise(base, &u("http://127.0.0.1:5123/site/www.linkedin.com/jobs/")));
+        assert!(adresse_essai_permise(base, &u("about:blank")));
+        for a in [
+            "https://www.linkedin.com/jobs/",
+            "http://127.0.0.1:5124/",
+            "http://localhost:5123/",
+            "http://tauri.localhost/index.html",
+            "http://moi@127.0.0.1:5123/",
+        ] {
+            assert!(!adresse_essai_permise(base, &u(a)), "{a}");
+        }
+        assert!(!adresse_essai_permise("", &u("http://127.0.0.1:80/")));
+        assert_eq!(
+            vers_local(base, "https://www.linkedin.com/jobs/"),
+            "http://127.0.0.1:5123/site/www.linkedin.com/jobs/"
+        );
+        assert_eq!(vers_local(base, "/essai/piege-ipc"), "http://127.0.0.1:5123/essai/piege-ipc");
+        assert_eq!(vers_local(base, "http://127.0.0.1:5123/essai/x"), "http://127.0.0.1:5123/essai/x");
+        assert_eq!(
+            vers_site(base, "http://127.0.0.1:5123/site/fr.indeed.com/viewjob?jk=1"),
+            "https://fr.indeed.com/viewjob?jk=1"
+        );
+        assert_eq!(vers_site(base, "http://127.0.0.1:5123/essai/x"), "http://127.0.0.1:5123/essai/x");
+    }
 
     #[test]
     fn reglages_d_essai() {

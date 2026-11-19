@@ -6,8 +6,8 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde_json::Value;
-use tauri::State;
 use tauri::ipc::Channel;
+use tauri::{Runtime, State, Webview};
 
 use crate::pont::{self, Habillage, MessagePage};
 
@@ -118,27 +118,46 @@ pub const JOURNAL_VISIBLE: &str = "Écran : de nouveau à l'écran";
 /// La page commence à suivre l'état de l'appli : il lui est envoyé tout de suite, puis à chaque changement
 /// ([`Page::changer`]) ; les ordres passent par le même canal ([`Page::ordre`]).
 #[tauri::command]
-pub fn suivre_page(canal: Channel<Value>, page: State<'_, Page>) -> Result<(), String> {
+pub fn suivre_page<R: Runtime>(
+    webview: Webview<R>,
+    canal: Channel<Value>,
+    page: State<'_, Page>,
+) -> Result<(), String> {
+    seulement_la_page(&webview, &page, "suivre_page")?;
     canal.send(page.etat()).map_err(|e| format!("état non envoyé ({e})"))?;
     *tenir(&page.canal) = Some(canal);
     Ok(())
 }
 
+/// Étape 5 : seule la page de Jobmind (la vue « principale ») appelle ses commandes, jamais la vue des sites qui vit
+/// dans la même fenêtre. Les permissions de Tauri la refusent déjà (une adresse qui n'est pas une page de l'appli) ;
+/// ce contrôle-ci ne dépend que du nom de la vue : un appel d'ailleurs est noté au journal et refusé.
+fn seulement_la_page<R: Runtime>(webview: &Webview<R>, page: &Page, commande: &str) -> Result<(), String> {
+    if webview.label() == crate::fenetre::LABEL {
+        return Ok(());
+    }
+    (page.journal)(&format!("Écran : appel de {commande} refusé (pas la page de Jobmind)"));
+    Err("refusé".into())
+}
+
 /// La page est devenue visible ou cachée (document.visibilityState) : noté au journal quand cela change. Cachée,
 /// WebView2 met la page en pause (la veille, `SetIsVisible`, décidée par la vie de l'appli).
 #[tauri::command]
-pub fn noter_visibilite(visible: bool, page: State<'_, Page>) {
+pub fn noter_visibilite<R: Runtime>(webview: Webview<R>, visible: bool, page: State<'_, Page>) -> Result<(), String> {
+    seulement_la_page(&webview, &page, "noter_visibilite")?;
     let avant = tenir(&page.visible).replace(visible);
     if avant != Some(visible) {
         (page.journal)(if visible { JOURNAL_VISIBLE } else { JOURNAL_CACHEE });
     }
+    Ok(())
 }
 
 /// Un message du kit (un geste, l'écran montré, « Retour » depuis l'accueil, une erreur, une réponse) : vérifié
 /// ([`pont::lire_message`] : taille, type, champs), puis donné au receveur de l'appli. Une erreur de la page va
 /// toujours au journal. Un message refusé est noté au journal, et la page reçoit seulement « refusé ».
 #[tauri::command]
-pub fn action(message: Value, page: State<'_, Page>) -> Result<(), String> {
+pub fn action<R: Runtime>(webview: Webview<R>, message: Value, page: State<'_, Page>) -> Result<(), String> {
+    seulement_la_page(&webview, &page, "action")?;
     let m = match pont::lire_message(&message) {
         Ok(m) => m,
         Err(r) => {

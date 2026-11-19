@@ -59,10 +59,12 @@ pub struct Fait {
     pub importer: bool,
     /// Offres (étape 4) : la tâche du fil des recherches (« Chercher maintenant », « Essayer la clé »)
     pub reseau: Option<crate::offres::Tache>,
-    /// Offres : une adresse à ouvrir dans le navigateur (déjà vérifiée : http ou https)
-    pub lien: Option<String>,
+    /// Étape 5 : ce que le panneau des sites doit faire (s'ouvrir sur une adresse déjà vérifiée, lire la page...)
+    pub panneau: Option<crate::panneau::Ordre>,
     /// Offres : la candidature à ouvrir dans l'onglet Candidatures (« J'ai postulé »)
     pub candidature: Option<i64>,
+    /// Étape 5 : l'offre à ouvrir dans l'onglet Offres (celle que « Ajouter à Jobmind » vient de garder)
+    pub offre: Option<i64>,
 }
 
 impl Fait {

@@ -255,6 +255,8 @@ pub struct OffreComplete {
     pub description_de: String,
     pub liens: Vec<Lien>,
     pub retrouvee_le: Option<Jour>,
+    /// Étape 5 : le nombre de candidats que la page montrait au dernier « Ajouter à Jobmind »
+    pub candidats: Option<VueCandidats>,
 }
 
 /// Le numéro de la première offre du groupe de celle-ci (elle-même si ce n'est pas un doublon).
@@ -290,7 +292,114 @@ pub fn lire(c: &Connection, id: i64) -> rusqlite::Result<Option<OffreComplete>> 
         let q = quand.as_deref().and_then(Moment::lire_iso).map(|m| m.jour());
         retrouvee = retrouvee.max(q);
     }
-    Ok(Some(OffreComplete { offre: o, description, description_de, liens, retrouvee_le: retrouvee }))
+    let candidats = candidats(c, p)?;
+    Ok(Some(OffreComplete { offre: o, description, description_de, liens, retrouvee_le: retrouvee, candidats }))
+}
+
+/// Le nombre de candidats qu'une page montrait, avec le site et le jour (étape 5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VueCandidats {
+    /// Le code du site (« linkedin »)
+    pub site: String,
+    /// Ce que la page disait, en mots simples (« 34 candidats », « Plus de 100 candidats »)
+    pub texte: String,
+    pub nombre: Option<i64>,
+    pub vu_le: Jour,
+}
+
+/// Le dernier nombre de candidats vu pour ce groupe d'offres (le plus récent clic qui en montrait un).
+pub fn candidats(c: &Connection, principale: i64) -> rusqlite::Result<Option<VueCandidats>> {
+    c.query_row(
+        "SELECT COALESCE(v.site, ''), v.texte_candidats, v.nombre_candidats, v.vue_le FROM offres_vues v \
+         JOIN offres x ON x.id = v.offre_id WHERE (x.id = ?1 OR x.doublon_de = ?1) AND v.texte_candidats IS NOT NULL \
+         ORDER BY v.vue_le DESC, v.id DESC LIMIT 1",
+        [principale],
+        |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<i64>>(2)?, r.get::<_, String>(3)?)),
+    )
+    .optional()
+    .map(|x| {
+        x.and_then(|(site, texte, nombre, quand)| {
+            Moment::lire_iso(&quand).map(|m| VueCandidats { site, texte, nombre, vu_le: m.jour() })
+        })
+    })
+}
+
+/// Ce qu'a donné « Ajouter à Jobmind » (étape 5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AjoutPage {
+    /// La première offre du groupe (celle que la liste montre)
+    pub id: i64,
+    /// Jamais vue de ce site : ajoutée (sinon : mise à jour)
+    pub nouvelle: bool,
+    /// Ajoutée, mais rattachée à une offre déjà gardée (la même, venue d'une autre source)
+    pub fusionnee: bool,
+}
+
+/// Garde l'offre lue sur une page (« Ajouter à Jobmind ») dans l'archive, dans une transaction : la même table que
+/// les offres d'Adzuna et de Jooble (`source` : le code du site), la même fusion des doublons. Une offre déjà gardée de
+/// ce site (le même numéro) est mise à jour : son texte s'il est plus long aujourd'hui, ce qui lui manquait, le jour où
+/// elle a été revue. Chaque clic note ce que la page montrait (le nombre de candidats, s'il y en a un) dans
+/// `offres_vues`.
+pub fn ajouter_page(
+    c: &Connection,
+    source: &str,
+    o: &OffreTrouvee,
+    candidats: Option<(&str, Option<i64>)>,
+    maintenant: Moment,
+) -> rusqlite::Result<AjoutPage> {
+    let t = c.unchecked_transaction()?;
+    let source_id: i64 = t.query_row("SELECT id FROM sources WHERE code = ?1", [source], |r| r.get(0))?;
+    let quand = maintenant.iso();
+    let deja: Option<(i64, Option<i64>)> = t
+        .query_row(
+            "SELECT id, doublon_de FROM offres WHERE source_id = ?1 AND id_source = ?2",
+            params![source_id, o.id_source],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let (ligne, ajout) = match deja {
+        Some((id, doublon)) => {
+            let contrat = contrat_lu(&o.contrat, &o.titre, &o.description).map(Contrat::code);
+            let tele = teletravail_lu(&o.titre, &o.description).map(TeleOffre::code);
+            t.execute(
+                "UPDATE offres SET retrouvee_le = ?2, \
+                 description = CASE WHEN length(?3) > length(description) THEN ?3 ELSE description END, \
+                 entreprise = CASE WHEN entreprise = '' THEN ?4 ELSE entreprise END, \
+                 lieu = CASE WHEN lieu = '' THEN ?5 ELSE lieu END, \
+                 salaire = COALESCE(salaire, ?6), url = COALESCE(url, ?7), publiee_le = COALESCE(publiee_le, ?8), \
+                 contrat = COALESCE(contrat, ?9), teletravail = COALESCE(teletravail, ?10), brut = ?11 WHERE id = ?1",
+                params![
+                    id,
+                    quand,
+                    o.description,
+                    o.entreprise,
+                    o.lieu,
+                    vide_en_null(&o.salaire),
+                    vide_en_null(&o.url),
+                    vide_en_null(&o.publiee_le),
+                    contrat,
+                    tele,
+                    o.brut
+                ],
+            )?;
+            (id, AjoutPage { id: doublon.unwrap_or(id), nouvelle: false, fusionnee: false })
+        }
+        None => {
+            let (id, rattachee) = inserer(&t, source, source_id, o, &quand)?;
+            (id, AjoutPage { id: rattachee.unwrap_or(id), nouvelle: true, fusionnee: rattachee.is_some() })
+        }
+    };
+    let (texte, nombre) = match candidats {
+        Some((t, n)) => (Some(t), n),
+        None => (None, None),
+    };
+    t.execute(
+        "INSERT INTO offres_vues (offre_id, vue_le, site, nombre_candidats, texte_candidats) \
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![ligne, quand, source, nombre, texte],
+    )?;
+    t.commit()?;
+    Ok(ajout)
 }
 
 /// La requête FTS5 d'un texte tapé : chaque mot (8 au plus) doit commencer un mot de l'offre. Rien sans mot.

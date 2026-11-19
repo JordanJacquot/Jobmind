@@ -5,6 +5,8 @@
 //! [`imitation`] imite Adzuna (`GET /v1/api/jobs/fr/search/1`) et Jooble (`POST /api/<clé>`) avec des offres
 //! inventées (entreprises qui n'existent pas, villes de Moselle et de Meurthe-et-Moselle), dont deux annoncées par les
 //! deux sites (les doublons à fusionner). Son mode change sa réponse : normale, trop de demandes (429), clé refusée.
+//! Étape 5 : il sert aussi les pages d'exemple des sites (`/site/...`) et des essais du panneau (`/essai/...`) :
+//! crate::page::exemples.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -47,6 +49,11 @@ impl RepFaux {
             morceaux: false,
             attente: Duration::ZERO,
         }
+    }
+
+    /// Une page HTML (étape 5 : les pages d'exemple des sites).
+    pub fn html(statut: u16, corps: impl Into<String>) -> RepFaux {
+        RepFaux { type_contenu: "text/html; charset=utf-8".into(), ..RepFaux::json(statut, corps) }
     }
 }
 
@@ -494,6 +501,10 @@ pub fn reponse_jooble() -> String {
 /// Le répondeur qui imite Adzuna et Jooble ; `mode` se change pendant qu'il tourne.
 pub fn imitation(mode: Arc<Mutex<Mode>>) -> impl Fn(&Requete) -> RepFaux + Send + Sync + 'static {
     move |r: &Requete| {
+        // (étape 5 : les pages d'exemple des sites, pour le panneau de l'essai)
+        if r.methode == "GET" && (r.chemin.starts_with("/site/") || r.chemin.starts_with("/essai/")) {
+            return crate::page::exemples::repondre(&r.chemin);
+        }
         let m = mode.lock().map(|m| *m).unwrap_or_default();
         let adzuna = r.methode == "GET" && r.chemin.starts_with("/v1/api/jobs/fr/search/");
         let jooble = r.methode == "POST" && r.chemin.starts_with("/api/");

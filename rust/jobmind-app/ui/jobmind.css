@@ -456,3 +456,33 @@ button.jm-cal-d.oui:hover, button.jm-cal-d.oui:focus { background: color-mix(in 
   .jm-b-lieu select { max-width: 150px; }
   .jm-rc > .jm-btns, .jm-rc > .jm-suppr { margin-left: 0; }
 }
+/* ---------------------------------------------------------------- le panneau des sites (étape 5) */
+/* La barre du panneau en haut ; dessous, la zone laissée vide où Rust pose la page du site (une seconde vue de la
+   même fenêtre) : rien n'y est dessiné que la petite roue, visible le temps que la page arrive. */
+.jm-pn { gap: 0; }
+.jm-pn-barre { flex: none; display: flex; flex-direction: column; gap: 10px; padding: 12px 18px 12px; border-bottom: 1px solid color-mix(in srgb, var(--ligne) 70%, transparent); }
+.jm-pn-rang { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.jm-pn-nav { display: flex; gap: 6px; flex: none; }
+.jm-pn-adresse { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; height: 38px; padding: 0 14px; border-radius: 11px; background: rgba(255, 255, 255, 0.045); color: var(--pale); font-size: 13.5px; }
+.jm-pn-adresse svg { width: 16px; height: 16px; flex: none; }
+.jm-pn-adresse span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--doux); }
+.jm-pn-adresse b { flex: none; font-size: 12px; font-weight: 700; color: var(--jm); padding: 3px 9px; border-radius: 99px; background: color-mix(in srgb, var(--jm) 12%, transparent); }
+.jm-pn-rang > .jm-bt.second { flex: none; height: 38px; }
+.jm-pn-racc { flex: 1; min-width: 0; flex-wrap: wrap; gap: 6px; }
+.jm-pn-ajouter { flex: none; height: 44px; padding: 0 20px; font-size: 15.5px; font-weight: 700; }
+.jm-pn-ajouter svg { width: 19px; height: 19px; }
+.jm-pn-ajouter .jm-roue { border-color: rgba(28, 21, 3, 0.25); border-top-color: #1C1503; }
+.jm-pn-ajouter:disabled { opacity: 0.85; }
+.jm-pn-aide { margin: 0; font-size: 13px; color: var(--pale); }
+.jm-pn-annonce { align-items: center; font-size: 13.5px; padding: 8px 8px 8px 12px; }
+.jm-pn-annonce > div { flex: 1; }
+.jm-pn-annonce .jm-bt { flex: none; height: 32px; }
+.jm-pn-site { flex: 1; min-height: 40px; display: grid; place-items: center; background: var(--carte); }
+.jm-rch-sites { width: 100%; margin-top: 2px; }
+.jm-r-sites > .jm-btns, .jm-r-sites > .jm-suppr { margin: 14px 0 0 60px; }
+
+@media (max-width: 900px) {
+  .jm-pn-barre { padding: 10px 12px; gap: 8px; }
+  .jm-pn-ajouter { padding: 0 14px; font-size: 14.5px; }
+  .jm-r-sites > .jm-btns, .jm-r-sites > .jm-suppr { margin-left: 0; }
+}

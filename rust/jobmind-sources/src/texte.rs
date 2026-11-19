@@ -23,6 +23,13 @@ fn entite(nom: &str) -> Option<char> {
         "apos" => '\'',
         "nbsp" => ' ',
         "rsquo" | "lsquo" => '\'',
+        "ldquo" | "rdquo" => '"',
+        "oelig" => 'œ',
+        "euml" => 'ë',
+        "uuml" => 'ü',
+        "Egrave" => 'È',
+        "Agrave" => 'À',
+        "Ccedil" => 'Ç',
         "laquo" => '«',
         "raquo" => '»',
         "hellip" => '…',
@@ -58,6 +65,8 @@ fn coupe_ligne(balise: &str) -> bool {
 /// Le texte d'un extrait HTML, propre : balises retirées, entités lues, tirets longs remplacés (règle de la suite),
 /// pas plus d'une ligne vide de suite, espaces simples, coupé à `max` caractères.
 pub fn propre(html: &str, max: usize) -> String {
+    let html = sans_scripts(html);
+    let html = html.as_str();
     let mut t = String::with_capacity(html.len());
     let mut it = html.chars().peekable();
     while let Some(c) = it.next() {
@@ -106,7 +115,71 @@ pub fn propre(html: &str, max: usize) -> String {
             _ => t.push(c),
         }
     }
-    // Les lignes : espaces simples, pas de ligne vide en double, rien de bizarre
+    lignes_propres(&t, max)
+}
+
+/// Un extrait HTML sans le contenu de ses `<script>` et `<style>` (du code, jamais du texte à lire).
+fn sans_scripts(html: &str) -> String {
+    let bas = html.to_ascii_lowercase();
+    let mut t = String::with_capacity(html.len());
+    let mut i = 0;
+    while let Some(p) = ["<script", "<style"].iter().filter_map(|b| bas[i..].find(b).map(|p| (p + i, *b))).min() {
+        let (debut, balise) = p;
+        // (« <scripts » ou « <styled » ne sont pas ces balises)
+        let apres = bas.as_bytes().get(debut + balise.len()).copied().unwrap_or(b'>');
+        if !(apres == b'>' || apres == b'/' || apres.is_ascii_whitespace()) {
+            t.push_str(&html[i..debut + balise.len()]);
+            i = debut + balise.len();
+            continue;
+        }
+        t.push_str(&html[i..debut]);
+        let fermante = format!("</{}", &balise[1..]);
+        i = match bas[debut..].find(&fermante) {
+            Some(f) => bas[debut + f..].find('>').map_or(bas.len(), |g| debut + f + g + 1),
+            None => bas.len(),
+        };
+    }
+    t.push_str(&html[i..]);
+    t
+}
+
+/// Les entités HTML d'un texte lues (« &amp; », « &#233; »), sans rien d'autre : une entité inconnue reste telle quelle.
+pub fn entites(s: &str) -> String {
+    if !s.contains('&') {
+        return s.to_string();
+    }
+    let mut t = String::with_capacity(s.len());
+    let mut it = s.chars().peekable();
+    while let Some(c) = it.next() {
+        if c != '&' {
+            t.push(c);
+            continue;
+        }
+        let mut nom = String::new();
+        while let Some(&x) = it.peek() {
+            if x == ';' || nom.len() > 10 || !(x.is_ascii_alphanumeric() || x == '#') {
+                break;
+            }
+            nom.push(x);
+            it.next();
+        }
+        match (it.peek() == Some(&';'), entite(&nom)) {
+            (true, Some(e)) => {
+                it.next();
+                t.push(e);
+            }
+            _ => {
+                t.push('&');
+                t.push_str(&nom);
+            }
+        }
+    }
+    t
+}
+
+/// Un texte déjà sans balises remis d'aplomb : tirets longs remplacés (règle de la suite), espaces simples, pas plus
+/// d'une ligne vide de suite, aucun caractère de contrôle, coupé à `max` caractères.
+pub fn lignes_propres(t: &str, max: usize) -> String {
     let mut lignes: Vec<String> = Vec::new();
     for l in t.replace("\r\n", "\n").replace('\r', "\n").split('\n') {
         let l: String = l

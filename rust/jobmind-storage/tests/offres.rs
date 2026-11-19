@@ -34,7 +34,7 @@ fn migration_4_sur_une_base_de_l_etape_3() {
             [],
         )
         .unwrap();
-    assert_eq!(b.migrer_tout(m(9)).unwrap(), vec![4]);
+    assert_eq!(b.migrer_tout(m(9)).unwrap(), vec![4, 5]);
     let c = b.connexion();
     let sources: Vec<String> = c
         .prepare("SELECT code FROM sources ORDER BY id")
@@ -43,7 +43,7 @@ fn migration_4_sur_une_base_de_l_etape_3() {
         .unwrap()
         .map(Result::unwrap)
         .collect();
-    assert_eq!(sources, ["adzuna", "jooble"]);
+    assert_eq!(sources, ["adzuna", "jooble", "linkedin", "indeed", "wttj", "francetravail", "site"]);
     assert_eq!(jobmind_storage::candidatures::lister(c).unwrap().0.len(), 1);
     // La recherche d'avant : autour de sa ville (le genre par défaut)
     let r = offres::lister_recherches(c).unwrap();
@@ -200,4 +200,62 @@ fn recherches_gardees_et_demandes_du_jour() {
     assert_eq!(offres::compter_appel(c, j, "adzuna").unwrap(), 2);
     assert_eq!(offres::compter_appel(c, j, "jooble").unwrap(), 1);
     assert_eq!(offres::appels(c, j.plus(1), "adzuna").unwrap(), 0);
+}
+
+/// Étape 5 : « Ajouter à Jobmind ». La page de LinkedIn d'exemple entre dans l'archive avec son nombre de candidats ;
+/// un second clic plus tard la met à jour (le nombre et sa date) sans la dupliquer ; la même offre déjà venue de Jooble
+/// est fusionnée avec elle ; une page sans nombre de candidats garde le dernier nombre vu.
+#[test]
+fn ajouter_une_page() {
+    use jobmind_sources::page::{self, exemples};
+    let b = base();
+    let c = b.connexion();
+    // La même offre, déjà donnée par Jooble
+    let deja = jobmind_sources::OffreTrouvee {
+        id_source: "j-1".into(),
+        titre: "Cariste (H/F)".into(),
+        entreprise: "Entrepôts du Val de Moselle SAS".into(),
+        lieu: "Ennery (57)".into(),
+        url: "https://jooble.org/desc/1".into(),
+        description: "Cariste en CDI.".into(),
+        ..Default::default()
+    };
+    offres::ajouter_trouvees(c, "jooble", &[deja], None, m(9)).unwrap();
+    let premiere = offres::lister(c).unwrap()[0].id;
+    let p = page::lire(exemples::PAGES[0].0, exemples::LINKEDIN_CONNECTE).unwrap();
+    let n = p.candidats.as_ref().map(|x| (x.texte.as_str(), x.nombre.map(i64::from)));
+    let a = offres::ajouter_page(c, p.site.code(), &p.offre, n, m(10)).unwrap();
+    assert_eq!(a, offres::AjoutPage { id: premiere, nouvelle: true, fusionnee: true });
+    let o = offres::lire(c, a.id).unwrap().unwrap();
+    assert_eq!(o.offre.sources, ["jooble", "linkedin"]);
+    // (le texte le plus long : celui de la page, entier)
+    assert_eq!(o.description_de, "linkedin");
+    assert!(o.description.contains("Charger et décharger les camions"));
+    let vue = o.candidats.unwrap();
+    assert_eq!((vue.site.as_str(), vue.texte.as_str(), vue.nombre), ("linkedin", "34 candidats", Some(34)));
+    assert_eq!(vue.vu_le, Jour::nouveau(2026, 11, 18).unwrap());
+    // Un second clic le lendemain : mis à jour, pas dupliqué
+    let demain = Moment::nouveau(2026, 11, 19, 8, 0, 0).unwrap();
+    let a2 = offres::ajouter_page(c, "linkedin", &p.offre, Some(("Plus de 100 candidats", Some(100))), demain).unwrap();
+    assert_eq!(a2, offres::AjoutPage { id: premiere, nouvelle: false, fusionnee: false });
+    assert_eq!(offres::lister(c).unwrap().len(), 1);
+    let vue = offres::lire(c, premiere).unwrap().unwrap().candidats.unwrap();
+    assert_eq!((vue.texte.as_str(), vue.vu_le), ("Plus de 100 candidats", Jour::nouveau(2026, 11, 19).unwrap()));
+    // Un clic qui ne montre aucun nombre : le dernier vu reste
+    let plus_tard = Moment::nouveau(2026, 11, 20, 8, 0, 0).unwrap();
+    offres::ajouter_page(c, "linkedin", &p.offre, None, plus_tard).unwrap();
+    let vue = offres::lire(c, premiere).unwrap().unwrap().candidats.unwrap();
+    assert_eq!(vue.texte, "Plus de 100 candidats");
+    let vues: i64 = c.query_row("SELECT COUNT(*) FROM offres_vues", [], |r| r.get(0)).unwrap();
+    assert_eq!(vues, 3);
+    // Une autre page, d'un autre site : une nouvelle offre, cherchable dans tout le texte
+    let w = page::lire(exemples::PAGES[3].0, exemples::WTTJ).unwrap();
+    let a3 = offres::ajouter_page(c, w.site.code(), &w.offre, None, m(11)).unwrap();
+    assert!(a3.nouvelle && !a3.fusionnee && a3.id != premiere);
+    assert!(offres::chercher_texte(c, "menuisier").unwrap().contains(&a3.id));
+    let o = offres::lire(c, a3.id).unwrap().unwrap();
+    assert_eq!(o.offre.salaire, "26 000 à 30 000 € par an");
+    assert_eq!(o.offre.contrat, Some(Contrat::Cdi));
+    assert_eq!(o.offre.departement.as_deref(), Some("57"));
+    assert_eq!(o.candidats, None);
 }

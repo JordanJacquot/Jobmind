@@ -120,7 +120,14 @@ fn fiche(x: &OffreComplete, aujourdhui: Jour) -> Value {
         .liens
         .iter()
         .filter(|l| !l.url.is_empty())
-        .map(|l| json!({ "source": l.source, "nom": format!("Voir sur {}", nom_source(&l.source)) }))
+        .map(|l| {
+            let nom = if l.source == "site" {
+                "Voir sur le site".into()
+            } else {
+                format!("Voir sur {}", nom_source(&l.source))
+            };
+            json!({ "source": l.source, "nom": nom })
+        })
         .collect();
     let gardee = match x.retrouvee_le {
         Some(r) if r != o.ajoutee_le => format!(
@@ -143,7 +150,13 @@ fn fiche(x: &OffreComplete, aujourdhui: Jour) -> Value {
         "infos": infos,
         "texte": x.description,
         "texte_vide": "Le site n'a donné aucun texte pour cette offre. Lis-la sur le site.",
-        "note": format!("{texte_de} ne donne que le début de l'annonce : le texte entier est sur le site."),
+        "note": if matches!(x.description_de.as_str(), "adzuna" | "jooble") {
+            format!("{texte_de} ne donne que le début de l'annonce : le texte entier est sur le site.")
+        } else if x.description_de == "site" {
+            "Le texte entier de l'annonce, lu sur la page du site.".to_string()
+        } else {
+            format!("Le texte entier de l'annonce, lu sur la page de {texte_de}.")
+        },
         "gardee": gardee,
         "liens": liens,
         "adzuna": o.sources.iter().any(|s| s == "adzuna"),
@@ -151,6 +164,11 @@ fn fiche(x: &OffreComplete, aujourdhui: Jour) -> Value {
         "plus_tard": o.plus_tard,
         "cachee": o.cachee,
         "candidature": o.candidature,
+        // (étape 5 : « 34 candidats sur LinkedIn, vu le 18 nov. », ce que la page montrait au dernier « Ajouter à
+        // Jobmind »)
+        "candidats": x.candidats.as_ref().map(|c| {
+            format!("{} sur {}, vu le {}", c.texte, nom_source(&c.site), c.vu_le.court(aujourdhui))
+        }),
     })
 }
 
@@ -286,7 +304,8 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
         "dossier": {
             "icone": "loupe",
             "titre": AUCUNE_OFFRE,
-            "texte": "Jobmind rassemble ici les offres d'Adzuna et de Jooble, sans doublons.",
+            "texte": "Jobmind rassemble ici les offres d'Adzuna et de Jooble, et celles que tu ajoutes depuis les sites, \
+                      sans doublons.",
             "note": "Chaque offre gardée reste lisible sur ce PC, même si elle disparaît du site.",
         },
         "offres": {
@@ -385,7 +404,7 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
 mod tests {
     use super::*;
     use crate::offres::Annonce;
-    use jobmind_storage::offres::Lien;
+    use jobmind_storage::offres::{Lien, VueCandidats};
 
     fn j(d: u32) -> Jour {
         Jour::nouveau(2026, 11, d).unwrap()
@@ -433,6 +452,12 @@ mod tests {
                     Lien { source: "jooble".into(), url: "https://jooble.org/desc/1".into() },
                 ],
                 retrouvee_le: Some(j(18)),
+                candidats: Some(VueCandidats {
+                    site: "linkedin".into(),
+                    texte: "Plus de 100 candidats".into(),
+                    nombre: Some(100),
+                    vu_le: j(17),
+                }),
             }),
             recherches: vec![r],
             recherche: Some(4),
@@ -467,6 +492,7 @@ mod tests {
         assert_eq!(f["sources"], "Trouvée sur Adzuna et Jooble");
         assert_eq!((f["double"].as_bool(), f["adzuna"].as_bool()), (Some(true), Some(true)));
         assert_eq!(f["liens"][1]["nom"], "Voir sur Jooble");
+        assert_eq!(f["candidats"], "Plus de 100 candidats sur LinkedIn, vu le 17 nov.");
         assert_eq!(f["infos"][1]["valeur"], "21 800 à 23 500 € par an");
         assert_eq!(f["infos"][2]["valeur"], "Possible");
         assert_eq!(f["gardee"], "Gardée sur ce PC depuis le 18 nov. : elle reste ici même si elle disparaît du site.");

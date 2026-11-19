@@ -9,13 +9,19 @@
 //! - outils de développement, raccourcis de zoom, saisie automatique et téléchargements coupés ; navigation fermée
 //!   aux pages de l'appli, aucune nouvelle fenêtre. Le menu du clic droit, les raccourcis du navigateur et la saisie
 //!   des mots de passe se coupent dans les réglages de WebView2, que Tauri ne transmet pas (src\windows\webview2.rs).
+//!
+//! Étape 5 : la vue des sites (le panneau), seconde vue de cette même fenêtre ([`creer_panneau`]).
 
-use std::path::Path;
+use std::borrow::Cow;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use suite_commun::webview::{self, DossierEcran};
-use tauri::webview::{NewWindowResponse, PageLoadEvent};
-use tauri::{Manager, Runtime, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent, PermissionResponse};
+use tauri::{
+    LogicalPosition, LogicalSize, Manager, Runtime, Url, Webview, WebviewBuilder, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder, Window,
+};
 
 /// Le nom (label) de la fenêtre : celui de capabilities\principale.json
 pub const LABEL: &str = "principale";
@@ -87,9 +93,143 @@ pub fn creer_principale<R: Runtime, M: Manager<R>>(
     Ok((fenetre, choix))
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// Le panneau des sites (étape 5)
+// ---------------------------------------------------------------------------------------------------------------
+
+/// Une adresse de site que le panneau peut afficher : http ou https, un vrai nom de site (jamais `*.localhost`, où
+/// Tauri sert les pages et les commandes de Jobmind, jamais l'adresse de la machine elle-même), sans nom d'utilisateur
+/// ni mot de passe ; ou `about:blank` (la page vide, après « Me déconnecter »).
+pub fn adresse_site_permise(a: &Url) -> bool {
+    if a.as_str() == "about:blank" {
+        return true;
+    }
+    if !matches!(a.scheme(), "http" | "https") || !a.username().is_empty() || a.password().is_some() {
+        return false;
+    }
+    let Some(h) = a.host_str() else { return false };
+    let h = h.trim_start_matches('[').trim_end_matches(']').trim_end_matches('.').to_ascii_lowercase();
+    if let Ok(ip) = h.parse::<std::net::IpAddr>() {
+        return !ip.is_loopback() && !ip.is_unspecified();
+    }
+    h != "localhost" && !h.ends_with(".localhost") && h.contains('.')
+}
+
+/// Ce que la vue des sites rapporte, pendant un événement de WebView2 (le programme le traite au pas suivant de sa
+/// minuterie, jamais pendant l'événement lui-même).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EvenementSites {
+    /// Une page chargée : son adresse
+    Adresse(String),
+    /// Une page qui voulait ouvrir une nouvelle fenêtre (un lien « nouvel onglet », `window.open`) : son adresse,
+    /// ouverte dans le panneau à la place
+    NouvelleFenetre(String),
+    /// Un téléchargement refusé (l'hôte)
+    Telechargement(String),
+    /// Une adresse refusée (l'hôte)
+    Refusee(String),
+    /// Le titre de la page (la construction d'essai le note au journal)
+    Titre(String),
+}
+
+/// Ce qui dit si une adresse s'affiche dans le panneau ([`adresse_site_permise`] ; la construction d'essai ne permet
+/// que son faux serveur local).
+pub type Permise = Arc<dyn Fn(&Url) -> bool + Send + Sync>;
+/// Ce qui reçoit les événements de la vue des sites.
+pub type Rapport = Arc<dyn Fn(EvenementSites) + Send + Sync>;
+
+/// Crée la vue des sites (« sites ») DANS la fenêtre de Jobmind, à cette place (en pixels logiques) : une seconde vue,
+/// enfant de la même fenêtre, jamais une fenêtre à part. Sa page n'a aucun accès aux commandes de Jobmind : son label
+/// n'est pas celui de la fenêtre (les commandes le vérifient, crate::commandes), ses adresses ne sont jamais celles de
+/// l'appli (capabilities\principale.json n'accepte que les pages locales), et le protocole des pages de l'appli lui
+/// répond « interdit ». Sa session (cookies, connexions) est gardée dans `dossier` (le dossier de données de Jobmind,
+/// `panneau-sites`), avec les mêmes options du navigateur que la fenêtre. Outils de développement, raccourcis de zoom,
+/// saisie automatique coupés ; aucune nouvelle fenêtre (l'adresse est rapportée pour être ouverte dans le panneau),
+/// aucun téléchargement, aucune permission (caméra, micro, position, notifications).
+pub fn creer_panneau<R: Runtime>(
+    fenetre: &Window<R>,
+    dossier: PathBuf,
+    adresse: Url,
+    place: (LogicalPosition<f64>, LogicalSize<f64>),
+    permise: Permise,
+    rapport: Rapport,
+) -> tauri::Result<Webview<R>> {
+    let (r1, r2, r3, r4, r5) =
+        (Arc::clone(&rapport), Arc::clone(&rapport), Arc::clone(&rapport), Arc::clone(&rapport), rapport);
+    let constructeur = WebviewBuilder::new(crate::panneau::LABEL, WebviewUrl::External(adresse))
+        .data_directory(dossier)
+        .additional_browser_args(webview::OPTIONS_NAVIGATEUR)
+        .devtools(false)
+        .zoom_hotkeys_enabled(false)
+        .general_autofill_enabled(false)
+        .on_navigation(move |a| {
+            let ok = permise(a);
+            if !ok {
+                r1(EvenementSites::Refusee(jobmind_core::offre::hote(a.as_str())));
+            }
+            ok
+        })
+        .on_new_window(move |a, _| {
+            r2(EvenementSites::NouvelleFenetre(a.to_string()));
+            NewWindowResponse::Deny
+        })
+        .on_download(move |_, ev| {
+            if let DownloadEvent::Requested { url, .. } = ev {
+                r3(EvenementSites::Telechargement(jobmind_core::offre::hote(url.as_str())));
+            }
+            false
+        })
+        .on_page_load(move |_, p| {
+            if p.event() == PageLoadEvent::Finished {
+                r4(EvenementSites::Adresse(p.url().to_string()));
+            }
+        })
+        .on_document_title_changed(move |_, t| r5(EvenementSites::Titre(t.chars().take(300).collect())))
+        .on_permission_request(|_, _| PermissionResponse::Deny)
+        .on_web_resource_request(|_, reponse| {
+            // (les pages de Jobmind ne sont jamais servies à la vue des sites)
+            *reponse.status_mut() = tauri::http::StatusCode::FORBIDDEN;
+            *reponse.body_mut() = Cow::Borrowed(&[]);
+            reponse.headers_mut().clear();
+        });
+    fenetre.add_child(constructeur, place.0, place.1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adresses_du_panneau() {
+        for a in [
+            "https://www.linkedin.com/jobs/view/4012345678/",
+            "https://fr.indeed.com/viewjob?jk=1",
+            "http://emplois.ville-exemple.fr/",
+            "https://192.168.1.10/",
+            "about:blank",
+        ] {
+            assert!(adresse_site_permise(&adresse(a)), "{a} devrait être permise");
+        }
+        for a in [
+            ADRESSE_PAGE,
+            "http://ipc.localhost/action",
+            "http://pack.localhost/fond.png",
+            "http://localhost:8080/",
+            "http://LOCALHOST./",
+            "http://127.0.0.1:5000/",
+            "http://[::1]/",
+            "http://0.0.0.0/",
+            "https://moi:secret@www.linkedin.com/",
+            "file:///C:/Windows/win.ini",
+            "javascript:alert(1)",
+            "data:text/html,salut",
+            "ftp://exemple.fr/",
+            "https://intranet/",
+            "about:config",
+        ] {
+            assert!(!adresse_site_permise(&adresse(a)), "{a} devrait être refusée");
+        }
+    }
 
     fn adresse(a: &str) -> Url {
         a.parse().expect("adresse d'essai")

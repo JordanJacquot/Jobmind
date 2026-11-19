@@ -10,16 +10,26 @@
 //! - [`adzuna`] : l'API d'Adzuna France (GET, `app_id` et `app_key`), 50 offres au plus par appel ;
 //! - [`jooble`] : l'API de Jooble (POST, la clé dans le chemin), 50 offres au plus par appel ;
 //! - [`texte`] : le texte d'une offre remis au propre (balises HTML retirées, entités lues, espaces) ;
-//! - `faux` (les tests, et l'option « faux » de la construction d'essai) : un faux serveur local qui imite les deux.
+//! - `faux` (les tests, et l'option « faux » de la construction d'essai) : un faux serveur local qui imite les deux,
+//!   et (étape 5) sert les pages d'exemple des sites au panneau de l'essai.
+//!
+//! Étape 5 :
+//! - [`html`] : une page HTML découpée sans navigateur (balises, textes, petits sélecteurs), donnée non fiable ;
+//! - [`page`] : l'offre de la page que Jordan regarde dans le panneau des sites, lue sur son clic « Ajouter à
+//!   Jobmind » (données structurées JSON-LD, règles de LinkedIn, Indeed, Welcome to the Jungle et France Travail,
+//!   microdonnées, ou le texte principal), et le nombre de candidats que la page montre.
 //!
 //! Une source ne fait qu'une demande par appel de [`JobSource::chercher`] (la première page) : jamais de boucle de
-//! demandes. Une clé n'est jamais dans une erreur : chaque raison est passée par [`masquer`].
+//! demandes. Une page n'est lue que sur un clic, une à la fois. Une clé n'est jamais dans une erreur : chaque raison
+//! est passée par [`masquer`].
 
 pub mod adzuna;
 #[cfg(any(test, feature = "faux"))]
 pub mod faux;
+pub mod html;
 pub mod http;
 pub mod jooble;
+pub mod page;
 pub mod texte;
 
 /// Ce qu'on cherche : la recherche gardée, telle qu'une source la reçoit.

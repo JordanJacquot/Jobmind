@@ -26,6 +26,12 @@
 # (des filtres posés, par exemple filtres:liste=favoris ou filtres:genre=ville;ville=Metz;rayon=10), « reseau:<mode> »
 # (la réponse du faux serveur pour la suite : normal, coupe, quota, refuse ; sans capture), « essayer:<adzuna|jooble> »
 # (« Essayer la clé » dans Mes clés, puis attendre sa réponse).
+# Étape 5 (le panneau des sites, contre les pages d'exemple du faux serveur local, jamais un vrai site) :
+# « panneau:<nom>=<adresse> » (le panneau ouvert sur cette page, comme « Voir sur le site » : panneau.demande, lu
+# seulement par la construction d'essai ; une adresse d'un site est changée pour la page qui l'imite ; attendre que sa
+# page soit chargée ; capture <Prefixe>-panneau-<nom>.png), « ajouter-page » (un clic sur « Ajouter à Jobmind », puis
+# attendre la lecture au journal) ; les boutons de la barre par « clic:pn:voir », « clic:pn:fermer », « clic:pn:decon »
+# (Réglages : « Me déconnecter de tous les sites »).
 # -Exemples : la base d'essai est remplie de candidatures inventées à des statuts variés (exemples.demande, lu par la
 # construction d'essai au démarrage). -Largeur et -Hauteur : la taille du panneau (944 x 608 : un panneau de 1180 x 760
 # vu à 125 % d'affichage).
@@ -250,6 +256,19 @@ try {
             $essais = Compter "Clés : essai de la clé $s "
             Ordre ('{"kit":"accueil","cliquer":"kt:' + $s + '"}')
             Verifier (Attendre { (Compter "Clés : essai de la clé $s ") -ge $essais + 2 } 30000) "Essayer la clé $s : réponse (journal)"
+        }
+        # Étape 5 : le panneau des sites, sur le faux serveur local qui imite les sites (jamais internet)
+        elseif ($v -match '^panneau:([a-z][a-z0-9-]{0,30})=(.+)$') {
+            $nom = "panneau-$($Matches[1])"
+            $titres = Compter 'Essai : titre du panneau'
+            [IO.File]::WriteAllText((Join-Path $donnees 'panneau.demande'), $Matches[2], $sansBom)
+            Verifier (Attendre { (Compter 'Essai : titre du panneau') -gt $titres } 15000) "panneau ouvert sur $($Matches[2]) (journal)"
+        }
+        elseif ($v -eq 'ajouter-page') {
+            $lus = { (Compter 'Panneau : offre ') + (Compter "Panneau : page lue, pas d'offre") + (Compter 'Panneau : lecture abandonnée') }
+            $lusAvant = & $lus
+            Ordre '{"kit":"accueil","cliquer":"pn:ajouter"}'
+            Verifier (Attendre { (& $lus) -gt $lusAvant } 15000) '« Ajouter à Jobmind » : la page est lue (journal)'
         }
         elseif ($v -eq 'calendrier') { Ordre '{"kit":"accueil","calendrier":true}' }
         elseif ($v -match '^jour:(\d{1,2})$') { Ordre ('{"kit":"accueil","cliquer":"cal:' + (Get-Date -Day ([int]$Matches[1]) -Format 'yyyy-MM-dd') + '"}') }

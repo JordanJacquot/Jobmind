@@ -28,6 +28,10 @@
 //   ('o-chercher' : Rust interroge Adzuna et Jooble sur un fil à part), la liste ('o-ouvrir'), l'offre ouverte
 //   (favori, plus tard, « Pas pour moi », « Voir sur le site », la mention « Adzuna », « J'ai postulé »), Mes recherches
 //   ('o-recherche', 'o-recherche-supprimer', 'o-depuis-profil') ; Mes clés : « Essayer la clé » ('cle-essayer') ;
+// - le panneau des sites (étape 5) : « Ouvrir les sites » ('pn-ouvrir') et « Voir sur le site » l'ouvrent ; il prend
+//   toute la place de l'accueil : sa barre (retour, avancer, recharger, l'adresse, les raccourcis, « Fermer le
+//   panneau », « Ajouter à Jobmind ») est dessinée ici, la page du site est une seconde vue posée par Rust sur la zone
+//   laissée vide (sa place envoyée par 'pn-zone') ; Réglages : « Me déconnecter de tous les sites » ;
 // - Retour (Échap, B) ferme d'abord ce qui est ouvert (menu, question, formulaire), revient ensuite au premier
 //   onglet, puis à la console de Mindset ;
 // - les ordres de l'appli : { kit: 'accueil', onglet: id }, { rubrique: id }, { candidature: id } (le dossier
@@ -75,6 +79,9 @@
     cacher: svg('<path d="M3.5 3.5l17 17"/><path d="M10 6a9.6 9.6 0 0 1 2-.2c6 0 9.5 6.2 9.5 6.2a16 16 0 0 1-2.6 3.3M6.6 6.9C4 8.6 2.5 12 2.5 12S6 18.5 12 18.5c1.6 0 3-.4 4.3-1.1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>'),
     lieu: svg('<path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>'),
     envoi: svg('<path d="M4 12l16-7.5-6 16-2.8-6.7z"/><path d="M11.2 13.8L20 4.5"/>'),
+    croix: svg('<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>', 2.2),
+    globe: svg('<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.5 3.5 5.3 3.5 8.5s-1.1 6-3.5 8.5c-2.4-2.5-3.5-5.3-3.5-8.5s1.1-6 3.5-8.5z"/>'),
+    recharger: svg('<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4h-4"/>'),
   };
   const icone = (n) => (typeof n === 'string' && Object.hasOwn(ICONES, n) ? ICONES[n] : '');
   // La couleur de chaque statut, par son rôle dans le thème (jamais en dur : elle suit le thème de la suite)
@@ -389,7 +396,109 @@
           <span class="jm-r-n" aria-live="polite"><b>${v}</b> ${esc(texteSur(r.unite))}</span>
           <button type="button" class="jm-r-pm f" data-perso="delai" data-v="${v + 1}" data-k="g:plus" aria-label="${esc(texteSur(r.plus))}"${v >= max ? ' disabled' : ''}>+</button></div>
           <div class="jm-puces">${choix.map((n) => `<button type="button" class="jm-puce f${n === v ? ' oui' : ''}" data-perso="delai" data-v="${n}" data-k="g:${n}" aria-pressed="${n === v}">${n} ${esc(texteSur(r.unite))}</button>`).join('')}</div></div></div>
+      ${sitesReglageHTML(d.sites)}
       ${d.note ? `<p class="jm-note gauche">${esc(texteSur(d.note))}</p>` : ''}</div>`;
+  }
+
+  // Réglages (étape 5) : la session du panneau des sites, et « Me déconnecter de tous les sites » (jamais au premier
+  // clic : une question d'abord)
+  function sitesReglageHTML(s) {
+    const { esc } = O;
+    if (!s || typeof s !== 'object' || !texteSur(s.titre)) return '';
+    const bas = sitesConfirme
+      ? `<div class="jm-suppr"><p>${esc(texteSur(s.question))}</p><div class="jm-btns">${bouton('pn-decon-oui', 'pn:oui', texteSur(s.oui), 'coche', 'danger')}${bouton('pn-decon-non', 'pn:non', texteSur(s.non), '', 'second')}</div></div>`
+      : `<div class="jm-btns">${bouton('pn-deconnecter', 'pn:decon', texteSur(s.bouton), 'cadenas', 'second')}</div>`;
+    return `<div class="jm-carte-r jm-r-sites"><div class="jm-r-tete"><span class="jm-a-ic">${icone('globe')}</span><div><b>${esc(texteSur(s.titre))}</b><p>${esc(texteSur(s.texte))}</p></div></div>${bas}</div>`;
+  }
+
+  // ---------------------------------------------------------------- le panneau des sites (étape 5)
+  // La barre du panneau : page précédente et suivante, recharger, l'adresse (jamais modifiable), « Fermer le
+  // panneau », les raccourcis des sites et « Ajouter à Jobmind ». La page du site elle-même n'est PAS dans cette page :
+  // c'est une seconde vue que Rust pose dans la même fenêtre, exactement sur la zone laissée vide ici (.jm-pn-site),
+  // dont la place lui est envoyée à chaque changement ('pn-zone'). Cette page ne lit jamais le site : « Ajouter à
+  // Jobmind » le demande à Rust, qui lit la page lui-même et dit ce qu'il a trouvé (l'annonce de la barre).
+  let sitesConfirme = false;  // « Me déconnecter de tous les sites ? » demandé
+  let pnZone = null;          // la dernière zone envoyée
+  let pnObs = null;           // qui regarde la taille de la zone
+  let pnMinuteur = 0;
+  const panneauDe = () => { const p = P?.panneau; return p && typeof p === 'object' ? p : null; };
+  const panneauOuvert = () => panneauDe()?.ouvert === true;
+
+  function panneauSitesHTML(p) {
+    const { esc } = O, t = tx(p);
+    const rond = (perso, k, ic, aide) => `<button type="button" class="jm-rond f" data-perso="${perso}" data-k="${k}" title="${esc(aide)}" aria-label="${esc(aide)}">${icone(ic)}</button>`;
+    const racc = liste(p.raccourcis).filter((r) => codeSurP(r?.id)).map((r, i) => `<button type="button" class="jm-puce petite f" data-perso="pn-aller" data-id="${r.id}" data-k="pn:r${i}">${esc(texteSur(r.nom))}</button>`).join('');
+    const lecture = p.lecture === true;
+    const a = objet(p.annonce);
+    const g = ['ok', 'attention', 'erreur'].includes(a.genre) ? a.genre : 'ok';
+    const annonce = texteSur(a.texte)
+      ? `<div class="jm-annonce ${g} jm-pn-annonce" role="status">${icone(g === 'ok' ? 'coche' : 'attention')}<div><span>${esc(texteSur(a.texte))}</span></div>${numSur(a.offre) ? bouton('pn-offre', 'pn:voir', t('voir'), 'droite', 'second', ` data-id="${a.offre}"`) : ''}</div>`
+      : '';
+    const adresse = texteSur(p.adresse);
+    return `<div class="jm jm-pn" id="jm" data-onglet="panneau">
+      <div class="jm-pn-barre">
+        <div class="jm-pn-rang">
+          <div class="jm-pn-nav">${rond('pn-retour', 'pn:retour', 'gauche', t('retour'))}${rond('pn-avancer', 'pn:avancer', 'droite', t('avancer'))}${rond('pn-recharger', 'pn:recharger', 'recharger', t('recharger'))}</div>
+          <div class="jm-pn-adresse" role="note" aria-label="${esc(t('adresse'))}">${icone('globe')}<span>${esc(adresse || '...')}</span>${texteSur(p.site) ? `<b>${esc(texteSur(p.site))}</b>` : ''}</div>
+          ${bouton('pn-fermer', 'pn:fermer', t('fermer'), 'croix', 'second')}
+        </div>
+        <div class="jm-pn-rang">
+          <div class="jm-puces jm-pn-racc">${racc}</div>
+          <button type="button" class="jm-bt principal jm-pn-ajouter f" data-perso="pn-ajouter" data-k="pn:ajouter"${lecture ? ' disabled' : ''}>${lecture ? '<span class="jm-roue" aria-hidden="true"></span>' : icone('plus')}<span>${esc(lecture ? t('lecture') : t('ajouter'))}</span></button>
+        </div>
+        ${annonce || `<p class="jm-pn-aide">${esc(t('aide'))}</p>`}
+      </div>
+      <div class="jm-pn-site" aria-hidden="true"><span class="jm-roue" aria-hidden="true"></span></div>
+    </div>`;
+  }
+
+  function dessinerPanneau(focusK) {
+    const kActif = document.activeElement?.closest?.('#jm [data-k]')?.dataset.k;
+    hote.innerHTML = panneauSitesHTML(panneauDe());
+    O.anime = false;
+    const k = focusK || kActif;
+    const cible = k && hote.querySelector(`[data-k="${CSS.escape(k)}"]`);
+    (cible || hote.querySelector('[data-k="pn:ajouter"]'))?.focus({ preventScroll: true });
+    suivreZone();
+  }
+
+  // La zone laissée au site : envoyée à Rust (en pixels de la page) à chaque changement de taille ou de place
+  function suivreZone() {
+    const el = hote?.querySelector('.jm-pn-site');
+    if (!el) { if (pnObs) { pnObs.disconnect(); pnObs = null; } pnZone = null; return; }
+    if (!pnObs) pnObs = new ResizeObserver(() => { clearTimeout(pnMinuteur); pnMinuteur = setTimeout(envoyerZone, 40); });
+    pnObs.disconnect();
+    pnObs.observe(el);
+    requestAnimationFrame(envoyerZone);
+  }
+  function envoyerZone() {
+    const el = hote?.querySelector('.jm-pn-site');
+    if (!el || !panneauOuvert()) return;
+    const r = el.getBoundingClientRect(), d = (n) => Math.round(n * 2) / 2;
+    const z = { x: d(r.left), y: d(r.top), l: d(r.width), h: d(r.height) };
+    if (z.l < 40 || z.h < 40) return;
+    if (pnZone && pnZone.x === z.x && pnZone.y === z.y && pnZone.l === z.l && pnZone.h === z.h) return;
+    pnZone = z;
+    O.action('pn-zone', z);
+  }
+  addEventListener('resize', () => { clearTimeout(pnMinuteur); pnMinuteur = setTimeout(envoyerZone, 40); });
+
+  // Un élément du panneau (ou des réglages de sa session) ; vrai s'il en était un
+  function validerPanneau(el, d) {
+    switch (d.perso) {
+      case 'pn-ouvrir': O.son?.ok?.(); O.action('pn-ouvrir', codeSurP(d.id) ? { site: d.id } : {}); return true;
+      case 'pn-aller': if (codeSurP(d.id)) { O.son?.tic?.(); O.action('pn-aller', { site: d.id }); } return true;
+      case 'pn-retour': O.son?.tic?.(); O.action('pn-retour'); return true;
+      case 'pn-avancer': O.son?.tic?.(); O.action('pn-avancer'); return true;
+      case 'pn-recharger': O.son?.tic?.(); O.action('pn-recharger'); return true;
+      case 'pn-fermer': O.son?.retour?.(); O.action('pn-fermer'); return true;
+      case 'pn-ajouter': if (!el.disabled) { el.disabled = true; O.son?.ok?.(); O.action('pn-ajouter'); } return true;
+      case 'pn-offre': { const id = Number(d.id); if (numSur(id)) { O.son?.ok?.(); O.action('pn-offre', { id }); } return true; }
+      case 'pn-deconnecter': O.son?.tic?.(); sitesConfirme = true; dessinerTout('pn:non'); hote.querySelector('.jm-r-sites .jm-suppr')?.scrollIntoView({ block: 'nearest', behavior: reduit() ? 'auto' : 'smooth' }); return true;
+      case 'pn-decon-non': O.son?.retour?.(); sitesConfirme = false; dessinerTout('pn:decon'); return true;
+      case 'pn-decon-oui': sitesConfirme = false; el.disabled = true; O.son?.ok?.(); O.action('pn-deconnecter'); return true;
+      default: return false;
+    }
   }
 
   function droiteRubrique(r, o) {
@@ -408,6 +517,9 @@
   }
 
   function dessinerTout(focusK) {
+    // (étape 5 : le panneau des sites ouvert prend toute la place de l'accueil)
+    if (panneauOuvert()) { dessinerPanneau(focusK); return; }
+    suivreZone();
     const o = ongletDe(onglet);
     if (!o) { hote.innerHTML = ''; return; }
     onglet = o.id;
@@ -1181,6 +1293,9 @@
       const g = ['ok', 'attention', 'erreur'].includes(a.genre) ? a.genre : 'ok';
       h += `<div class="jm-annonce ${g}" role="status">${icone(g === 'ok' ? 'coche' : 'attention')}<div><span>${esc(texteSur(a.texte))}</span>${a.cles === true ? bouton('of-cles', 'or:cles', t('ouvrir_cles'), 'cle', 'discret') : ''}</div></div>`;
     }
+    // (étape 5 : LinkedIn, Indeed, Welcome to the Jungle, France Travail dans le panneau des sites)
+    const pn = panneauDe();
+    if (pn) h += bouton('pn-ouvrir', 'or:sites', tx(pn)('naviguer'), 'globe', 'second jm-rch-sites');
     h += '</div>';
     const lignes = liste(x.lignes).filter((l) => numSur(l?.id));
     const ouverte = ofChoisie ?? x.fiche?.id;
@@ -1209,6 +1324,8 @@
     if (f.adzuna === true) h += `<button type="button" class="jm-adzuna f" data-perso="of-adzuna" data-k="ov:adzuna" title="${esc(t('adzuna_aide'))}"><small>${esc(t('par'))}</small><b>${esc(t('adzuna'))}</b></button>`;
     h += '</div>';
     if (f.double === true) h += `<p class="jm-o-double">${icone('copie')}<span>${esc(t('doublon'))}</span></p>`;
+    // (étape 5 : « 34 candidats sur LinkedIn, vu le 18 nov. »)
+    if (texteSur(f.candidats)) h += `<p class="jm-o-double jm-o-cand">${icone('profil')}<span>${esc(texteSur(f.candidats))}</span></p>`;
     h += `<div class="jm-infos">${liste(f.infos).map((i) => `<div><span>${esc(texteSur(i?.nom))}</span><b>${esc(texteSur(i?.valeur))}</b></div>`).join('')}</div>`;
     const liens = liste(f.liens).filter((l) => codeSurP(l?.source));
     const voir = liens.map((l, i) => bouton('of-voir', `ov:voir-${l.source}`, texteSur(l.nom), 'ext', i ? '' : 'principal', ` data-source="${l.source}"`)).join('');
@@ -1458,6 +1575,7 @@
     // Un onglet, une ligne, un bouton (clic, A ou Entrée)
     valider(el) {
       const d = el.dataset;
+      if (validerPanneau(el, d)) return;
       if (d.perso === 'onglet' && idSur(d.id)) { if (d.id !== onglet) O.son?.tic?.(); montrer(d.id); return; }
       if (d.perso === 'rubrique' && idSur(d.id)) { O.son?.ok?.(); ouvrirRubrique(d.id); return; }
       validerSuivi(el, d);
@@ -1465,6 +1583,9 @@
     // Retour (Échap, B, le bouton du bas) : d'abord ce qui est ouvert, puis le premier onglet ; sinon le kit revient
     // au menu de Mindset
     retour() {
+      // (étape 5 : le panneau des sites se ferme d'abord)
+      if (panneauOuvert()) { O.action('pn-fermer'); return true; }
+      if (sitesConfirme) { sitesConfirme = false; dessinerTout('pn:decon'); return true; }
       if (cal && calOuvert(cal.ou)) { fermerCal(); return true; }
       if (menu) { menu = false; dessinerTout('d:statut'); return true; }
       if (rdv) { rdv = null; dessinerTout('d:statut'); return true; }
