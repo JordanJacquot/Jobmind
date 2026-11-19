@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Customer Success Manager (French speaking) - Brightloop Analytics</title>
+<style>
+body { font-family: "Helvetica Neue", Arial, sans-serif; margin: 0; color: #212b36; }
+.top { border-bottom: 1px solid #dfe3e8; padding: 16px 32px; display: flex; justify-content: space-between; }
+.tabs a { margin-right: 24px; }
+.wrap { max-width: 720px; margin: 32px auto; }
+.section { border: 1px solid #dfe3e8; border-radius: 4px; padding: 24px; margin-bottom: 24px; }
+.field { margin-bottom: 18px; }
+.field label, .field .lbl { display: block; font-size: 14px; margin-bottom: 6px; }
+.field input[type=text], .field input[type=email], .field input[type=tel], .field textarea { width: 100%; padding: 8px; }
+.opt { color: #919eab; font-size: 12px; }
+.drop { border: 1px dashed #c4cdd5; padding: 18px; text-align: center; }
+.g-recaptcha { width: 304px; height: 78px; border: 1px solid #d3d3d3; background: #f9f9f9; margin: 12px 0; }
+.submit { background: #00756a; color: #fff; border: 0; padding: 12px 24px; font-size: 15px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="top">
+  <strong>Brightloop Analytics</strong>
+  <a href="/brightloop">View website</a>
+</div>
+<div class="wrap">
+  <h1>Customer Success Manager (French speaking)</h1>
+  <p>Paris, Île-de-France, France | Customer Success | Full time | Hybrid</p>
+  <nav class="tabs"><a href="#overview">Overview</a> <a href="#application" aria-current="page">Application</a></nav>
+
+  <form id="application" data-ui="application-form" method="post" action="/brightloop/j/7F31A0C2D9/apply" enctype="multipart/form-data">
+    <div class="section">
+      <h2>Personal information</h2>
+      <div class="field">
+        <label for="firstname">First name<span aria-hidden="true">*</span></label>
+        <input type="text" id="firstname" name="firstname" required aria-required="true">
+      </div>
+      <div class="field">
+        <label for="lastname">Last name<span aria-hidden="true">*</span></label>
+        <input type="text" id="lastname" name="lastname" required aria-required="true">
+      </div>
+      <div class="field">
+        <label for="email">Email<span aria-hidden="true">*</span></label>
+        <input type="email" id="email" name="email" required aria-required="true">
+      </div>
+      <div class="field">
+        <label for="headline">Headline <span class="opt">(Optional)</span></label>
+        <input type="text" id="headline" name="headline">
+      </div>
+      <div class="field">
+        <label for="phone">Phone<span aria-hidden="true">*</span></label>
+        <input type="tel" id="phone" name="phone" required aria-required="true">
+      </div>
+      <div class="field">
+        <label for="address">Address <span class="opt">(Optional)</span></label>
+        <input type="text" id="address" name="address">
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Profile</h2>
+      <div class="field">
+        <span class="lbl" id="resume-label">Resume<span aria-hidden="true">*</span></span>
+        <div class="drop">
+          <input type="file" id="resume" name="resume" aria-labelledby="resume-label" required accept=".pdf,.doc,.docx,.odt,.rtf">
+          <div>Upload a file or drag and drop here</div>
+        </div>
+      </div>
+      <div class="field">
+        <label for="cover_letter">Cover letter <span class="opt">(Optional)</span></label>
+        <textarea id="cover_letter" name="cover_letter" rows="6"></textarea>
+      </div>
+      <div class="field">
+        <label for="linkedin">LinkedIn profile URL <span class="opt">(Optional)</span></label>
+        <input type="text" id="linkedin" name="linkedin">
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Details</h2>
+      <fieldset class="field" aria-required="true">
+        <legend>Are you legally authorized to work in France?*</legend>
+        <label><input type="radio" name="QA_6620211" value="yes" required> Yes</label>
+        <label><input type="radio" name="QA_6620211" value="no"> No</label>
+      </fieldset>
+      <div class="field">
+        <label for="QA_6620212">What are your salary expectations (gross yearly, EUR)?*</label>
+        <input type="text" id="QA_6620212" name="QA_6620212" required aria-required="true">
+      </div>
+      <div class="field">
+        <label for="QA_6620213">When could you start? <span class="opt">(Optional)</span></label>
+        <input type="text" id="QA_6620213" name="QA_6620213">
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="field">
+        <label><input type="checkbox" name="gdpr" required> I have read and agree to the <a href="/privacy">Privacy Notice</a> of Brightloop Analytics.*</label>
+      </div>
+      <div class="g-recaptcha" data-sitekey="6Lc_exemple_cle_publique_0000000000" data-size="normal">
+        <iframe title="reCAPTCHA" width="304" height="78" src="about:blank" style="border:0"></iframe>
+      </div>
+      <textarea id="g-recaptcha-response" name="g-recaptcha-response" class="g-recaptcha-response" style="display:none"></textarea>
+      <button type="button" class="link">Save for later</button>
+      <button type="submit" class="submit" data-ui="submit-application">Submit application</button>
+    </div>
+  </form>
+  <p class="opt">Powered by an applicant tracking system</p>
+</div>
+</body>
+</html>

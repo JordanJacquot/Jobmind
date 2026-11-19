@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Technicien de maintenance industrielle (H/F) | Groupe Aciéries Delorme</title>
+<style>
+body { font-family: "Open Sans", Arial, sans-serif; background: #f2f2f2; margin: 0; }
+.cadre { max-width: 700px; margin: 24px auto; background: #fff; padding: 24px; border-top: 4px solid #e67e22; }
+.progression { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+.barre { flex: 1; height: 6px; background: #ddd; border-radius: 3px; }
+.barre div { width: 50%; height: 6px; background: #e67e22; border-radius: 3px; }
+.grille { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.champ span.intitule { display: block; font-size: 13px; color: #555; margin-bottom: 4px; }
+.champ input, .champ select { width: 100%; padding: 9px; border: 1px solid #ccc; }
+.oblig::after { content: " *"; color: #e67e22; }
+.etape[hidden] { display: none; }
+.pied { display: flex; justify-content: space-between; margin-top: 22px; }
+.btn { padding: 10px 22px; border: 0; }
+.btn-suite { background: #e67e22; color: #fff; }
+</style>
+</head>
+<body>
+<div class="cadre">
+  <h1>Technicien de maintenance industrielle (H/F)</h1>
+  <p>Site de Forge-sur-Exemple (57) | CDI | Équipe en 2x8</p>
+
+  <div class="progression">
+    <span id="texte-etape">Étape 1 / 2 : vos informations</span>
+    <div class="barre" role="progressbar" aria-valuenow="1" aria-valuemin="1" aria-valuemax="2"><div></div></div>
+  </div>
+
+  <form id="jaForm" method="post" action="/candidature/postuler/offre/88213" enctype="multipart/form-data">
+    <input type="hidden" name="jaToken" value="b6e1f0exemple">
+
+    <section class="etape" id="etape1">
+      <div class="grille">
+        <div class="champ">
+          <span class="intitule" id="lb_c1">Civilité</span>
+          <select name="c1" aria-labelledby="lb_c1"><option value=""></option><option>Mme</option><option>M.</option></select>
+        </div>
+        <div class="champ"></div>
+        <div class="champ">
+          <span class="intitule oblig" id="lb_c2">Prénom</span>
+          <input type="text" name="c2" aria-labelledby="lb_c2" aria-required="true">
+        </div>
+        <div class="champ">
+          <span class="intitule oblig" id="lb_c3">Nom</span>
+          <input type="text" name="c3" aria-labelledby="lb_c3" aria-required="true">
+        </div>
+        <div class="champ">
+          <span class="intitule oblig" id="lb_c4">Adresse email</span>
+          <input type="email" name="c4" aria-labelledby="lb_c4" aria-required="true">
+        </div>
+        <div class="champ">
+          <span class="intitule oblig" id="lb_c5">Téléphone portable</span>
+          <input type="tel" name="c5" aria-labelledby="lb_c5" aria-required="true">
+        </div>
+        <div class="champ">
+          <span class="intitule" id="lb_c6">Ville</span>
+          <input type="text" name="c6" aria-labelledby="lb_c6">
+        </div>
+        <div class="champ">
+          <span class="intitule" id="lb_c7">Niveau d'études</span>
+          <select name="c7" aria-labelledby="lb_c7"><option value=""></option><option>CAP / BEP</option><option>Bac pro</option><option>BTS / DUT</option><option>Licence pro</option><option>Ingénieur</option></select>
+        </div>
+      </div>
+      <div class="champ" style="margin-top:14px">
+        <span class="intitule oblig" id="lb_c8">Pièce jointe : CV</span>
+        <input type="file" name="c8" aria-labelledby="lb_c8" aria-required="true">
+      </div>
+    </section>
+
+    <section class="etape" id="etape2" hidden>
+      <div class="champ">
+        <span class="intitule" id="lb_q1">Habilitation électrique</span>
+        <select name="q1" aria-labelledby="lb_q1"><option>Aucune</option><option>B1V / B2V</option><option>BR / BC</option></select>
+      </div>
+      <div class="champ">
+        <span class="intitule" id="lb_q2">Acceptez-vous le travail en équipe de nuit ?</span>
+        <select name="q2" aria-labelledby="lb_q2"><option>Oui</option><option>Non</option></select>
+      </div>
+      <div class="champ">
+        <label><input type="checkbox" name="q3"> J'accepte la politique de protection des données</label>
+      </div>
+      <button type="submit" class="btn btn-suite">Valider</button>
+    </section>
+
+    <div class="pied">
+      <button type="button" class="btn" disabled>Précédent</button>
+      <button type="button" class="btn btn-suite" id="btnSuivant">Suivant</button>
+    </div>
+  </form>
+</div>
+<script>
+document.getElementById('btnSuivant').addEventListener('click', function () {
+  document.getElementById('etape1').hidden = true;
+  document.getElementById('etape2').hidden = false;
+  this.hidden = true;
+  document.getElementById('texte-etape').textContent = 'Étape 2 / 2 : questions';
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Postuler | Livreur vélo</title>
+<style>
+* { box-sizing: border-box; }
+body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; background: #fff; }
+h1 { font-size: 20px; }
+input { display: block; width: 100%; padding: 14px; margin-bottom: 10px; border: 1px solid #bbb; border-radius: 10px; font-size: 16px; }
+.fichier { border: 2px dashed #24b47e; border-radius: 10px; padding: 14px; text-align: center; margin-bottom: 10px; }
+.fichier input { display: none; }
+.cf-turnstile { margin: 12px 0; min-height: 65px; }
+.gros { width: 100%; padding: 16px; background: #24b47e; color: #fff; border: 0; border-radius: 30px; font-size: 18px; }
+</style>
+</head>
+<body>
+<p><a href="/offres">&lt; Retour</a></p>
+<h1>Livreur vélo à Nantes</h1>
+<p>Rapido Courses (exemple) | Temps partiel | Vélo fourni</p>
+<form action="/postuler/velo-nantes" method="post" enctype="multipart/form-data">
+  <input type="text" name="f1" placeholder="Prénom" required>
+  <input type="text" name="f2" placeholder="Nom" required>
+  <input type="email" name="f3" placeholder="E-mail" required>
+  <input type="tel" name="f4" placeholder="Téléphone (06...)" required>
+  <input type="text" name="f5" placeholder="Code postal">
+  <label class="fichier">Ajouter mon CV (facultatif)
+    <input type="file" name="f6" accept=".pdf,image/*">
+  </label>
+  <input type="text" name="url" style="display:none" tabindex="-1" autocomplete="off">
+  <div class="cf-turnstile" data-sitekey="0x4AAAAAAAexemple" data-theme="light">
+    <iframe title="Widget contenant un défi de sécurité Cloudflare" src="about:blank" style="border:0;width:300px;height:65px"></iframe>
+  </div>
+  <input type="hidden" name="cf-turnstile-response" value="">
+  <p style="font-size:12px;color:#666">En postulant, tu acceptes nos <a href="/cgu">conditions</a>.</p>
+  <button type="submit" class="gros">Postuler</button>
+</form>
+</body>
+</html>

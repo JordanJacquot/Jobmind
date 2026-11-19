@@ -379,6 +379,37 @@ try {
             Ordre '{"kit":"accueil","cliquer":"en:envoyer"}'
             Verifier (Attendre { (& $finsEnvoi) -gt $finsEnvoiAvant } 30000) '« Envoyer » : l''envoi est fini (journal)'
         }
+        # Étape 11 : l'envoi sur le site, contre les formulaires imités du faux serveur local (jamais un vrai site, aucune
+        # vraie candidature) : « offres-site » ajoute leurs offres inventées (dans une base neuve : Indeed 1, Welcome to
+        # the Jungle 2, France Travail 3, un site inconnu 4, une page illisible 5, LinkedIn 6), « formulaires:refus » fait
+        # refuser le prochain envoi par le site imité (sans capture), « postuler » clique « Postuler sur le site » et
+        # attend que la page soit lue, « po-saisie:<rang>=<valeur> » tape une valeur dans le récapitulatif comme Jordan,
+        # « po-remplir », « po-envoyer », « po-fermer-pf » (la petite fenêtre) cliquent et attendent la réponse du site
+        elseif ($v -eq 'offres-site') {
+            [IO.File]::WriteAllText((Join-Path $donnees 'offres-site.demande'), '1', $sansBom)
+            Verifier (Attendre { (Compter 'Essai : offres d''essai pour postuler ajoutées') -ge 1 } 5000) 'offres d''essai pour postuler ajoutées (journal)'
+        }
+        elseif ($v -match '^formulaires:(refus|normal)$') {
+            [IO.File]::WriteAllText((Join-Path $donnees 'formulaires.essai'), $Matches[1], $sansBom)
+            Ok "prochain envoi des formulaires imités : $($Matches[1])"
+            continue
+        }
+        elseif ($v -match '^po-saisie:(\d{1,4})=([\w ,''.@éèàêç-]{0,80})$') {
+            Ordre ([ordered]@{ kit = 'accueil'; po_saisie = [ordered]@{ i = [int]$Matches[1]; v = $Matches[2] } } | ConvertTo-Json -Compress)
+        }
+        elseif ($v -in 'postuler', 'po-remplir', 'po-envoyer', 'po-fermer-pf', 'po-attendre', 'po-reessayer') {
+            $finsPo = {
+                (Compter 'Site : formulaire rempli et relu') + (Compter 'LECTURE CASSÉE') + (Compter 'demande une connexion pour postuler') +
+                (Compter 'au statut Envoyée, sur') + (Compter 'Site : envoi incertain') + (Compter 'petite fenêtre ouverte pour Jordan') +
+                (Compter 'Site : candidature arrêtée') + (Compter 'postuler sur LinkedIn par Jordan') + (Compter 'Site : clic impossible') +
+                (Compter 'Site : envoi ') + (Compter 'Site : vérification')
+            }
+            $finsPoAvant = & $finsPo
+            $k = @{ 'postuler' = 'po:ouvrir'; 'po-remplir' = 'po:remplir'; 'po-envoyer' = 'po:envoyer'; 'po-fermer-pf' = 'pf:fermer'; 'po-attendre' = ''; 'po-reessayer' = 'po:reessayer' }[$v]
+            if ($k) { Ordre ('{"kit":"accueil","cliquer":"' + $k + '"}') }
+            Verifier (Attendre { (& $finsPo) -gt $finsPoAvant } 45000) "« $v » : le site a répondu (journal)"
+            [void](Attendre { $false } 800)
+        }
         elseif ($v -match '^consigne:([\w ,''éèàêç-]{0,60})$') { Ordre ([ordered]@{ kit = 'accueil'; prep_consigne = $Matches[1] } | ConvertTo-Json -Compress) }
         elseif ($v -eq 'prep:voir') { Ordre '{"kit":"accueil","preparation":"voir"}' }        elseif ($v -match '^mail:(\d{1,6})$') { Ordre ('{"kit":"accueil","mail":' + $Matches[1] + '}') }
         elseif ($v -eq 'mails-ranger') { Ordre '{"kit":"accueil","mails":"ranger"}' }

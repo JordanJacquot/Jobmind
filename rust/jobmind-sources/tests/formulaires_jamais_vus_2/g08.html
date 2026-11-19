@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Offre d'emploi : agent(e) d'entretien des espaces verts | Ville de Montclair-Exemple</title>
+<style>
+body { font-family: "Marianne", Arial, sans-serif; margin: 0; background: #fff; color: #161616; }
+.entete { border-bottom: 3px solid #000091; padding: 12px 24px; display: flex; justify-content: space-between; }
+main { max-width: 900px; margin: 0 auto; padding: 24px; }
+fieldset { border: 1px solid #ddd; margin-bottom: 20px; padding: 16px; }
+legend { font-weight: bold; padding: 0 6px; }
+dl.champs dt { font-weight: bold; margin-top: 12px; }
+dl.champs dd { margin: 4px 0 0 0; }
+.requis { color: #ce0500; }
+</style>
+</head>
+<body>
+<div class="entete">
+  <span>Ville de Montclair-Exemple</span>
+  <form action="/recherche" method="get" role="search">
+    <label for="rech">Rechercher sur le site</label>
+    <input type="search" id="rech" name="mots">
+    <button type="submit">OK</button>
+  </form>
+</div>
+<main>
+  <nav aria-label="Fil d'Ariane"><a href="/">Accueil</a> &gt; <a href="/mairie">Mairie</a> &gt; <a href="/emploi">Offres d'emploi</a></nav>
+  <h1>Agent(e) d'entretien des espaces verts</h1>
+  <p>Cadre d'emploi : adjoints techniques territoriaux (catégorie C). Poste ouvert aux titulaires et aux contractuels. Date limite de candidature : 15 décembre 2026.</p>
+
+  <h2>Formulaire de candidature</h2>
+  <p>Les champs suivis d'un astérisque (<span class="requis">*</span>) sont obligatoires.</p>
+
+  <form action="/emploi/candidater/eev-2026-14" method="post" enctype="multipart/form-data" id="candidature-mairie">
+    <input type="hidden" name="ref_offre" value="EEV-2026-14">
+    <fieldset>
+      <legend>Votre identité</legend>
+      <dl class="champs">
+        <dt>Civilité <span class="requis">*</span></dt>
+        <dd>
+          <label><input type="radio" name="civ" value="Mme" required> Madame</label>
+          <label><input type="radio" name="civ" value="M"> Monsieur</label>
+        </dd>
+        <dt>Nom de famille <span class="requis">*</span></dt>
+        <dd><input type="text" name="identite_1" required></dd>
+        <dt>Prénom(s) <span class="requis">*</span></dt>
+        <dd><input type="text" name="identite_2" required></dd>
+        <dt>Date de naissance</dt>
+        <dd><input type="date" name="identite_3"></dd>
+        <dt>Nationalité <span class="requis">*</span></dt>
+        <dd><select name="identite_4" required><option value="">Choisir</option><option>Française</option><option>Ressortissant de l'Union européenne</option><option>Autre</option></select></dd>
+      </dl>
+    </fieldset>
+
+    <fieldset>
+      <legend>Vos coordonnées</legend>
+      <dl class="champs">
+        <dt>Adresse postale <span class="requis">*</span></dt>
+        <dd><input type="text" name="coord_1" size="60" required></dd>
+        <dt>Code postal <span class="requis">*</span></dt>
+        <dd><input type="text" name="coord_2" size="6" required></dd>
+        <dt>Ville <span class="requis">*</span></dt>
+        <dd><input type="text" name="coord_3" required></dd>
+        <dt>Adresse électronique <span class="requis">*</span></dt>
+        <dd><input type="email" name="coord_4" required></dd>
+        <dt>Téléphone</dt>
+        <dd><input type="tel" name="coord_5"></dd>
+      </dl>
+    </fieldset>
+
+    <fieldset>
+      <legend>Votre situation</legend>
+      <dl class="champs">
+        <dt>Situation actuelle <span class="requis">*</span></dt>
+        <dd><select name="sit_1" required><option value="">Choisir</option><option>Fonctionnaire titulaire</option><option>Contractuel de la fonction publique</option><option>Lauréat de concours</option><option>Salarié du privé</option><option>Demandeur d'emploi</option></select></dd>
+        <dt>Êtes-vous titulaire du permis B ? <span class="requis">*</span></dt>
+        <dd>
+          <label><input type="radio" name="sit_2" value="oui" required> Oui</label>
+          <label><input type="radio" name="sit_2" value="non"> Non</label>
+        </dd>
+        <dt>Comment avez-vous eu connaissance de cette offre ?</dt>
+        <dd><select name="sit_3"><option value="">Choisir</option><option>Site de la ville</option><option>Journal municipal</option><option>France Travail</option><option>Emploi territorial</option><option>Autre</option></select></dd>
+      </dl>
+    </fieldset>
+
+    <fieldset>
+      <legend>Vos documents</legend>
+      <dl class="champs">
+        <dt>Curriculum vitae <span class="requis">*</span></dt>
+        <dd><input type="file" name="doc_1" required></dd>
+        <dt>Lettre de motivation <span class="requis">*</span></dt>
+        <dd><input type="file" name="doc_2" required></dd>
+        <dt>Dernier arrêté de situation administrative (pour les titulaires)</dt>
+        <dd><input type="file" name="doc_3"></dd>
+      </dl>
+    </fieldset>
+
+    <p>
+      <input type="checkbox" id="accord" name="accord" required>
+      <label for="accord">J'ai pris connaissance des mentions relatives au traitement de mes données personnelles <span class="requis">*</span></label>
+    </p>
+
+    <p>
+      <button type="button" onclick="window.print()">Imprimer l'offre</button>
+      <button type="submit">Envoyer</button>
+    </p>
+  </form>
+</main>
+<footer><p>Mairie de Montclair-Exemple, 1 place de la Mairie, 99000 Montclair-Exemple</p></footer>
+</body>
+</html>

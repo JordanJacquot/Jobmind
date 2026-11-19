@@ -42,6 +42,9 @@ pub const LABEL: &str = "sites";
 /// le reste, jamais le profil de navigateur de Jordan. (Le nom de l'étape 5 est gardé : les connexions restent.)
 pub const DOSSIER: &str = "panneau-sites";
 
+/// Étape 11 : une candidature sur un site occupe la vue des sites.
+const OCCUPE_PO: &str = "Une candidature est en cours sur un site : termine-la ou ferme-la d'abord.";
+
 /// L'écart minimal entre deux chargements de la vue des sites (le programme attend s'il le faut).
 pub const ECART_MS: u64 = 3000;
 /// Après une page chargée, le temps laissé au site pour se dessiner avant de la lire.
@@ -98,7 +101,7 @@ pub fn site_de(code: &str) -> Option<Site> {
     Site::CONNUS.iter().copied().find(|s| s.code() == code)
 }
 
-fn indice(s: Site) -> usize {
+pub(crate) fn indice(s: Site) -> usize {
     Site::CONNUS.iter().position(|x| *x == s).unwrap_or(0)
 }
 
@@ -177,6 +180,13 @@ pub enum Ordre {
     Cacher,
     /// Effacer la session des sites (« Me déconnecter de tous les sites »)
     Effacer,
+    /// Étape 11 : poser des valeurs dans le formulaire de la page affichée, si elle est toujours à l'adresse `attendu`
+    /// (chaque valeur : le rang de la case, sa balise et son nom vérifiés, ce qu'il faut y mettre)
+    Remplir { no: u64, attendu: String, actions: Value },
+    /// Étape 11 : déposer ce fichier (le CV de Mon CV) dans la case de rang `i`
+    Fichier { no: u64, attendu: String, i: usize, chemin: String },
+    /// Étape 11 : cliquer le bouton de rang `i` de la page (le clic de Jordan dans Jobmind, fait par Jobmind)
+    Cliquer { no: u64, attendu: String, i: usize, balise: String, nom: String },
 }
 
 /// Une phrase dite à Jordan, avec un bouton s'il y a quelque chose à faire.
@@ -204,6 +214,8 @@ pub enum But {
     Offre(usize),
     /// La connexion
     Connexion,
+    /// Étape 11 : la candidature sur le site (crate::postuler)
+    Postuler,
 }
 
 /// Ce qui est en cours en coulisse.
@@ -231,6 +243,8 @@ pub enum Raison {
     Inconnue,
     /// Jordan veut voir la page
     Voir,
+    /// Étape 11 : Jordan postule lui-même sur la page (LinkedIn), ou complète le formulaire, avec ses textes à côté
+    Postuler,
 }
 
 /// La petite fenêtre du site.
@@ -248,7 +262,7 @@ pub struct Petite {
 impl Petite {
     /// Une personne est attendue (la fenêtre se fermera seule)
     pub fn attend_personne(&self) -> bool {
-        self.raison != Raison::Voir
+        !matches!(self.raison, Raison::Voir | Raison::Postuler)
     }
 }
 
@@ -294,6 +308,8 @@ pub struct FicheSite {
 pub struct Lecture {
     pub brute: String,
     pub comprise: Comprise,
+    /// Étape 11 : le formulaire de candidature de la page (jobmind_sources::formulaire)
+    pub formulaire: Option<jobmind_sources::formulaire::Formulaire>,
 }
 
 /// L'état des sites.
@@ -320,6 +336,8 @@ pub struct Coulisse {
     /// connu
     pub lus: Vec<(String, LectureOffre)>,
     pub filtres: (bool, bool),
+    /// Étape 11 : la candidature en cours sur un site
+    pub postuler: Option<crate::postuler::Postuler>,
 }
 
 /// Au plus ce nombre d'offres des sites lues gardées en mémoire (le temps que Jobmind est ouverte).
@@ -385,7 +403,7 @@ fn ordres(o: Vec<Ordre>, change: bool) -> Fait {
 }
 
 impl Coulisse {
-    fn nouvel_id(&mut self) -> u64 {
+    pub(crate) fn nouvel_id(&mut self) -> u64 {
         self.ids += 1;
         self.ids
     }
@@ -413,12 +431,12 @@ impl Coulisse {
         self.listes.iter_mut().find(|l| l.site == s)
     }
 
-    fn dire(&mut self, s: Site, a: Annonce) {
+    pub(crate) fn dire(&mut self, s: Site, a: Annonce) {
         self.annonces[indice(s)] = Some(a);
     }
 
     /// Une lecture prévue (une nouvelle remplace l'ancienne).
-    fn lire(&mut self, delai_ms: u64) -> Ordre {
+    pub(crate) fn lire(&mut self, delai_ms: u64) -> Ordre {
         let no = self.nouvel_id();
         self.attendue = Some(no);
         Ordre::Lire { no, delai_ms }
@@ -512,6 +530,9 @@ impl Coulisse {
     /// « Chercher sur LinkedIn » : la page 1 des résultats pour la recherche choisie.
     fn chercher(&mut self, base: Option<&Base>, v: &Value) -> Fait {
         let Some(s) = site_de(&texte_de(v, "site")) else { return Fait::default() };
+        if self.po_occupe() {
+            return Fait { message: Some(OCCUPE_PO.into()), ..Fait::default() };
+        }
         if self.attente.is_some() {
             return Fait {
                 message: Some("Jobmind lit déjà une page : attends un instant.".into()), ..Fait::default()
@@ -556,6 +577,9 @@ impl Coulisse {
     /// « Page suivante » : la page d'après, sur ce clic seulement.
     fn suivante(&mut self) -> Fait {
         let Some(s) = self.source else { return Fait::default() };
+        if self.po_occupe() {
+            return Fait { message: Some(OCCUPE_PO.into()), ..Fait::default() };
+        }
         if self.attente.is_some() {
             return Fait {
                 message: Some("Jobmind lit déjà une page : attends un instant.".into()), ..Fait::default()
@@ -578,6 +602,9 @@ impl Coulisse {
     /// Un résultat ouvert : son offre chargée en coulisse.
     fn ouvrir(&mut self, v: &Value) -> Fait {
         let Some(s) = self.source else { return Fait::default() };
+        if self.po_occupe() {
+            return Fait { message: Some(OCCUPE_PO.into()), ..Fait::default() };
+        }
         let Some(i) = v.get("i").and_then(Value::as_u64).map(|i| i as usize) else { return Fait::default() };
         if self.attente.is_some() {
             return Fait {
@@ -699,6 +726,15 @@ impl Coulisse {
 
     /// Ferme la petite fenêtre (« Fermer ») : ce qui attendait une personne s'arrête.
     fn fermer(&mut self) -> Fait {
+        // (étape 11 : la petite fenêtre d'une candidature sur un site)
+        if self.petite.as_ref().is_some_and(|p| p.raison == Raison::Postuler) {
+            self.petite = None;
+            return self.po_petite_fermee();
+        }
+        if self.attente.as_ref().is_some_and(|a| a.but == But::Postuler) && self.attend_personne() {
+            self.petite = None;
+            return self.po_verification_fermee();
+        }
         let Some(p) = self.petite.take() else { return Fait::default() };
         if p.attend_personne() {
             self.attente = None;
@@ -833,6 +869,7 @@ impl Coulisse {
         } else {
             match self.attente.as_ref().map(|a| a.but) {
                 Some(But::Connexion) => self.lu_connexion(l),
+                Some(But::Postuler) => self.po_lu(base, l, maintenant),
                 Some(But::Liste) | Some(But::Offre(_)) => self.lu_contenu(base, l, maintenant),
                 None => Fait { change: !journal.is_empty(), ..Fait::default() },
             }
@@ -881,6 +918,9 @@ impl Coulisse {
 
     /// Une page lue pendant que la petite fenêtre attend Jordan (captcha, code, connexion par la page du site).
     fn lu_pendant_verification(&mut self, base: Option<&Base>, l: Lecture, maintenant: Moment) -> Fait {
+        if self.attente.as_ref().is_some_and(|a| a.but == But::Postuler) {
+            return self.po_verification(base, l, maintenant);
+        }
         let Some(p) = self.petite.clone() else { return Fait::default() };
         let c = &l.comprise;
         let encore = matches!(c.ecran, Ecran::Captcha | Ecran::Verification)
@@ -934,7 +974,7 @@ impl Coulisse {
     }
 
     /// Ouvre la petite fenêtre pour une vérification que seule une personne peut faire.
-    fn demander_personne(&mut self, s: Site, raison: Raison, trace: &str) -> Fait {
+    pub(crate) fn demander_personne(&mut self, s: Site, raison: Raison, trace: &str) -> Fait {
         self.petite = Some(Petite { raison, site: s, offre: false, lecture: None, annonce: None });
         let o = self.lire(VERIFIER_MS);
         Fait {
@@ -1046,7 +1086,7 @@ impl Coulisse {
                     self.relire_ou_casser(a, &trace, "offre")
                 }
             },
-            But::Connexion => Fait::default(),
+            But::Connexion | But::Postuler => Fait::default(),
         }
     }
 
@@ -1213,6 +1253,7 @@ impl Coulisse {
             But::Liste => format!("Jobmind lit les résultats sur {}...", a.site.nom()),
             But::Offre(_) => format!("Jobmind ouvre l'offre sur {}...", a.site.nom()),
             But::Connexion => format!("Connexion à {}...", a.site.nom()),
+            But::Postuler => format!("Candidature sur {}...", a.site.nom()),
         });
         let liste = source.and_then(|s| self.liste_de(s)).map(|l| {
             let lu = |r: &Resultat| self.lus.iter().find(|(u, _)| !u.is_empty() && *u == r.url).map(|x| &x.1);
@@ -1258,6 +1299,14 @@ impl Coulisse {
                     format!("Termine la connexion sur {nom}"),
                     "Jobmind ne reconnaît pas cette page. Fais ce qu'elle demande : la fenêtre se fermera toute seule une fois connecté.".to_string(),
                 ),
+                Raison::Postuler => (
+                    if self.postuler.as_ref().is_some_and(|x| x.linkedin) { format!("Postuler sur {nom}") } else { "La page du formulaire".to_string() },
+                    if self.postuler.as_ref().is_some_and(|x| x.linkedin) {
+                        "Clique toi-même sur « Postuler » dans la page, colle tes textes, envoie. Puis « C'est envoyé ».".to_string()
+                    } else {
+                        "Complète ou envoie toi-même sur la page. « Fermer » : Jobmind relit la page.".to_string()
+                    },
+                ),
                 Raison::Voir => (
                     if p.site == Site::Autre { "La page du site".to_string() } else { format!("La page du site : {nom}") },
                     if p.site == Site::LinkedIn {
@@ -1273,6 +1322,10 @@ impl Coulisse {
                 "ajouter": p.raison == Raison::Voir,
                 "lecture": p.lecture.is_some(),
                 "annonce": p.annonce.as_ref().map(annonce_vue),
+                // (étape 11 : les textes à copier à côté de la page, et « C'est envoyé »)
+                "cote": (p.raison == Raison::Postuler).then(|| self.postuler.as_ref().map(crate::postuler::cote_vue)).flatten(),
+                "apres": (p.raison == Raison::Captcha && self.postuler.as_ref().is_some_and(|x| x.phase == crate::postuler::Phase::Captcha))
+                    .then_some("Ensuite, Jobmind envoie ta candidature."),
             })
         });
         json!({

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Dossier de candidature, étape 1 sur 3 | Centre hospitalier de Valmont-Exemple</title>
+<style>
+body { font-family: Verdana, sans-serif; font-size: 13px; background: #e8eef3; margin: 0; }
+#bandeau { background: #005a8c; color: #fff; padding: 10px 20px; }
+#page { width: 860px; margin: 16px auto; background: #fff; padding: 20px; }
+.etapes { list-style: none; display: flex; gap: 8px; padding: 0; }
+.etapes li { padding: 6px 12px; background: #ccd9e3; }
+.etapes li.active { background: #005a8c; color: #fff; }
+table.formulaire td.libelle { width: 240px; text-align: right; padding-right: 10px; vertical-align: top; }
+.obl { color: #b00; }
+.actions { text-align: right; margin-top: 20px; }
+</style>
+</head>
+<body>
+<div id="bandeau">Centre hospitalier de Valmont-Exemple | Direction des ressources humaines</div>
+<div id="page">
+  <h1>Infirmier(e) diplômé(e) d'État, service de médecine polyvalente</h1>
+  <p>Référence : CH-VAL-2026-117 | CDI, temps plein, roulement jour</p>
+
+  <ol class="etapes" aria-label="Progression">
+    <li class="active" aria-current="step">1. Identité et coordonnées</li>
+    <li>2. Parcours et diplômes</li>
+    <li>3. Pièces jointes et validation</li>
+  </ol>
+  <p>Étape 1 sur 3. Les rubriques suivies de <span class="obl">(*)</span> doivent être renseignées.</p>
+
+  <form name="frmCand" id="frmCand" method="post" action="candidature.aspx?etape=1">
+    <input type="hidden" name="__VIEWSTATE" value="dDwtMTA4NzQ5MzM0Mjs7Pg==">
+    <input type="hidden" name="__EVENTVALIDATION" value="wEWBQKP2b8">
+    <table class="formulaire">
+      <tr>
+        <td class="libelle">Civilité <span class="obl">(*)</span></td>
+        <td><select name="ctl00$cph$ddlCivilite" id="ctl00_cph_ddlCivilite"><option value="">Sélectionnez</option><option value="1">Madame</option><option value="2">Monsieur</option></select></td>
+      </tr>
+      <tr>
+        <td class="libelle">Nom d'usage <span class="obl">(*)</span></td>
+        <td><input name="ctl00$cph$txtNom" id="ctl00_cph_txtNom" type="text" maxlength="50"></td>
+      </tr>
+      <tr>
+        <td class="libelle">Prénom <span class="obl">(*)</span></td>
+        <td><input name="ctl00$cph$txtPrenom" id="ctl00_cph_txtPrenom" type="text" maxlength="50"></td>
+      </tr>
+      <tr>
+        <td class="libelle">Date de naissance <span class="obl">(*)</span></td>
+        <td><input name="ctl00$cph$txtDateNaiss" id="ctl00_cph_txtDateNaiss" type="text" placeholder="jj/mm/aaaa" maxlength="10"></td>
+      </tr>
+      <tr>
+        <td class="libelle">Adresse <span class="obl">(*)</span></td>
+        <td><input name="ctl00$cph$txtAdr1" id="ctl00_cph_txtAdr1" type="text" size="50"></td>
+      </tr>
+      <tr>
+        <td class="libelle">Code postal <span class="obl">(*)</span></td>
+        <td><input name="ctl00$cph$txtCP" id="ctl00_cph_txtCP" type="text" size="6" maxlength="5"></td>
+      </tr>
+      <tr>
+        <td class="libelle">Commune <span class="obl">(*)</span></td>
+        <td><input name="ctl00$cph$txtVille" id="ctl00_cph_txtVille" type="text" size="30"></td>
+      </tr>
+      <tr>
+        <td class="libelle">Téléphone <span class="obl">(*)</span></td>
+        <td><input name="ctl00$cph$txtTel1" id="ctl00_cph_txtTel1" type="text" size="14"></td>
+      </tr>
+      <tr>
+        <td class="libelle">Courriel <span class="obl">(*)</span></td>
+        <td><input name="ctl00$cph$txtMail" id="ctl00_cph_txtMail" type="text" size="40"></td>
+      </tr>
+      <tr>
+        <td class="libelle">Confirmation du courriel <span class="obl">(*)</span></td>
+        <td><input name="ctl00$cph$txtMail2" id="ctl00_cph_txtMail2" type="text" size="40" autocomplete="off"></td>
+      </tr>
+      <tr>
+        <td class="libelle">Êtes-vous déjà agent de l'établissement ?</td>
+        <td>
+          <input type="radio" name="ctl00$cph$rblAgent" id="rblAgent_0" value="O"><label for="rblAgent_0">Oui</label>
+          <input type="radio" name="ctl00$cph$rblAgent" id="rblAgent_1" value="N" checked><label for="rblAgent_1">Non</label>
+        </td>
+      </tr>
+    </table>
+
+    <div class="actions">
+      <input type="submit" name="ctl00$cph$btnAnnuler" value="Abandonner" id="ctl00_cph_btnAnnuler">
+      <input type="submit" name="ctl00$cph$btnBrouillon" value="Enregistrer et reprendre plus tard" id="ctl00_cph_btnBrouillon">
+      <input type="submit" name="ctl00$cph$btnSuivant" value="Étape suivante" id="ctl00_cph_btnSuivant">
+    </div>
+  </form>
+  <p style="font-size:11px">Conformément au règlement général sur la protection des données, vous disposez d'un droit d'accès à vos données auprès de la DRH : drh@ch-valmont.exemple.fr</p>
+</div>
+</body>
+</html>

@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Ma candidature - Emploi Public Région</title>
+<style>
+body{font-family:Marianne,Arial,sans-serif;margin:0;background:#fff;color:#161616}
+.fr-header{border-bottom:1px solid #ddd;padding:12px 24px;display:flex;justify-content:space-between}
+.fr-container{max-width:760px;margin:24px auto;padding:0 16px}
+.fr-stepper__state{font-size:14px;color:#666}
+.fr-stepper__title{font-size:22px;margin:4px 0}
+.fr-stepper__details{font-size:13px;color:#666}
+.fr-input-group,.fr-fieldset{margin:20px 0;border:0;padding:0}
+.fr-label{display:block;margin-bottom:6px}
+.fr-hint-text{display:block;font-size:12px;color:#666}
+.fr-input{width:100%;padding:8px;background:#eee;border:0;border-bottom:2px solid #3a3a3a}
+.fr-btns-group{display:flex;gap:12px;margin-top:28px}
+.fr-btn{background:#000091;color:#fff;border:0;padding:10px 18px}
+.fr-btn--secondary{background:#fff;color:#000091;border:1px solid #000091}
+</style>
+</head>
+<body>
+<header class="fr-header">
+  <span>Emploi Public Région</span>
+  <form action="/recherche" method="get" role="search">
+    <input type="search" name="motsCles" aria-label="Rechercher une offre">
+    <button type="submit" class="fr-btn">Rechercher</button>
+  </form>
+</header>
+<main class="fr-container">
+  <div class="fr-stepper">
+    <h2 class="fr-stepper__title">
+      <span class="fr-stepper__state">Étape 2 sur 3</span>
+      Votre parcours
+    </h2>
+    <p class="fr-stepper__details">Étape suivante : Vos documents</p>
+  </div>
+  <p>Agent d'entretien des espaces verts, commune de Valcourt (exemple). Tous les champs sont obligatoires sauf mention contraire.</p>
+  <form id="form-etape-2" method="post" action="/candidature/etape-3">
+    <input type="hidden" name="_csrf" value="c9f1aa27">
+    <input type="hidden" name="etape" value="2">
+    <div class="fr-input-group">
+      <label class="fr-label" for="q-81f2">Niveau de diplôme le plus élevé</label>
+      <select class="fr-input" id="q-81f2" name="q-81f2" required>
+        <option value="">Sélectionnez une option</option>
+        <option>Sans diplôme</option>
+        <option>CAP, BEP</option>
+        <option>Baccalauréat</option>
+        <option>Bac + 2 et plus</option>
+      </select>
+    </div>
+    <fieldset class="fr-fieldset">
+      <legend>Avez-vous une expérience en entretien d'espaces verts ?</legend>
+      <label><input type="radio" name="q-81f3" value="oui" required> Oui</label>
+      <label><input type="radio" name="q-81f3" value="non"> Non</label>
+    </fieldset>
+    <div class="fr-input-group">
+      <label class="fr-label" for="q-81f4">Nombre d'années d'expérience
+        <span class="fr-hint-text">Indiquez 0 si vous débutez</span>
+      </label>
+      <input class="fr-input" type="number" id="q-81f4" name="q-81f4" min="0" required>
+    </div>
+    <fieldset class="fr-fieldset">
+      <legend>Quels permis avez-vous ? (facultatif)</legend>
+      <label><input type="checkbox" name="q-81f5" value="B"> Permis B</label>
+      <label><input type="checkbox" name="q-81f5" value="C"> Permis C</label>
+      <label><input type="checkbox" name="q-81f5" value="CACES"> CACES</label>
+    </fieldset>
+    <div class="fr-input-group">
+      <label class="fr-label" for="q-81f6">Pourquoi souhaitez-vous rejoindre notre commune ?</label>
+      <textarea class="fr-input" id="q-81f6" name="q-81f6" rows="5" required></textarea>
+    </div>
+    <div class="fr-btns-group">
+      <button type="button" class="fr-btn fr-btn--secondary" onclick="history.back()">Étape précédente</button>
+      <button type="button" class="fr-btn fr-btn--secondary" name="action" value="brouillon">Enregistrer et finir plus tard</button>
+      <button type="submit" class="fr-btn" name="action" value="suivant">Suivant</button>
+    </div>
+  </form>
+</main>
+</body>
+</html>

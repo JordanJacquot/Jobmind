@@ -1,0 +1,198 @@
+{
+  "f01.html": {
+    "genre": "formulaire",
+    "bouton": "suivant",
+    "bouton_texte": "Continuer",
+    "captcha": false,
+    "erreurs": false,
+    "champs": [
+      { "libelle": "Prénom", "genre": "prenom", "obligatoire": true },
+      { "libelle": "Nom", "genre": "nom", "obligatoire": true },
+      { "libelle": "Adresse e-mail", "genre": "mail", "obligatoire": true },
+      { "libelle": "Numéro de téléphone", "genre": "telephone", "obligatoire": false },
+      { "libelle": "Ville, code postal", "genre": "ville", "obligatoire": false }
+    ]
+  },
+  "f02.html": {
+    "genre": "formulaire",
+    "bouton": "envoyer",
+    "bouton_texte": "Je postule",
+    "captcha": false,
+    "erreurs": false,
+    "champs": [
+      { "libelle": "Prénom", "genre": "prenom", "obligatoire": true },
+      { "libelle": "Nom", "genre": "nom", "obligatoire": true },
+      { "libelle": "Email", "genre": "mail", "obligatoire": true },
+      { "libelle": "Téléphone", "genre": "telephone", "obligatoire": false },
+      { "libelle": "CV", "genre": "cv", "obligatoire": true },
+      { "libelle": "Message pour l'équipe recrutement", "genre": "lettre", "obligatoire": false },
+      { "libelle": "Profil LinkedIn ou portfolio", "genre": "question", "obligatoire": false },
+      { "libelle": "J'accepte la politique de confidentialité", "genre": "consentement", "obligatoire": true },
+      { "libelle": "Je souhaite recevoir les nouvelles offres", "genre": "autre", "obligatoire": false }
+    ]
+  },
+  "f03.html": {
+    "genre": "formulaire",
+    "bouton": "envoyer",
+    "bouton_texte": "Envoyer ma candidature",
+    "captcha": true,
+    "erreurs": false,
+    "champs": [
+      { "libelle": "Nom et prénom", "genre": "nom_complet", "obligatoire": true },
+      { "libelle": "Votre adresse mail", "genre": "mail", "obligatoire": true },
+      { "libelle": "Téléphone portable", "genre": "telephone", "obligatoire": true },
+      { "libelle": "Code postal", "genre": "code_postal", "obligatoire": false },
+      { "libelle": "Votre message", "genre": "lettre", "obligatoire": false },
+      { "libelle": "Joindre votre CV", "genre": "cv", "obligatoire": false }
+    ]
+  },
+  "f04.html": {
+    "genre": "formulaire",
+    "bouton": "suivant",
+    "bouton_texte": "Enregistrer et continuer",
+    "captcha": false,
+    "erreurs": false,
+    "champs": [
+      { "libelle": "Comment avez-vous connu cette offre ?", "genre": "question", "obligatoire": true },
+      { "libelle": "Civilité", "genre": "question", "obligatoire": false },
+      { "libelle": "Prénom", "genre": "prenom", "obligatoire": true },
+      { "libelle": "Nom de famille", "genre": "nom", "obligatoire": true },
+      { "libelle": "Adresse ligne 1", "genre": "question", "obligatoire": true },
+      { "libelle": "Code postal", "genre": "code_postal", "obligatoire": true },
+      { "libelle": "Ville", "genre": "ville", "obligatoire": true },
+      { "libelle": "Adresse e-mail", "genre": "mail", "obligatoire": true },
+      { "libelle": "Type d'appareil téléphonique", "genre": "question", "obligatoire": false },
+      { "libelle": "Numéro de téléphone", "genre": "telephone", "obligatoire": true }
+    ]
+  },
+  "f05.html": {
+    "genre": "formulaire",
+    "bouton": "envoyer",
+    "bouton_texte": "Submit application",
+    "captcha": true,
+    "erreurs": false,
+    "champs": [
+      { "libelle": "Resume/CV", "genre": "cv", "obligatoire": true },
+      { "libelle": "Full name", "genre": "nom_complet", "obligatoire": true },
+      { "libelle": "Email", "genre": "mail", "obligatoire": true },
+      { "libelle": "Phone", "genre": "telephone", "obligatoire": false },
+      { "libelle": "Current company", "genre": "question", "obligatoire": false },
+      { "libelle": "LinkedIn URL", "genre": "question", "obligatoire": false },
+      { "libelle": "Add a cover letter", "genre": "lettre", "obligatoire": false }
+    ]
+  },
+  "f06.html": {
+    "genre": "formulaire",
+    "bouton": "envoyer",
+    "bouton_texte": "Envoyer",
+    "captcha": false,
+    "erreurs": true,
+    "champs": [
+      { "libelle": "Prénom", "genre": "prenom", "obligatoire": true },
+      { "libelle": "Nom", "genre": "nom", "obligatoire": true },
+      { "libelle": "E-mail", "genre": "mail", "obligatoire": true },
+      { "libelle": "Confirmez votre e-mail", "genre": "mail", "obligatoire": true },
+      { "libelle": "Téléphone", "genre": "telephone", "obligatoire": false },
+      { "libelle": "CV", "genre": "cv", "obligatoire": true },
+      { "libelle": "Lettre de motivation", "genre": "lettre_fichier", "obligatoire": false },
+      { "libelle": "J'ai lu et j'accepte la politique de protection des données", "genre": "consentement", "obligatoire": true }
+    ]
+  },
+  "f07.html": {
+    "genre": "formulaire",
+    "bouton": "envoyer",
+    "bouton_texte": "Transmettre",
+    "captcha": false,
+    "erreurs": false,
+    "champs": [
+      { "libelle": "Prénom", "genre": "prenom", "obligatoire": true },
+      { "libelle": "Nom", "genre": "nom", "obligatoire": true },
+      { "libelle": "Courriel", "genre": "mail", "obligatoire": true },
+      { "libelle": "Téléphone domicile", "genre": "telephone", "obligatoire": false },
+      { "libelle": "Téléphone mobile", "genre": "telephone", "obligatoire": true },
+      { "libelle": "Ville de résidence", "genre": "ville", "obligatoire": false },
+      { "libelle": "Date de disponibilité", "genre": "question", "obligatoire": true },
+      { "libelle": "Prétentions salariales", "genre": "question", "obligatoire": false },
+      { "libelle": "Êtes-vous titulaire du diplôme d'État d'infirmier ?", "genre": "question", "obligatoire": true },
+      { "libelle": "Avez-vous le permis B ?", "genre": "question", "obligatoire": false },
+      { "libelle": "Curriculum vitae", "genre": "cv", "obligatoire": true },
+      { "libelle": "Lettre de motivation", "genre": "lettre_fichier", "obligatoire": false },
+      { "libelle": "J'ai pris connaissance de l'accord relatif à la confidentialité", "genre": "consentement", "obligatoire": true }
+    ]
+  },
+  "f08.html": {
+    "genre": "formulaire",
+    "bouton": "envoyer",
+    "bouton_texte": "Valider ma candidature",
+    "captcha": true,
+    "erreurs": false,
+    "champs": [
+      { "libelle": "Prénom", "genre": "prenom", "obligatoire": true },
+      { "libelle": "Nom de famille", "genre": "nom", "obligatoire": true },
+      { "libelle": "Adresse électronique", "genre": "mail", "obligatoire": true },
+      { "libelle": "Numéro de portable", "genre": "telephone", "obligatoire": true },
+      { "libelle": "Ville où vous habitez", "genre": "ville", "obligatoire": false },
+      { "libelle": "Quels horaires vous conviennent ?", "genre": "question", "obligatoire": false },
+      { "libelle": "Avez-vous déjà travaillé dans la vente ou en boulangerie ?", "genre": "question", "obligatoire": false },
+      { "libelle": "Votre CV", "genre": "cv", "obligatoire": false },
+      { "libelle": "J'accepte les conditions générales d'utilisation du service", "genre": "consentement", "obligatoire": true }
+    ]
+  },
+  "f09.html": {
+    "genre": "formulaire",
+    "bouton": "envoyer",
+    "bouton_texte": "Submit Application",
+    "captcha": true,
+    "erreurs": false,
+    "champs": [
+      { "libelle": "First Name", "genre": "prenom", "obligatoire": true },
+      { "libelle": "Last Name", "genre": "nom", "obligatoire": true },
+      { "libelle": "Email", "genre": "mail", "obligatoire": true },
+      { "libelle": "Phone", "genre": "telephone", "obligatoire": false },
+      { "libelle": "Resume/CV", "genre": "cv", "obligatoire": true },
+      { "libelle": "Cover Letter", "genre": "lettre_fichier", "obligatoire": false },
+      { "libelle": "LinkedIn Profile", "genre": "question", "obligatoire": false },
+      { "libelle": "Are you legally authorized to work in France?", "genre": "question", "obligatoire": true },
+      { "libelle": "What is your expected annual salary (EUR)?", "genre": "question", "obligatoire": false },
+      { "libelle": "I consent to Brightfield Analytics processing my personal data", "genre": "consentement", "obligatoire": true }
+    ]
+  },
+  "f10.html": {
+    "genre": "formulaire",
+    "bouton": "envoyer",
+    "bouton_texte": "Envoyer",
+    "captcha": false,
+    "erreurs": false,
+    "champs": [
+      { "libelle": "Vos nom et prénom", "genre": "nom_complet", "obligatoire": true },
+      { "libelle": "Votre e-mail", "genre": "mail", "obligatoire": true },
+      { "libelle": "Votre téléphone", "genre": "telephone", "obligatoire": true },
+      { "libelle": "Votre commune", "genre": "ville", "obligatoire": false },
+      { "libelle": "Avez-vous déjà fait les vendanges ?", "genre": "question", "obligatoire": false },
+      { "libelle": "Avez-vous besoin d'un logement sur place ?", "genre": "question", "obligatoire": false },
+      { "libelle": "Un mot pour nous ?", "genre": "lettre", "obligatoire": false },
+      { "libelle": "Je souhaite recevoir les nouvelles du domaine", "genre": "autre", "obligatoire": false },
+      { "libelle": "J'accepte que mes données soient conservées pour le recrutement", "genre": "consentement", "obligatoire": true }
+    ]
+  },
+  "f11.html": {
+    "genre": "formulaire",
+    "bouton": "suivant",
+    "bouton_texte": "Suivant",
+    "captcha": false,
+    "erreurs": false,
+    "champs": [
+      { "libelle": "Niveau de diplôme le plus élevé", "genre": "question", "obligatoire": true },
+      { "libelle": "Avez-vous une expérience en entretien d'espaces verts ?", "genre": "question", "obligatoire": true },
+      { "libelle": "Nombre d'années d'expérience", "genre": "question", "obligatoire": true },
+      { "libelle": "Quels permis avez-vous ?", "genre": "question", "obligatoire": false },
+      { "libelle": "Pourquoi souhaitez-vous rejoindre notre commune ?", "genre": "lettre", "obligatoire": true }
+    ]
+  },
+  "p01.html": { "genre": "confirmation" },
+  "p02.html": { "genre": "confirmation" },
+  "p03.html": { "genre": "offre_postuler" },
+  "p04.html": { "genre": "connexion" },
+  "p05.html": { "genre": "erreur_site" },
+  "p06.html": { "genre": "confirmation" }
+}

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Northwind Logistics - Customer Support Specialist (Paris)</title>
+<style>
+body{font-family:"Segoe UI",sans-serif;margin:0;color:#333}
+.main-header{padding:20px 40px;border-bottom:1px solid #eee}
+.content{max-width:700px;margin:30px auto}
+.application-question{margin:20px 0;display:flex;flex-direction:column}
+.application-label{font-weight:600;margin-bottom:6px}
+.required{color:#e0425e}
+.application-field input,.application-field textarea{padding:8px;border:1px solid #ccc;width:100%}
+.postings-btn{background:#579eee;color:#fff;border:0;padding:12px 30px;border-radius:3px;font-size:15px}
+</style>
+</head>
+<body>
+<div class="main-header"><a href="/">Northwind Logistics</a></div>
+<div class="content">
+  <h2>Customer Support Specialist</h2>
+  <div class="posting-categories">Paris, France / Operations / Full-time</div>
+  <form id="application-form" method="POST" enctype="multipart/form-data" action="/northwind/apply">
+    <input type="hidden" name="accountId" value="0f2c9a11">
+    <input type="hidden" name="origin" value="careers_page">
+    <h4>SUBMIT YOUR APPLICATION</h4>
+    <div class="application-question">
+      <div class="application-label">Resume/CV <span class="required">✱</span></div>
+      <div class="application-field">
+        <input type="file" name="resume" id="resume-upload-input" required>
+      </div>
+    </div>
+    <div class="application-question">
+      <div class="application-label">Full name <span class="required">✱</span></div>
+      <div class="application-field"><input type="text" name="name" required></div>
+    </div>
+    <div class="application-question">
+      <div class="application-label">Email <span class="required">✱</span></div>
+      <div class="application-field"><input type="email" name="email" required></div>
+    </div>
+    <div class="application-question">
+      <div class="application-label">Phone</div>
+      <div class="application-field"><input type="text" name="phone"></div>
+    </div>
+    <div class="application-question">
+      <div class="application-label">Current company</div>
+      <div class="application-field"><input type="text" name="org"></div>
+    </div>
+    <h4>LINKS</h4>
+    <div class="application-question">
+      <div class="application-label">LinkedIn URL</div>
+      <div class="application-field"><input type="text" name="urls[LinkedIn]"></div>
+    </div>
+    <h4>ADDITIONAL INFORMATION</h4>
+    <div class="application-question">
+      <div class="application-field">
+        <textarea name="comments" rows="5" placeholder="Add a cover letter or anything else you want to share."></textarea>
+      </div>
+    </div>
+    <div class="application-question">
+      <iframe title="Widget containing checkbox for hCaptcha security challenge" src="https://newassets.hcaptcha.com/captcha/v1/abc123/static/hcaptcha.html#frame=checkbox&amp;sitekey=10000000-ffff-ffff-ffff-000000000001" width="303" height="78" frameborder="0"></iframe>
+    </div>
+    <button type="submit" class="postings-btn" id="btn-submit">Submit application</button>
+  </form>
+</div>
+</body>
+</html>

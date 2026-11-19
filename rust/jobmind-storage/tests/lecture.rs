@@ -41,7 +41,7 @@ fn migration_6_sur_une_base_de_l_etape_5() {
     let mut b = Base::en_memoire_jusqua(5, m(9)).unwrap();
     offres::ajouter_trouvees(b.connexion(), "adzuna", &[trouvee("1", "Cariste", "Logi", "Sans diplôme.")], None, m(9))
         .unwrap();
-    assert_eq!(b.migrer_tout(m(10)).unwrap(), vec![6, 7, 8, 9, 10]);
+    assert_eq!(b.migrer_tout(m(10)).unwrap(), vec![6, 7, 8, 9, 10, 11]);
     // L'offre d'avant est là, pas encore lue
     let l = offres::lister(b.connexion()).unwrap();
     assert_eq!((l.len(), l[0].diplome, l[0].pertinence), (1, None, None));

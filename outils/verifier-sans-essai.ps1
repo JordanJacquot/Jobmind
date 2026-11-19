@@ -4,7 +4,8 @@
 # ni le faux serveur d'Adzuna et Jooble et ses offres inventées (reseau.essai, étape 4), ni le panneau ouvert par
 # l'essai et les pages d'exemple des sites (panneau.demande, étape 5), ni les quatre sites imités, leurs identifiants
 # inventés et les demandes de l'essai des sites en coulisse (voir.demande, connexion.demande, sites.essai, étape 5 bis), ni le faux
-# Claude et sa clé inventée (claude.essai, cle-claude.demande, étape 8), ni le faux serveur d'envoi (smtp.essai, étape 10).
+# Claude et sa clé inventée (claude.essai, cle-claude.demande, étape 8), ni le faux serveur d'envoi (smtp.essai, étape 10), ni les formulaires imités et leurs offres (formulaires.essai,
+# offres-site.demande, étape 11).
 # Le test cherche
 # ces noms dans l'exe, en texte simple et en UTF-16 (sans rien lancer). Repris de Mindcare.
 #
@@ -30,7 +31,9 @@ $noms = 'JOBMIND_DONNEES', 'JOBMIND_ESSAI_LOCAL', 'JOBMIND_ESSAI_NOM', 'capture.
     # (étape 8 : le faux Claude local, sa phrase inventée exprès, la clé inventée et les fichiers de l'essai)
     'claude.essai', 'cle-claude.demande', 'faux-claude', 'de six personnes', 'sk-ant-essai',
     # (étape 10 : le faux serveur d'envoi local et le fichier qui change ce qu'il fait)
-    'smtp.essai', 'faux-smtp', 'smtp.faux.invalid'
+    'smtp.essai', 'faux-smtp', 'smtp.faux.invalid',
+    # (étape 11 : les formulaires imités, leurs offres inventées et les fichiers de l'essai)
+    'formulaires.essai', 'offres-site.demande', 'postuler-indeed', 'des Trois Ponts', 'exemple-transport'
 $trouves = @()
 foreach ($n in $noms) {
     $large = ($n.ToCharArray() | ForEach-Object { "$_`0" }) -join ''

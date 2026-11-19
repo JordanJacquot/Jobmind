@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Warehouse Team Lead - Northfield Outdoor Gear Careers</title>
+<style>
+body { font-family: "Lato", Arial, sans-serif; margin: 0; background: #f5f5f5; }
+.header { background: #fff; padding: 16px 40px; border-bottom: 1px solid #e0e0e0; }
+.container { max-width: 800px; margin: 24px auto; background: #fff; padding: 32px; }
+.fab-FormField { margin-bottom: 16px; }
+.fab-Label { display: block; font-size: 14px; font-weight: 600; color: #444; margin-bottom: 4px; }
+.fab-Label--required::after { content: ""; }
+.fab-TextInput, .fab-Select, .fab-Textarea { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 2px; }
+.row { display: flex; gap: 16px; }
+.row > div { flex: 1; }
+.fab-Button--primary { background: #6fa53f; color: #fff; border: 0; padding: 10px 20px; border-radius: 2px; font-size: 15px; }
+.fab-Button--text { background: none; border: 0; color: #2e7bbf; }
+.h-captcha { margin: 16px 0; width: 303px; height: 78px; border: 1px solid #ddd; }
+</style>
+</head>
+<body>
+<div class="header"><strong>Northfield Outdoor Gear</strong> <a href="/careers">All Jobs</a></div>
+<div class="container">
+  <h1>Warehouse Team Lead</h1>
+  <p>Operations | Lyon, Auvergne-Rhône-Alpes</p>
+  <h2>Apply for this Job</h2>
+  <p><span style="color:#c20">*</span> Required</p>
+
+  <form id="applicationForm" method="post" action="/careers/42/apply" enctype="multipart/form-data">
+    <div class="row">
+      <div class="fab-FormField">
+        <label class="fab-Label fab-Label--required" for="firstName">First Name*</label>
+        <input class="fab-TextInput" id="firstName" name="firstName" type="text" required>
+      </div>
+      <div class="fab-FormField">
+        <label class="fab-Label fab-Label--required" for="lastName">Last Name*</label>
+        <input class="fab-TextInput" id="lastName" name="lastName" type="text" required>
+      </div>
+    </div>
+    <div class="row">
+      <div class="fab-FormField">
+        <label class="fab-Label fab-Label--required" for="email">Email*</label>
+        <input class="fab-TextInput" id="email" name="email" type="email" required>
+      </div>
+      <div class="fab-FormField">
+        <label class="fab-Label fab-Label--required" for="phone">Phone*</label>
+        <input class="fab-TextInput" id="phone" name="phone" type="text" required>
+      </div>
+    </div>
+    <div class="fab-FormField">
+      <label class="fab-Label" for="streetAddress">Address</label>
+      <input class="fab-TextInput" id="streetAddress" name="streetAddress" type="text">
+    </div>
+    <div class="row">
+      <div class="fab-FormField">
+        <label class="fab-Label" for="city">City</label>
+        <input class="fab-TextInput" id="city" name="city" type="text">
+      </div>
+      <div class="fab-FormField">
+        <label class="fab-Label" for="zip">ZIP</label>
+        <input class="fab-TextInput" id="zip" name="zip" type="text">
+      </div>
+    </div>
+    <div class="fab-FormField">
+      <label class="fab-Label fab-Label--required" for="resumeFileId">Resume*</label>
+      <input id="resumeFileId" name="resumeFileId" type="file" required>
+    </div>
+    <div class="fab-FormField">
+      <label class="fab-Label" for="coverLetterFileId">Cover Letter</label>
+      <input id="coverLetterFileId" name="coverLetterFileId" type="file">
+    </div>
+    <div class="row">
+      <div class="fab-FormField">
+        <label class="fab-Label" for="dateAvailable">Date Available</label>
+        <input class="fab-TextInput" id="dateAvailable" name="dateAvailable" type="text" placeholder="mm/dd/yyyy">
+      </div>
+      <div class="fab-FormField">
+        <label class="fab-Label" for="desiredPay">Desired Pay</label>
+        <input class="fab-TextInput" id="desiredPay" name="desiredPay" type="text">
+      </div>
+    </div>
+    <div class="fab-FormField">
+      <label class="fab-Label" for="websiteUrl">Website, Blog, or Portfolio</label>
+      <input class="fab-TextInput" id="websiteUrl" name="websiteUrl" type="text">
+    </div>
+    <div class="fab-FormField">
+      <label class="fab-Label" for="linkedinUrl">LinkedIn Profile URL</label>
+      <input class="fab-TextInput" id="linkedinUrl" name="linkedinUrl" type="text">
+    </div>
+    <div class="fab-FormField">
+      <label class="fab-Label" for="referredBy">Who referred you for this position?</label>
+      <input class="fab-TextInput" id="referredBy" name="referredBy" type="text">
+    </div>
+    <div class="fab-FormField">
+      <label class="fab-Label fab-Label--required" for="customQuestions[41]">Do you have a valid forklift certificate?*</label>
+      <select class="fab-Select" id="customQuestions[41]" name="customQuestions[41]" required>
+        <option value="">--Select--</option>
+        <option>Yes</option>
+        <option>No</option>
+      </select>
+    </div>
+
+    <div class="h-captcha" data-sitekey="10000000-ffff-ffff-ffff-000000000001">
+      <iframe title="Widget containing checkbox for hCaptcha security challenge" src="about:blank" style="border:0;width:303px;height:78px"></iframe>
+    </div>
+    <textarea name="h-captcha-response" style="display:none"></textarea>
+
+    <button type="button" class="fab-Button--text" onclick="history.back()">Cancel</button>
+    <button type="submit" class="fab-Button--primary">Submit Application</button>
+  </form>
+</div>
+</body>
+</html>

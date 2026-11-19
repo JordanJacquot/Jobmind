@@ -90,3 +90,95 @@ pub fn dans_la_fenetre(principale: usize, h: usize) -> bool {
     // SAFETY : IsChild ne fait que lire les liens entre deux fenêtres (une fenêtre qui n'existe plus : faux)
     h == principale || unsafe { IsChild(super::hwnd(principale), super::hwnd(h)) }.as_bool()
 }
+
+/// Étape 11 : dépose un fichier (le CV de Mon CV, choisi par Jobmind, jamais par la page) dans la case de rang `i`
+/// de la page (`input`, `textarea`, `select`, `button`, dans l'ordre de la page), par le protocole des outils de
+/// WebView2 : `DOM.getDocument`, `DOM.querySelectorAll`, puis `DOM.setFileInputFiles`. Une page ne peut pas poser
+/// elle-même un fichier dans sa case (le navigateur l'interdit) ; ce chemin ne passe pas par la page, et la vue des
+/// sites n'a toujours accès à aucune commande de Jobmind. Le résultat est rendu à `rendre`, sur le fil de la fenêtre.
+pub fn deposer_fichier(
+    v: &Webview,
+    i: usize,
+    chemin: String,
+    rendre: impl FnOnce(Result<(), String>) + Send + 'static,
+) -> tauri::Result<()> {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
+
+    type Rendre = Rc<RefCell<Option<Box<dyn FnOnce(Result<(), String>)>>>>;
+    fn finir(r: &Rendre, x: Result<(), String>) {
+        if let Some(f) = r.borrow_mut().take() {
+            f(x);
+        }
+    }
+    v.with_webview(move |pw| {
+        let rendre: Rendre = Rc::new(RefCell::new(Some(Box::new(rendre))));
+        let r0 = Rc::clone(&rendre);
+        // SAFETY : appels COM ordinaires sur la vue que Tauri nous prête, sur le fil de la fenêtre ; les chaînes vivent
+        // pendant chaque appel ; les rappels sont gardés par WebView2 jusqu'à leur fin.
+        let lance = unsafe {
+            (|| -> windows::core::Result<()> {
+                let w = pw.controller().CoreWebView2()?;
+                let w1 = w.clone();
+                let r1 = Rc::clone(&rendre);
+                let h1 = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |res, json: String| {
+                    let racine = res
+                        .ok()
+                        .and_then(|_| serde_json::from_str::<serde_json::Value>(&json).ok())
+                        .and_then(|v| v.pointer("/root/nodeId").and_then(serde_json::Value::as_i64));
+                    let Some(racine) = racine else {
+                        finir(&r1, Err("document illisible".into()));
+                        return Ok(());
+                    };
+                    let w2 = w1.clone();
+                    let r2 = Rc::clone(&r1);
+                    let chemin = chemin.clone();
+                    let h2 = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |res, json: String| {
+                        let id = res
+                            .ok()
+                            .and_then(|_| serde_json::from_str::<serde_json::Value>(&json).ok())
+                            .and_then(|v| v.get("nodeIds").and_then(|l| l.get(i)).and_then(serde_json::Value::as_i64));
+                        let Some(id) = id else {
+                            finir(&r2, Err("case introuvable".into()));
+                            return Ok(());
+                        };
+                        let r3 = Rc::clone(&r2);
+                        let h3 =
+                            CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |res, _json: String| {
+                                finir(&r3, res.map_err(|e| format!("fichier refusé ({e})")));
+                                Ok(())
+                            }));
+                        let p = serde_json::json!({ "files": [chemin], "nodeId": id }).to_string();
+                        if let Err(e) = w2.CallDevToolsProtocolMethod(
+                            &windows::core::HSTRING::from("DOM.setFileInputFiles"),
+                            &windows::core::HSTRING::from(p),
+                            &h3,
+                        ) {
+                            finir(&r2, Err(format!("dépôt refusé ({e})")));
+                        }
+                        Ok(())
+                    }));
+                    let p =
+                        serde_json::json!({ "nodeId": racine, "selector": "input,textarea,select,button" }).to_string();
+                    if let Err(e) = w1.CallDevToolsProtocolMethod(
+                        &windows::core::HSTRING::from("DOM.querySelectorAll"),
+                        &windows::core::HSTRING::from(p),
+                        &h2,
+                    ) {
+                        finir(&r1, Err(format!("cases illisibles ({e})")));
+                    }
+                    Ok(())
+                }));
+                w.CallDevToolsProtocolMethod(
+                    &windows::core::HSTRING::from("DOM.getDocument"),
+                    &windows::core::HSTRING::from("{\"depth\":0}"),
+                    &h1,
+                )
+            })()
+        };
+        if let Err(e) = lance {
+            finir(&r0, Err(format!("outils de WebView2 refusés ({e})")));
+        }
+    })
+}

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connexion requise | Espace carrières Groupe Santéa</title>
+<style>
+body{font-family:Arial,sans-serif;background:#eef2f7;margin:0}
+.boite{max-width:420px;margin:60px auto;background:#fff;padding:28px;border-radius:8px}
+.boite label{display:block;margin-top:12px;font-weight:bold}
+.boite input[type=email],.boite input[type=password]{width:100%;padding:10px}
+.btn{width:100%;margin-top:18px;padding:12px;background:#00708a;color:#fff;border:0;border-radius:6px}
+.info{background:#e6f4f7;padding:10px;border-radius:6px}
+</style>
+</head>
+<body>
+<div class="boite">
+  <h1>Connectez-vous pour postuler</h1>
+  <p class="info">Pour postuler à l'offre <strong>Aide-soignant(e) de nuit</strong>, vous devez d'abord vous connecter à votre espace candidat ou créer un compte.</p>
+  <form action="/connexion?retour=%2Foffres%2F5521%2Fpostuler" method="post">
+    <input type="hidden" name="csrf" value="f7c2exemple">
+    <label for="login">Adresse e-mail</label>
+    <input type="email" id="login" name="login" autocomplete="username" required>
+    <label for="mdp">Mot de passe</label>
+    <input type="password" id="mdp" name="mdp" autocomplete="current-password" required>
+    <p><label style="font-weight:normal;display:inline"><input type="checkbox" name="souvenir"> Rester connecté</label></p>
+    <p><a href="/mot-de-passe-oublie">Mot de passe oublié ?</a></p>
+    <button type="submit" class="btn">Se connecter</button>
+  </form>
+  <hr>
+  <p>Pas encore de compte ?</p>
+  <p><a href="/inscription?retour=%2Foffres%2F5521%2Fpostuler">Créer mon espace candidat</a></p>
+</div>
+</body>
+</html>

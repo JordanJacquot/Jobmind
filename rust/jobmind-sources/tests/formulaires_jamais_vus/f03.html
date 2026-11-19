@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Nous rejoindre - Garage Bellevue</title>
+<style>
+body{font-family:Verdana,sans-serif;background:#eef;margin:0}
+.contenu{max-width:600px;margin:30px auto;background:#fff;padding:20px;border:1px solid #ccd}
+input,textarea{width:95%;padding:8px;margin:6px 0;border:1px solid #99a}
+.hp{display:none}
+.bouton{background:#c00;color:#fff;border:0;padding:10px 20px;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="contenu">
+  <h1>Candidature spontanée</h1>
+  <p>Le Garage Bellevue recrute un mécanicien automobile. Remplissez le formulaire ci-dessous, nous vous rappelons sous huit jours.</p>
+  <form action="contact.php" method="post" enctype="multipart/form-data" name="form1">
+    <input type="hidden" name="poste" value="mecanicien">
+    <input type="text" name="nom_prenom" placeholder="Nom et prénom *" required><br>
+    <input type="text" name="courriel" placeholder="Votre adresse mail *" required><br>
+    <input type="text" name="tel" placeholder="Téléphone portable *" required><br>
+    <input type="text" name="cp" placeholder="Code postal"><br>
+    <textarea name="message" rows="6" placeholder="Votre message (présentez-vous en quelques lignes)"></textarea><br>
+    <p>Joindre votre CV :</p>
+    <input type="file" name="fichier_cv" accept=".pdf,.doc,.docx"><br>
+    <div class="hp">
+      <input type="text" name="website" tabindex="-1" autocomplete="off" placeholder="Laissez ce champ vide">
+    </div>
+    <div class="g-recaptcha" data-sitekey="6LcExempleExempleExempleExemple00000AbCd"></div>
+    <br>
+    <input type="submit" class="bouton" value="Envoyer ma candidature">
+  </form>
+  <p><small>Garage Bellevue, 12 rue des Lilas, 21000 Dijon, contact@exemple.fr</small></p>
+</div>
+<script>
+document.forms.form1.addEventListener('submit', function(){ console.log('envoi'); });
+</script>
+</body>
+</html>

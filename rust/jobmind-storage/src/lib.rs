@@ -22,6 +22,8 @@
 //! - [`style`] (étape 9) : ce que Jordan change aux règles du style, la longueur des phrases, l'intensité ;
 //! - [`envois`] (étape 10) : chaque envoi par mail tenté puis fini (parti, pas parti, incertain), le contenu exact
 //!   parti et son Message-ID, la candidature entrée dans le suivi, le rythme des envois ;
+//! - [`envois_site`] (étape 11) : chaque envoi sur le site de l'offre tenté puis fini (parti, refusé, incertain), le
+//!   contenu exact de chaque champ, la candidature entrée dans le suivi ; les coordonnées de Jordan pour les formulaires ;
 //! - [`dossier`] : le dossier de données et suite.json (copie gérée ou non, dossier de travail) ;
 //! - [`donnees`] : tout réuni ;
 //! - [`valeurs`] : les règles de PowerShell suivies (champs sans majuscules, vrai ou faux).
@@ -37,6 +39,7 @@ pub mod cles;
 pub mod donnees;
 pub mod dossier;
 pub mod envois;
+pub mod envois_site;
 pub mod fichiers;
 pub mod journal;
 pub mod lecture;

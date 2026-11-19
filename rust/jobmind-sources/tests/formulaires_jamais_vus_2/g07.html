@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chargé(e) de communication digitale | Maison Verbelle | Carrières</title>
+<style>
+body { font-family: "Inter", Arial, sans-serif; background: #fafafa; margin: 0; color: #222; }
+.carte { max-width: 680px; margin: 30px auto; background: #fff; padding: 28px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+.alerte { background: #fdecea; color: #a1281c; padding: 12px 16px; border-radius: 8px; margin-bottom: 18px; }
+.bloc { margin-bottom: 16px; }
+.bloc input, .bloc textarea, .bloc select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; }
+.bloc.invalide input { border-color: #d93025; }
+.err { color: #d93025; font-size: 13px; margin-top: 4px; }
+.titre-champ { font-weight: 600; margin-bottom: 6px; }
+.btn-principal { background: #111; color: #fff; padding: 14px 22px; border: 0; border-radius: 8px; font-size: 15px; }
+.btn-linkedin { background: #fff; border: 1px solid #0a66c2; color: #0a66c2; padding: 10px 16px; border-radius: 8px; }
+</style>
+</head>
+<body>
+<div class="carte">
+  <h1>Chargé(e) de communication digitale</h1>
+  <p>Maison Verbelle | Bordeaux | CDI | Télétravail partiel</p>
+
+  <div class="alerte" role="alert">
+    <strong>Votre candidature n'a pas pu être envoyée.</strong> Merci de corriger les 3 erreurs ci-dessous.
+  </div>
+
+  <button type="button" class="btn-linkedin">Remplir avec LinkedIn</button>
+  <p>ou remplissez le formulaire</p>
+
+  <form method="post" action="/fr/companies/maison-verbelle/jobs/charge-communication/apply" enctype="multipart/form-data" novalidate>
+    <input type="hidden" name="authenticity_token" value="aZ3kQ9_exemple_jeton">
+    <div class="bloc invalide">
+      <input type="text" name="candidate[first_name]" aria-label="Prénom" placeholder="Prénom *" aria-required="true" aria-invalid="true" aria-describedby="err-prenom" value="">
+      <div class="err" id="err-prenom">Ce champ est obligatoire</div>
+    </div>
+    <div class="bloc">
+      <input type="text" name="candidate[last_name]" aria-label="Nom" placeholder="Nom *" aria-required="true" value="Fabrevic">
+    </div>
+    <div class="bloc invalide">
+      <input type="email" name="candidate[email]" aria-label="Email" placeholder="Email *" aria-required="true" aria-invalid="true" aria-describedby="err-mail" value="lea.fabrevic@exemple">
+      <div class="err" id="err-mail">Veuillez saisir une adresse e-mail valide</div>
+    </div>
+    <div class="bloc">
+      <input type="tel" name="candidate[phone]" aria-label="Téléphone" placeholder="Téléphone" value="06 12 34 56 78">
+    </div>
+
+    <div class="bloc invalide">
+      <div class="titre-champ">CV *</div>
+      <input type="file" name="candidate[resume]" aria-invalid="true" aria-describedby="err-cv" accept=".pdf,.doc,.docx">
+      <div class="err" id="err-cv">Merci de joindre votre CV</div>
+    </div>
+    <div class="bloc">
+      <div class="titre-champ">Lettre de motivation (fichier)</div>
+      <input type="file" name="candidate[cover_letter_file]" accept=".pdf,.doc,.docx">
+    </div>
+    <div class="bloc">
+      <div class="titre-champ">Un message pour l'équipe de recrutement ?</div>
+      <textarea name="candidate[cover_letter]" rows="5">Bonjour, votre marque me parle depuis longtemps et...</textarea>
+    </div>
+    <div class="bloc">
+      <div class="titre-champ">Vos prétentions salariales</div>
+      <select name="candidate[answers][salaire]">
+        <option value="">Sélectionner</option>
+        <option>Moins de 32 000 euros</option>
+        <option selected>32 000 à 38 000 euros</option>
+        <option>Plus de 38 000 euros</option>
+      </select>
+    </div>
+    <div class="bloc">
+      <div class="titre-champ">À partir de quand êtes-vous disponible ?</div>
+      <input type="date" name="candidate[answers][dispo]" value="2027-01-04">
+    </div>
+
+    <div class="bloc">
+      <label><input type="checkbox" name="candidate[consent]" checked> J'accepte que Maison Verbelle conserve ma candidature pendant 2 ans *</label>
+    </div>
+    <div class="bloc">
+      <label><input type="checkbox" name="candidate[newsletter]"> Je veux recevoir les prochaines offres de Maison Verbelle</label>
+    </div>
+
+    <button type="submit" class="btn-principal">Soumettre ma candidature</button>
+  </form>
+</div>
+</body>
+</html>

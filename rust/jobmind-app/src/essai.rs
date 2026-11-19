@@ -347,6 +347,44 @@ pub const SITES: &str = "sites.essai";
 /// Jobmind comme Jordan le ferait (et clique « Me connecter » si `envoyer`) ; il est supprimé aussitôt lu, et rien de
 /// son contenu ne va au journal.
 pub const CONNEXION_DEMANDE: &str = "connexion.demande";
+/// Étape 11 : ce fichier (« refus ») fait refuser le prochain envoi par le formulaire imité, une seule fois.
+pub const FORMULAIRES: &str = "formulaires.essai";
+/// Étape 11 : ce fichier ajoute à la base d'essai les offres inventées des formulaires imités
+/// (jobmind_sources::formulaire::exemples::OFFRES_ESSAI), une seule fois.
+pub const OFFRES_SITE_DEMANDE: &str = "offres-site.demande";
+
+/// Étape 11 : ajoute les offres inventées des formulaires imités (leurs adresses sont celles des sites, que l'essai
+/// change pour son faux serveur local). Rend leurs numéros.
+pub fn offres_site(
+    c: &jobmind_storage::rusqlite::Connection,
+    maintenant: Moment,
+) -> jobmind_storage::rusqlite::Result<Vec<(String, i64)>> {
+    let mut l = Vec::new();
+    for (source, id, url, titre, entreprise, ville, texte) in jobmind_sources::formulaire::exemples::OFFRES_ESSAI {
+        let o = jobmind_sources::OffreTrouvee {
+            id_source: id.into(),
+            titre: titre.into(),
+            entreprise: entreprise.into(),
+            lieu: ville.into(),
+            zones: Vec::new(),
+            url: url.into(),
+            description: texte.into(),
+            contrat: "CDI".into(),
+            salaire: String::new(),
+            publiee_le: String::new(),
+            latitude: None,
+            longitude: None,
+            brut: "{}".into(),
+        };
+        let code = if source == "autre" { "site" } else { source };
+        let a = jobmind_storage::offres::ajouter_page(c, code, &o, None, maintenant)?;
+        l.push((id.to_string(), a.id));
+    }
+    // (les coordonnées inventées de Jordan Exemple, pour les formulaires)
+    jobmind_storage::envois_site::garder_coordonnee(c, "mail", "jordan.exemple@exemple.fr")?;
+    jobmind_storage::envois_site::garder_coordonnee(c, "telephone", "06 12 34 56 78")?;
+    Ok(l)
+}
 
 /// L'essai n'affiche dans la vue des sites que son faux serveur local (`base` : « http://127.0.0.1:<port> »), et la page
 /// vide : jamais internet, jamais une page de Jobmind.

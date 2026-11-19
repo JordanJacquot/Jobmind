@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Recrutement - Domaine des Vignes Hautes</title>
+<style>
+body{background:#fdf8ee;font-family:Georgia,serif}
+#cadre{width:560px;margin:30px auto;padding:20px;border:2px solid #7a2e2e;background:#fff}
+.ligne{margin:12px 0}
+.intitule{font-size:15px;color:#7a2e2e}
+.ligne input,.ligne textarea,.ligne select{width:100%;padding:6px}
+</style>
+</head>
+<body>
+<div id="cadre">
+  <h2>Vendanges 2027 : nous recrutons des saisonniers</h2>
+  <p>Remplissez ce petit formulaire, Madame Rousselet vous recontactera.</p>
+  <form method="post" action="envoi.php" enctype="multipart/form-data">
+    <input type="hidden" name="saison" value="2027">
+    <div class="ligne">
+      <div class="intitule">Vos nom et prénom (obligatoire)</div>
+      <input type="text" name="input-1">
+    </div>
+    <div class="ligne">
+      <div class="intitule">Votre e-mail (obligatoire)</div>
+      <input type="text" name="input-2">
+    </div>
+    <div class="ligne">
+      <div class="intitule">Votre téléphone (obligatoire)</div>
+      <input type="text" name="input-3">
+    </div>
+    <div class="ligne">
+      <div class="intitule">Votre commune</div>
+      <input type="text" name="input-4">
+    </div>
+    <div class="ligne">
+      <div class="intitule">Avez-vous déjà fait les vendanges ?</div>
+      <label><input type="radio" name="input-5" value="oui"> Oui</label>
+      <label><input type="radio" name="input-5" value="non"> Non</label>
+    </div>
+    <div class="ligne">
+      <div class="intitule">Avez-vous besoin d'un logement sur place ?</div>
+      <select name="input-6">
+        <option>Non</option>
+        <option>Oui</option>
+        <option>Je ne sais pas encore</option>
+      </select>
+    </div>
+    <div class="ligne">
+      <div class="intitule">Un mot pour nous ?</div>
+      <textarea name="input-7" rows="4"></textarea>
+    </div>
+    <div class="ligne">
+      <label><input type="checkbox" name="input-8" value="1"> Je souhaite recevoir les nouvelles du domaine (une lettre par an)</label>
+    </div>
+    <div class="ligne">
+      <label><input type="checkbox" name="input-9" value="1"> J'accepte que mes données soient conservées pour le recrutement (obligatoire)</label>
+    </div>
+    <p style="display:none"><input type="text" name="url_site" value=""></p>
+    <input type="submit" value="Envoyer">
+    <input type="reset" value="Effacer">
+  </form>
+</div>
+</body>
+</html>

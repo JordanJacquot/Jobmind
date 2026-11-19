@@ -1,0 +1,243 @@
+{
+  "g01.html": {
+    "genre": "formulaire",
+    "bouton": "envoyer",
+    "bouton_texte": "Je candidate",
+    "captcha": false,
+    "erreurs": false,
+    "champs": [
+      { "libelle": "Civilité", "genre": "question", "obligatoire": true },
+      { "libelle": "Prénom", "genre": "prenom", "obligatoire": true },
+      { "libelle": "Nom", "genre": "nom", "obligatoire": true },
+      { "libelle": "Adresse e-mail", "genre": "mail", "obligatoire": true },
+      { "libelle": "Téléphone mobile", "genre": "telephone", "obligatoire": true },
+      { "libelle": "Code postal", "genre": "code_postal", "obligatoire": true },
+      { "libelle": "Ville de résidence", "genre": "ville", "obligatoire": false },
+      { "libelle": "Permis de conduire", "genre": "question", "obligatoire": false },
+      { "libelle": "Vos CACES en cours de validité", "genre": "question", "obligatoire": false },
+      { "libelle": "Votre CV", "genre": "cv", "obligatoire": true },
+      { "libelle": "J'accepte que mes données soient traitées", "genre": "consentement", "obligatoire": true },
+      { "libelle": "Je souhaite recevoir par e-mail les offres similaires", "genre": "autre", "obligatoire": false }
+    ]
+  },
+  "g02.html": {
+    "genre": "formulaire",
+    "bouton": "envoyer",
+    "bouton_texte": "Envoyer",
+    "captcha": false,
+    "erreurs": false,
+    "champs": [
+      { "libelle": "Adresse e-mail", "genre": "mail", "obligatoire": true },
+      { "libelle": "Nom et prénom", "genre": "nom_complet", "obligatoire": true },
+      { "libelle": "Numéro de téléphone", "genre": "telephone", "obligatoire": true },
+      { "libelle": "Commune de résidence", "genre": "ville", "obligatoire": false },
+      { "libelle": "Avez-vous le BAFA ?", "genre": "question", "obligatoire": true },
+      { "libelle": "Sur quels temps êtes-vous disponible ?", "genre": "question", "obligatoire": false },
+      { "libelle": "Présentez-vous en quelques lignes", "genre": "lettre", "obligatoire": true },
+      { "libelle": "Comment avez-vous connu notre association ?", "genre": "question", "obligatoire": false }
+    ]
+  },
+  "g03.html": {
+    "genre": "formulaire",
+    "bouton": "envoyer",
+    "bouton_texte": "Envoyer",
+    "captcha": false,
+    "erreurs": false,
+    "champs": [
+      { "libelle": "Votre nom et prénom", "genre": "nom_complet", "obligatoire": true },
+      { "libelle": "Votre adresse mail", "genre": "mail", "obligatoire": true },
+      { "libelle": "Votre numéro de téléphone", "genre": "telephone", "obligatoire": false },
+      { "libelle": "Poste qui vous intéresse", "genre": "question", "obligatoire": false },
+      { "libelle": "Votre message", "genre": "lettre", "obligatoire": false },
+      { "libelle": "Joindre votre CV", "genre": "cv", "obligatoire": true },
+      { "libelle": "En cochant cette case, j'accepte", "genre": "consentement", "obligatoire": false }
+    ]
+  },
+  "g04.html": {
+    "genre": "formulaire",
+    "bouton": "suivant",
+    "bouton_texte": "Étape suivante",
+    "captcha": false,
+    "erreurs": false,
+    "champs": [
+      { "libelle": "Civilité", "genre": "question", "obligatoire": true },
+      { "libelle": "Nom d'usage", "genre": "nom", "obligatoire": true },
+      { "libelle": "Prénom", "genre": "prenom", "obligatoire": true },
+      { "libelle": "Date de naissance", "genre": "question", "obligatoire": true },
+      { "libelle": "Adresse", "genre": "question", "obligatoire": true },
+      { "libelle": "Code postal", "genre": "code_postal", "obligatoire": true },
+      { "libelle": "Commune", "genre": "ville", "obligatoire": true },
+      { "libelle": "Téléphone", "genre": "telephone", "obligatoire": true },
+      { "libelle": "Courriel", "genre": "mail", "obligatoire": true },
+      { "libelle": "Confirmation du courriel", "genre": "mail", "obligatoire": true },
+      { "libelle": "Êtes-vous déjà agent de l'établissement ?", "genre": "question", "obligatoire": false }
+    ]
+  },
+  "g05.html": {
+    "genre": "formulaire",
+    "bouton": "envoyer",
+    "bouton_texte": "Submit application",
+    "captcha": true,
+    "erreurs": false,
+    "champs": [
+      { "libelle": "First name", "genre": "prenom", "obligatoire": true },
+      { "libelle": "Last name", "genre": "nom", "obligatoire": true },
+      { "libelle": "Email", "genre": "mail", "obligatoire": true },
+      { "libelle": "Headline", "genre": "question", "obligatoire": false },
+      { "libelle": "Phone", "genre": "telephone", "obligatoire": true },
+      { "libelle": "Address", "genre": "question", "obligatoire": false },
+      { "libelle": "Resume", "genre": "cv", "obligatoire": true },
+      { "libelle": "Cover letter", "genre": "lettre", "obligatoire": false },
+      { "libelle": "LinkedIn profile URL", "genre": "question", "obligatoire": false },
+      { "libelle": "Are you legally authorized to work in France?", "genre": "question", "obligatoire": true },
+      { "libelle": "What are your salary expectations", "genre": "question", "obligatoire": true },
+      { "libelle": "When could you start?", "genre": "question", "obligatoire": false },
+      { "libelle": "I have read and agree to the", "genre": "consentement", "obligatoire": true }
+    ]
+  },
+  "g06.html": {
+    "genre": "formulaire",
+    "bouton": "envoyer",
+    "bouton_texte": "Postuler",
+    "captcha": true,
+    "erreurs": false,
+    "champs": [
+      { "libelle": "Prénom", "genre": "prenom", "obligatoire": true },
+      { "libelle": "Nom", "genre": "nom", "obligatoire": true },
+      { "libelle": "E-mail", "genre": "mail", "obligatoire": true },
+      { "libelle": "Téléphone", "genre": "telephone", "obligatoire": true },
+      { "libelle": "Code postal", "genre": "code_postal", "obligatoire": false },
+      { "libelle": "Ajouter mon CV", "genre": "cv", "obligatoire": false }
+    ]
+  },
+  "g07.html": {
+    "genre": "formulaire",
+    "bouton": "envoyer",
+    "bouton_texte": "Soumettre ma candidature",
+    "captcha": false,
+    "erreurs": true,
+    "champs": [
+      { "libelle": "Prénom", "genre": "prenom", "obligatoire": true },
+      { "libelle": "Nom", "genre": "nom", "obligatoire": true },
+      { "libelle": "Email", "genre": "mail", "obligatoire": true },
+      { "libelle": "Téléphone", "genre": "telephone", "obligatoire": false },
+      { "libelle": "CV", "genre": "cv", "obligatoire": true },
+      { "libelle": "Lettre de motivation (fichier)", "genre": "lettre_fichier", "obligatoire": false },
+      { "libelle": "Un message pour l'équipe de recrutement ?", "genre": "lettre", "obligatoire": false },
+      { "libelle": "Vos prétentions salariales", "genre": "question", "obligatoire": false },
+      { "libelle": "À partir de quand êtes-vous disponible ?", "genre": "question", "obligatoire": false },
+      { "libelle": "J'accepte que Maison Verbelle conserve ma candidature", "genre": "consentement", "obligatoire": true },
+      { "libelle": "Je veux recevoir les prochaines offres", "genre": "autre", "obligatoire": false }
+    ]
+  },
+  "g08.html": {
+    "genre": "formulaire",
+    "bouton": "envoyer",
+    "bouton_texte": "Envoyer",
+    "captcha": false,
+    "erreurs": false,
+    "champs": [
+      { "libelle": "Civilité", "genre": "question", "obligatoire": true },
+      { "libelle": "Nom de famille", "genre": "nom", "obligatoire": true },
+      { "libelle": "Prénom(s)", "genre": "prenom", "obligatoire": true },
+      { "libelle": "Date de naissance", "genre": "question", "obligatoire": false },
+      { "libelle": "Nationalité", "genre": "question", "obligatoire": true },
+      { "libelle": "Adresse postale", "genre": "question", "obligatoire": true },
+      { "libelle": "Code postal", "genre": "code_postal", "obligatoire": true },
+      { "libelle": "Ville", "genre": "ville", "obligatoire": true },
+      { "libelle": "Adresse électronique", "genre": "mail", "obligatoire": true },
+      { "libelle": "Téléphone", "genre": "telephone", "obligatoire": false },
+      { "libelle": "Situation actuelle", "genre": "question", "obligatoire": true },
+      { "libelle": "Êtes-vous titulaire du permis B ?", "genre": "question", "obligatoire": true },
+      { "libelle": "Comment avez-vous eu connaissance de cette offre ?", "genre": "question", "obligatoire": false },
+      { "libelle": "Curriculum vitae", "genre": "cv", "obligatoire": true },
+      { "libelle": "Lettre de motivation", "genre": "lettre_fichier", "obligatoire": true },
+      { "libelle": "Dernier arrêté de situation administrative", "genre": "autre", "obligatoire": false },
+      { "libelle": "J'ai pris connaissance des mentions", "genre": "consentement", "obligatoire": true }
+    ]
+  },
+  "g09.html": {
+    "genre": "formulaire",
+    "bouton": "envoyer",
+    "bouton_texte": "Submit Application",
+    "captcha": true,
+    "erreurs": false,
+    "champs": [
+      { "libelle": "First Name", "genre": "prenom", "obligatoire": true },
+      { "libelle": "Last Name", "genre": "nom", "obligatoire": true },
+      { "libelle": "Email", "genre": "mail", "obligatoire": true },
+      { "libelle": "Phone", "genre": "telephone", "obligatoire": true },
+      { "libelle": "Address", "genre": "question", "obligatoire": false },
+      { "libelle": "City", "genre": "ville", "obligatoire": false },
+      { "libelle": "ZIP", "genre": "code_postal", "obligatoire": false },
+      { "libelle": "Resume", "genre": "cv", "obligatoire": true },
+      { "libelle": "Cover Letter", "genre": "lettre_fichier", "obligatoire": false },
+      { "libelle": "Date Available", "genre": "question", "obligatoire": false },
+      { "libelle": "Desired Pay", "genre": "question", "obligatoire": false },
+      { "libelle": "Website, Blog, or Portfolio", "genre": "question", "obligatoire": false },
+      { "libelle": "LinkedIn Profile URL", "genre": "question", "obligatoire": false },
+      { "libelle": "Who referred you for this position?", "genre": "question", "obligatoire": false },
+      { "libelle": "Do you have a valid forklift certificate?", "genre": "question", "obligatoire": true }
+    ]
+  },
+  "g10.html": {
+    "genre": "formulaire",
+    "bouton": "envoyer",
+    "bouton_texte": "Valider ma candidature",
+    "captcha": false,
+    "erreurs": false,
+    "champs": [
+      { "libelle": "Prénom", "genre": "prenom", "obligatoire": true },
+      { "libelle": "Nom de famille", "genre": "nom", "obligatoire": true },
+      { "libelle": "Saisissez l'e-mail", "genre": "mail", "obligatoire": true },
+      { "libelle": "Confirmer l'e-mail", "genre": "mail", "obligatoire": true },
+      { "libelle": "Téléphone", "genre": "telephone", "obligatoire": true },
+      { "libelle": "Magasin souhaité", "genre": "question", "obligatoire": true },
+      { "libelle": "Rayons qui vous intéressent", "genre": "question", "obligatoire": false },
+      { "libelle": "Type de contrat recherché", "genre": "question", "obligatoire": false },
+      { "libelle": "Votre CV", "genre": "cv", "obligatoire": true },
+      { "libelle": "Quelques mots sur vous", "genre": "lettre", "obligatoire": false },
+      { "libelle": "J'autorise Hyper Frais Marché à conserver mes données", "genre": "consentement", "obligatoire": true }
+    ]
+  },
+  "g11.html": {
+    "genre": "formulaire",
+    "bouton": "suivant",
+    "bouton_texte": "Suivant",
+    "captcha": false,
+    "erreurs": false,
+    "champs": [
+      { "libelle": "Civilité", "genre": "question", "obligatoire": false },
+      { "libelle": "Prénom", "genre": "prenom", "obligatoire": true },
+      { "libelle": "Nom", "genre": "nom", "obligatoire": true },
+      { "libelle": "Adresse email", "genre": "mail", "obligatoire": true },
+      { "libelle": "Téléphone portable", "genre": "telephone", "obligatoire": true },
+      { "libelle": "Ville", "genre": "ville", "obligatoire": false },
+      { "libelle": "Niveau d'études", "genre": "question", "obligatoire": false },
+      { "libelle": "Pièce jointe : CV", "genre": "cv", "obligatoire": true }
+    ]
+  },
+  "g12.html": {
+    "genre": "formulaire",
+    "bouton": "envoyer",
+    "bouton_texte": "C'est parti, je postule !",
+    "captcha": false,
+    "erreurs": false,
+    "champs": [
+      { "libelle": "Ton prénom", "genre": "prenom", "obligatoire": false },
+      { "libelle": "Ton nom", "genre": "nom", "obligatoire": false },
+      { "libelle": "Ton numéro de portable", "genre": "telephone", "obligatoire": false },
+      { "libelle": "Ton adresse mail", "genre": "mail", "obligatoire": false },
+      { "libelle": "Tu as plus de 18 ans ?", "genre": "question", "obligatoire": false },
+      { "libelle": "Tes dispos", "genre": "question", "obligatoire": false },
+      { "libelle": "Un petit mot pour te présenter ?", "genre": "lettre", "obligatoire": false },
+      { "libelle": "J'accepte que Crousti Burger utilise mes infos", "genre": "consentement", "obligatoire": false }
+    ]
+  },
+  "q01.html": { "genre": "confirmation" },
+  "q02.html": { "genre": "confirmation" },
+  "q03.html": { "genre": "offre_postuler" },
+  "q04.html": { "genre": "connexion" },
+  "q05.html": { "genre": "erreur_site" },
+  "q06.html": { "genre": "confirmation" }
+}

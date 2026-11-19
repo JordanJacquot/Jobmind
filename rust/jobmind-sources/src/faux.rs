@@ -515,6 +515,10 @@ pub fn imitation_avec_sites(
     sites: Arc<Mutex<crate::sites::exemples::ModeSites>>,
 ) -> impl Fn(&Requete) -> RepFaux + Send + Sync + 'static {
     move |r: &Requete| {
+        // (étape 11 : les formulaires de candidature imités)
+        if let Some(rep) = crate::formulaire::exemples::repondre(r, &crate::formulaire::exemples::MODE) {
+            return rep;
+        }
         // (étape 5 bis : les listes, les offres et les connexions des quatre sites imités)
         if (r.methode == "GET" || r.methode == "POST")
             && let Some(rep) = crate::sites::exemples::repondre(r, &sites)

@@ -118,7 +118,7 @@ pub struct CvJoint {
     pub taille: Option<i64>,
 }
 
-fn cv_joint(c: &rusqlite::Connection, dossier: &Path) -> rusqlite::Result<Option<CvJoint>> {
+pub(crate) fn cv_joint(c: &rusqlite::Connection, dossier: &Path) -> rusqlite::Result<Option<CvJoint>> {
     let cvs = profil::lister_cv(c)?;
     let Some(x) = cvs.iter().find(|x| x.fichier.is_some()) else { return Ok(None) };
     let fichier = x.fichier.clone().unwrap_or_default();
@@ -564,37 +564,71 @@ impl Envoi {
 pub fn pour_dossier(base: Option<&Base>, candidature: i64, aujourdhui: Jour) -> Value {
     let Some(b) = base else { return Value::Null };
     let l = base_envois::du_dossier(b.connexion(), candidature).unwrap_or_default();
-    Value::Array(
-        l.iter()
-            .filter(|e| e.moyen == "mail")
-            .map(|e| {
-                let mut lignes = vec![
-                    json!(["De", e.expediteur.clone().unwrap_or_default()]),
-                    json!(["À", e.destinataire.clone().unwrap_or_default()]),
-                    json!(["Objet", e.objet.clone().unwrap_or_default()]),
-                    json!(["Envoyé", quand(e.envoye_le, aujourdhui)]),
-                ];
-                if let Some(p) = &e.piece_jointe {
-                    let t = e
-                        .piece_taille
-                        .map(|x| format!(" ({})", crate::vue_profil::taille_texte(x)))
-                        .unwrap_or_default();
-                    lignes.push(json!(["CV joint", format!("{p}{t}")]));
-                }
-                json!({
-                    "id": e.id,
-                    "titre": if e.confirme_par.as_deref() == Some("jordan") {
-                        "Par mail, depuis ton Gmail (tu l'as vu dans Messages envoyés)"
-                    } else {
-                        "Par mail, depuis ton Gmail"
-                    },
-                    "lignes": lignes,
-                    "texte": e.contenu,
-                    "message_id": e.message_id.clone().map(|m| format!("Numéro du mail : <{m}>")),
-                })
+    let mut v: Vec<Value> = l
+        .iter()
+        .filter(|e| e.moyen == "mail")
+        .map(|e| {
+            let mut lignes = vec![
+                json!(["De", e.expediteur.clone().unwrap_or_default()]),
+                json!(["À", e.destinataire.clone().unwrap_or_default()]),
+                json!(["Objet", e.objet.clone().unwrap_or_default()]),
+                json!(["Envoyé", quand(e.envoye_le, aujourdhui)]),
+            ];
+            if let Some(p) = &e.piece_jointe {
+                let t =
+                    e.piece_taille.map(|x| format!(" ({})", crate::vue_profil::taille_texte(x))).unwrap_or_default();
+                lignes.push(json!(["CV joint", format!("{p}{t}")]));
+            }
+            json!({
+                "id": e.id,
+                "titre": if e.confirme_par.as_deref() == Some("jordan") {
+                    "Par mail, depuis ton Gmail (tu l'as vu dans Messages envoyés)"
+                } else {
+                    "Par mail, depuis ton Gmail"
+                },
+                "lignes": lignes,
+                "texte": e.contenu,
+                "message_id": e.message_id.clone().map(|m| format!("Numéro du mail : <{m}>")),
             })
-            .collect(),
-    )
+        })
+        .collect();
+    // (étape 11 : les envois sur le site, chaque champ avec ce que la page montrait)
+    for e in jobmind_storage::envois_site::du_dossier(b.connexion(), candidature).unwrap_or_default() {
+        let site =
+            jobmind_sources::page::Site::CONNUS.iter().find(|s| s.code() == e.site).map_or("le site", |s| s.nom());
+        let mut lignes = vec![
+            json!(["Où", if site == "le site" { "Sur le site de l'offre".to_string() } else { format!("Sur {site}") }]),
+            json!(["Page", e.adresse.chars().take(120).collect::<String>()]),
+            json!(["Envoyée", quand(e.envoye_le, aujourdhui)]),
+            json!([
+                "Confirmée",
+                if e.confirme == "jordan" { "par toi".to_string() } else { "par la page du site".to_string() }
+            ]),
+        ];
+        if let Ok(Value::Array(champs)) = serde_json::from_str::<Value>(&e.champs) {
+            for c in champs.iter().take(60) {
+                let lib = c.get("libelle").and_then(Value::as_str).unwrap_or_default();
+                let val = c.get("valeur").and_then(Value::as_str).unwrap_or_default();
+                if lib.is_empty() || val.is_empty() {
+                    continue;
+                }
+                let court: String = if val.chars().count() > 160 {
+                    format!("{}...", val.chars().take(157).collect::<String>())
+                } else {
+                    val.to_string()
+                };
+                lignes.push(json!([lib, court]));
+            }
+        }
+        v.push(json!({
+            "id": e.id,
+            "titre": if e.confirme == "jordan" { format!("Sur {site}, envoyée par toi") } else { format!("Sur {site}, confirmée par le site") },
+            "lignes": lignes,
+            "texte": e.lettre,
+            "message_id": e.preuve.map(|p| if e.confirme == "jordan" { p } else { format!("La page du site disait : « {p} »") }),
+        }));
+    }
+    Value::Array(v)
 }
 
 /// Les textes de l'écran.

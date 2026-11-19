@@ -34,6 +34,7 @@ pub mod adzuna;
 pub mod alertes;
 #[cfg(any(test, feature = "faux"))]
 pub mod faux;
+pub mod formulaire;
 pub mod html;
 pub mod http;
 pub mod jooble;

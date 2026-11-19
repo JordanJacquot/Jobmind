@@ -79,7 +79,7 @@ impl Navigateur {
     }
 
     fn lecture(&self) -> Lecture {
-        Lecture { brute: self.adresse.clone(), comprise: comprendre(&self.adresse, &self.html) }
+        Lecture { brute: self.adresse.clone(), comprise: comprendre(&self.adresse, &self.html), formulaire: None }
     }
 
     /// Ce que fait le script de saisie : le mail et le mot de passe dans leurs cases, puis le formulaire envoyé.
@@ -459,7 +459,7 @@ fn verification_et_ecran_inconnu_pendant_la_connexion() {
     let p = c.page_chargee("https://secure.indeed.com/auth/otp");
     let html = "<html><body><h1>Code envoyé</h1><input autocomplete=\"one-time-code\" type=\"text\"></body></html>";
     let u = "https://secure.indeed.com/auth/otp";
-    let l = Lecture { brute: u.into(), comprise: comprendre(u, html) };
+    let l = Lecture { brute: u.into(), comprise: comprendre(u, html), formulaire: None };
     let f = c.lu(None, lire_no(&p), l, m(9, 0));
     assert!(f.coulisse.contains(&Ordre::Montrer));
     assert_eq!(c.petite.as_ref().unwrap().raison, Raison::Verification);
@@ -470,7 +470,7 @@ fn verification_et_ecran_inconnu_pendant_la_connexion() {
     let u = "https://www.welcometothejungle.com/fr/signin";
     let p = c.page_chargee(u);
     let html = "<html><body><h1>Bienvenue</h1><p>Une page toute nouvelle.</p></body></html>";
-    let l = Lecture { brute: u.into(), comprise: comprendre(u, html) };
+    let l = Lecture { brute: u.into(), comprise: comprendre(u, html), formulaire: None };
     let f = c.lu(None, lire_no(&p), l, m(9, 0));
     assert!(f.coulisse.contains(&Ordre::Montrer));
     assert_eq!(c.petite.as_ref().unwrap().raison, Raison::Inconnue);

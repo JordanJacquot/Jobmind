@@ -189,6 +189,11 @@ impl Document {
         }
     }
 
+    /// Le morceau `i` (étape 11 : le formulaire de candidature parcourt la page).
+    pub fn jeton(&self, i: usize) -> Option<&Jeton> {
+        self.jetons.get(i)
+    }
+
     /// Ce qui suit la fin de l'élément `i` (lui-même et son contenu : `i..fin`).
     pub fn fin(&self, i: usize) -> usize {
         self.fins.get(i).copied().unwrap_or(i + 1).max(i + 1)

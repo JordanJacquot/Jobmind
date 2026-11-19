@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Postuler : Préparateur de commandes H/F à Lyon | Intérim Plus</title>
+<style>
+body { font-family: Arial, sans-serif; margin: 0; background: #f4f6f9; color: #1d1d1b; }
+header { background: #d4001a; color: #fff; padding: 12px 24px; display: flex; gap: 24px; align-items: center; }
+header form { margin-left: auto; }
+main { max-width: 760px; margin: 24px auto; background: #fff; padding: 24px; border-radius: 6px; }
+.ligne { margin-bottom: 14px; }
+.ligne label { display: block; font-weight: bold; margin-bottom: 4px; }
+.etoile { color: #d4001a; }
+.hp { position: absolute; left: -9999px; top: -9999px; }
+button[type=submit] { background: #d4001a; color: #fff; border: 0; padding: 12px 28px; font-size: 16px; border-radius: 24px; }
+</style>
+</head>
+<body>
+<header>
+  <strong>Intérim Plus</strong>
+  <nav><a href="/espace-candidat">Espace candidat</a> | <a href="/entreprises">Vous recrutez ?</a></nav>
+  <form role="search" action="/offres" method="get">
+    <input type="search" name="q" placeholder="Métier, compétence, ville..." aria-label="Rechercher une offre">
+    <button type="submit">Rechercher</button>
+  </form>
+</header>
+<main>
+  <p><a href="/offres">Retour aux offres</a></p>
+  <h1>Préparateur de commandes H/F</h1>
+  <p>Lyon 7e (69) | Intérim 3 mois renouvelable | 11,88 euros brut de l'heure</p>
+  <p>Agence Intérim Plus Lyon Gerland, 12 rue de l'Exemple, 69007 Lyon</p>
+
+  <h2>Je postule à cette offre</h2>
+  <p class="mention">Les champs marqués d'un <span class="etoile">*</span> sont obligatoires</p>
+
+  <form id="form-candidature" action="/candidature/envoyer" method="post" enctype="multipart/form-data">
+    <input type="hidden" name="offre_id" value="INT-48213">
+    <input type="hidden" name="source" value="site">
+
+    <fieldset class="ligne">
+      <legend>Civilité <span class="etoile">*</span></legend>
+      <input type="radio" id="civ_mme" name="civilite" value="mme" required><label for="civ_mme">Madame</label>
+      <input type="radio" id="civ_m" name="civilite" value="m"><label for="civ_m">Monsieur</label>
+    </fieldset>
+
+    <div class="ligne">
+      <label for="cand_prenom">Prénom <span class="etoile">*</span></label>
+      <input type="text" id="cand_prenom" name="prenom" required autocomplete="given-name">
+    </div>
+    <div class="ligne">
+      <label for="cand_nom">Nom <span class="etoile">*</span></label>
+      <input type="text" id="cand_nom" name="nom" required autocomplete="family-name">
+    </div>
+    <div class="ligne">
+      <label for="cand_mail">Adresse e-mail <span class="etoile">*</span></label>
+      <input type="email" id="cand_mail" name="email" required autocomplete="email">
+    </div>
+    <div class="ligne">
+      <label for="cand_tel">Téléphone mobile <span class="etoile">*</span></label>
+      <input type="tel" id="cand_tel" name="telephone" required>
+    </div>
+    <div class="ligne">
+      <label for="cand_cp">Code postal <span class="etoile">*</span></label>
+      <input type="text" id="cand_cp" name="code_postal" maxlength="5" required>
+    </div>
+    <div class="ligne">
+      <label for="cand_ville">Ville de résidence</label>
+      <input type="text" id="cand_ville" name="ville">
+    </div>
+    <div class="ligne">
+      <label for="cand_permis">Permis de conduire</label>
+      <select id="cand_permis" name="permis">
+        <option value="">Choisir</option>
+        <option>Aucun</option>
+        <option>Permis B</option>
+        <option>Permis C</option>
+        <option>Permis CE</option>
+      </select>
+    </div>
+    <fieldset class="ligne">
+      <legend>Vos CACES en cours de validité</legend>
+      <label><input type="checkbox" name="caces[]" value="r489-1"> R489 catégorie 1</label>
+      <label><input type="checkbox" name="caces[]" value="r489-3"> R489 catégorie 3</label>
+      <label><input type="checkbox" name="caces[]" value="r489-5"> R489 catégorie 5</label>
+    </fieldset>
+    <div class="ligne">
+      <label for="cand_cv">Votre CV <span class="etoile">*</span> (PDF ou Word, 5 Mo maximum)</label>
+      <input type="file" id="cand_cv" name="cv" accept=".pdf,.doc,.docx" required>
+    </div>
+
+    <div class="hp" aria-hidden="true">
+      <label for="site_web">Ne pas remplir ce champ</label>
+      <input type="text" id="site_web" name="site_web" tabindex="-1" autocomplete="off">
+    </div>
+
+    <div class="ligne">
+      <input type="checkbox" id="rgpd" name="rgpd" required>
+      <label for="rgpd" style="display:inline;font-weight:normal">J'accepte que mes données soient traitées par Intérim Plus pour ma recherche d'emploi, selon la <a href="/confidentialite">politique de confidentialité</a>. <span class="etoile">*</span></label>
+    </div>
+    <div class="ligne">
+      <input type="checkbox" id="alertes" name="alertes">
+      <label for="alertes" style="display:inline;font-weight:normal">Je souhaite recevoir par e-mail les offres similaires</label>
+    </div>
+
+    <button type="reset">Effacer</button>
+    <button type="submit">Je candidate</button>
+  </form>
+</main>
+<footer><p>Intérim Plus, agence d'emploi. Contact : contact@interimplus.exemple.fr</p></footer>
+</body>
+</html>

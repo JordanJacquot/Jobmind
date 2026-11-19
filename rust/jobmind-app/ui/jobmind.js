@@ -650,6 +650,17 @@
     </form></div>`;
   }
 
+  // Étape 11 : à côté de la page du site (LinkedIn, ou Jordan qui fait lui-même), ses textes à copier et « C'est envoyé »
+  function coteHTML(c) {
+    if (!c || typeof c !== 'object') return '';
+    const { esc } = O, qs = liste(c.questions).filter((q) => texteSur(q?.reponse));
+    let h = `<aside class="jm-pf-cote" aria-label="${esc(texteSur(c.titre))}"><b class="jm-pf-ct">${esc(texteSur(c.titre))}</b><p class="jm-petit">${esc(texteSur(c.texte))}</p>`;
+    if (texteSur(c.lettre)) h += `<div class="jm-pf-bloc"><div class="jm-pf-bt"><span>${esc(texteSur(c.lettre_t))}</span>${bouton('po-copier', 'pf:c-lettre', texteSur(c.copier), 'copie', 'discret', ' data-quoi="lettre"')}</div><div class="jm-pf-txt-l" data-brut>${esc(c.lettre)}</div></div>`;
+    if (qs.length) h += `<b class="jm-pf-ct petit">${esc(texteSur(c.questions_t))}</b>${qs.map((q, n) => `<div class="jm-pf-bloc"><div class="jm-pf-bt"><span>${esc(texteSur(q.question))}</span>${bouton('po-copier', `pf:c-q${n}`, texteSur(c.copier), 'copie', 'discret', ` data-quoi="q" data-n="${n}"`)}</div><div class="jm-pf-txt-l" data-brut>${esc(q.reponse)}</div></div>`).join('')}`;
+    h += `<div class="jm-pf-fin">${bouton('po-fait', 'pf:fait', texteSur(c.fait), 'coche', 'principal')}</div></aside>`;
+    return h;
+  }
+
   // La petite fenêtre du site : le bandeau de Jobmind, et la place de la vraie page
   function petiteHTML() {
     const { esc } = O, t = tC(), p = objet(cs().petite);
@@ -658,11 +669,12 @@
       ? `<button type="button" class="jm-bt principal f" data-perso="cs-ajouter-page" data-k="pf:ajouter"${lecture ? ' disabled' : ''}>${lecture ? '<span class="jm-roue" aria-hidden="true"></span>' : icone('plus')}<span>${esc(lecture ? t('lecture') : t('ajouter'))}</span></button>`
       : '';
     return `<div class="jm-pf${carteVue === 'pf' ? '' : ' entree'}" role="dialog" aria-modal="true" aria-labelledby="jm-pf-t"><div class="jm-pf-cadre">
-      <div class="jm-pf-bandeau"><span class="jm-a-ic">${icone(p.ajouter === true ? 'globe' : 'attention')}</span>
+      <div class="jm-pf-bandeau"><span class="jm-a-ic">${icone(p.ajouter === true || p.cote ? 'globe' : 'attention')}</span>
         <div class="jm-pf-txt"><b id="jm-pf-t">${esc(texteSur(p.titre))}</b><span>${esc(texteSur(p.texte))}</span></div>
         <div class="jm-pf-bts">${ajouter}${bouton('cs-fermer', 'pf:fermer', t('fermer'), 'croix', 'second')}</div></div>
       ${annonceSitesHTML(p.annonce, null).replace('class="jm-annonce', 'class="jm-pf-annonce jm-annonce')}
-      <div class="jm-pf-site" aria-hidden="true"><span class="jm-roue" aria-hidden="true"></span></div>
+      ${texteSur(p.apres) ? `<p class="jm-pf-apres">${esc(p.apres)}</p>` : ''}
+      <div class="jm-pf-corps"><div class="jm-pf-site" aria-hidden="true"><span class="jm-roue" aria-hidden="true"></span></div>${coteHTML(p.cote)}</div>
     </div></div>`;
   }
 
@@ -824,7 +836,17 @@
       // (étape 5 bis : un site choisi, ses résultats lus en coulisse ; sinon mes offres gardées et leurs filtres)
       const site = sourceSite();
       // (étape 10 : le récapitulatif de l'envoi par mail prend toute la place sous les onglets)
-      const e = enOuvert() ? enDe() : null;
+      // (étape 11 : le récapitulatif de l'envoi sur le site, de même)
+      const po = poOuvert();
+      const e = !po && enOuvert() ? enDe() : null;
+      if (po) {
+        recap = poRecapHTML(po);
+        const cle = `${po.offre}:${po.ouvert.phase}`;
+        if (poVu !== cle) {
+          poVu = cle;
+          if (!focusK) focusK = po.ouvert.phase === 'parti' ? 'po:dossier' : (po.ouvert.phase === 'incertain' ? 'po:fait' : 'po:envoyer');
+        }
+      } else poVu = null;
       if (e) {
         recap = recapHTML(e);
         if (enVu !== e.offre || enFini !== enIssue(e)) {
@@ -1107,6 +1129,8 @@
       if (prEdition) prEdition.texte = el.value;
     } else if (d.perso === 'pr-consigne') {
       prConsigne = el.value;
+    } else if (d.perso === 'po-champ') {
+      const p = poDe(), i = Number(d.i); if (p && Number.isInteger(i)) { poSaisieDe(p).v[i] = el.value; poBas(); }
     } else if (d.perso === 'en-champ' && ['a', 'objet'].includes(d.champ)) {
       const e = enDe(); if (e) { enSaisieDe(e)[d.champ] = el.value; }
     } else if (typeof d.perso === 'string' && d.perso.startsWith('of-')) {
@@ -1882,7 +1906,7 @@
     h += `<p class="jm-petit">${esc(bloque ? t('sans_cle_style') : texteSur(ix.texte))}</p>`;
     h += `<div class="jm-btns serre">${bouton('pr-styler', 'pr:styler', ix.claude === true ? t('styler') : t('appliquer'), 'plume', 'principal', p.occupe === true || bloque ? ' disabled' : '')}${bouton('pr-regles', 'pr:regles', t('mes_regles'), 'reglages', 'discret')}</div>`;
     h += `<h2 class="jm-h2">${esc(t('refaire_t'))}</h2><div class="jm-pr-refaire"><input class="f" data-perso="pr-consigne" data-k="pr:consigne" maxlength="120" autocomplete="off" spellcheck="false" placeholder="${esc(t('i_consigne'))}" aria-label="${esc(t('refaire_t'))}" value="${esc(prConsigne)}">${bouton('pr-refaire', 'pr:refaire', t('refaire'), 'recharger', '', occupe)}</div>`;
-    h += `<p class="jm-petit">${esc(texteSur(v.cout))}</p></div><div class="jm-pr-cote">${envoiBarHTML()}`;
+    h += `<p class="jm-petit">${esc(texteSur(v.cout))}</p></div><div class="jm-pr-cote">${envoiBarHTML()}${poBarHTML()}`;
     const qs = liste(v.questions);
     h += `<h3>${esc(t('questions_t'))}</h3>`;
     h += qs.length ? qs.map((q, i) => `<div class="jm-q"><div class="jm-qt"><span>${esc(texteSur(q?.question))}</span>${bouton('pr-copier-q', `pr:q-${i}`, t('copier_rep'), 'copie', 'discret', ` data-i="${i}"`)}</div><p>${morceauxHTML(q?.morceaux)}</p></div>`).join('') : `<p class="jm-petit jm-pr-vide">${esc(t('aucune_q'))}</p>`;
@@ -2157,6 +2181,168 @@
     }
   }
 
+  // ---------------------------------------------------------------- L'envoi sur le site (étape 11)
+  // « Postuler sur le site » ('po-ouvrir') dans « Ma candidature » : Rust charge le formulaire du site en coulisse, le
+  // remplit et le relit (P.postuler.ouvert) : chaque champ du site, ce que Jobmind y a mis, d'où ça vient, et ce que
+  // Jordan doit compléter. Ce qu'il tape reste ici (poSaisie) jusqu'à « Mettre mes réponses sur le site »
+  // ('po-remplir'). Rien n'est validé sur le site sans son clic sur « Envoyer » ('po-envoyer'). LinkedIn : la petite
+  // fenêtre du site, avec ses textes à côté, et « C'est envoyé » ('po-fait').
+  let poSaisie = null;   // { offre, v: { rang: valeur } }
+  let poVu = null;       // l'offre et la phase dessinées en dernier (le choix suit quand elles changent)
+  const poDe = () => { const p = objet(P?.postuler); return numSur(p.offre) ? p : null; };
+  const poOuvert = () => { const p = poDe(); return p && p.ouvert && typeof p.ouvert === 'object' && onglet === 'offres' && !sourceSite() ? p : null; };
+  const poSaisieDe = (p) => { if (!poSaisie || poSaisie.offre !== p.offre) poSaisie = { offre: p.offre, v: {} }; return poSaisie; };
+  const poEnAttente = (p) => Object.keys(poSaisieDe(p).v).length > 0;
+  const tPo = (o) => { const t = objet(o?.textes); return (k) => texteSur(t[k]); };
+
+  // Dans « Ma candidature » : « Postuler sur Indeed », ou « Envoyée sur le site le ... », ou un envoi incertain
+  function poBarHTML() {
+    const p = poDe(), e = enDe();
+    if (!p || !e || !texteSur(e.lettre)) return '';
+    const { esc } = O;
+    let h = '<div class="jm-envoi-bar jm-po-bar">';
+    if (p.envoyee) h += `<div class="jm-envoi-fait">${icone('coche')}<span>${esc(texteSur(p.envoyee.texte))}</span></div>`;
+    if (p.incertain) {
+      const n = Number(p.incertain.tente) || 0;
+      h += annonceEnHTML('attention', texteSur(p.incertain.texte), `${bouton('po-fait', 'po:fait-i', "C'est envoyé", 'coche', 'principal', ` data-tente="${n}"`)}${bouton('po-pas-parti', 'po:non-i', "Ce n'est pas parti", 'croix', 'second', ` data-tente="${n}"`)}`);
+    }
+    const principal = !texteSur(e.a) && !p.envoyee;
+    h += bouton('po-ouvrir', 'po:ouvrir', texteSur(p.bouton), p.linkedin === true ? 'ext' : 'globe', principal ? 'principal' : '', p.occupe === true ? ' disabled' : '');
+    h += `<span class="jm-petit">${esc(texteSur(p.note))}</span>`;
+    return `${h}</div>`;
+  }
+
+  // Une valeur que Jordan peut taper ou choisir dans le récapitulatif
+  function poChampHTML(l, s) {
+    const { esc } = O, i = Number(l.i), k = `po:c-${i}`;
+    const val = Object.hasOwn(s.v, i) ? String(s.v[i]) : texteSur(l.voulu ?? '');
+    const choix = liste(l.choix).filter((c) => typeof c?.v === 'string');
+    const lab = ` aria-label="${esc(texteSur(l.libelle))}"`;
+    if (l.sorte === 'liste' || l.sorte === 'ronds') {
+      return `<select class="f jm-po-in" data-perso="po-champ" data-i="${i}" data-k="${k}"${lab}><option value="">Choisir</option>${choix.map((c) => `<option value="${esc(c.v)}"${c.v === val ? ' selected' : ''}>${esc(texteSur(c.t))}</option>`).join('')}</select>`;
+    }
+    if (l.sorte === 'case' || l.sorte === 'cases') {
+      const pris = val.split('\n');
+      const opts = l.sorte === 'case' ? [{ v: '1', t: 'Oui' }] : choix;
+      return `<div class="jm-po-puces">${opts.map((c, n) => { const oui = l.sorte === 'case' ? val === '1' : pris.includes(c.v); return `<button type="button" role="switch" aria-checked="${oui}" class="jm-puce petite f${oui ? ' oui' : ''}" data-perso="po-puce" data-i="${i}" data-v="${esc(c.v)}" data-k="po:p-${i}-${n}">${icone(oui ? 'coche' : 'plus')}${esc(texteSur(c.t))}</button>`; }).join('')}</div>`;
+    }
+    if (l.sorte === 'zone') return `<textarea class="f jm-po-in jm-po-zone" data-perso="po-champ" data-i="${i}" data-k="${k}" maxlength="8000"${lab}>${esc(val)}</textarea>`;
+    return `<input class="f jm-po-in" data-perso="po-champ" data-i="${i}" data-k="${k}" maxlength="300" autocomplete="off" spellcheck="false" value="${esc(val)}"${lab}>`;
+  }
+
+  // Une ligne du récapitulatif : le champ du site, ce qui y est, d'où ça vient
+  function poLigneHTML(l, s, t) {
+    const { esc } = O, i = Number(l.i);
+    const etat = codeSur(l.etat) ? l.etat : 'ok';
+    const ed = ['a_completer', 'facultatif', 'different'].includes(etat) && l.sorte !== 'fichier' && l.genre !== 'consentement' && l.genre !== 'autre';
+    const modif = l.source === 'Tapé par toi' && l.sorte !== 'fichier';
+    let v;
+    if (etat === 'accord') {
+      const oui = s.v[i] === '1';
+      v = `<button type="button" role="switch" aria-checked="${oui}" class="jm-puce f${oui ? ' oui' : ''}" data-perso="po-puce" data-i="${i}" data-v="1" data-k="po:a-${i}">${icone(oui ? 'coche' : 'plus')}${esc(t('accord'))}</button><small>${esc(t('accord_s'))}</small>`;
+    } else if (etat === 'a_joindre') {
+      v = `<span class="jm-po-note">${esc(t('a_joindre'))}</span>`;
+    } else if (ed || modif) {
+      v = poChampHTML(l, s);
+      if (etat === 'different') v += `<small class="jm-po-diff">${esc(t('different'))}</small>`;
+    } else if (l.sorte === 'fichier') {
+      v = `<span class="jm-pj">${icone('cv')}<span>${esc(texteSur(l.valeur))}</span></span>`;
+    } else {
+      v = `<span class="jm-po-v${l.long === true ? ' long' : ''}" data-brut>${esc(texteSur(l.valeur))}</span>`;
+    }
+    const ic = etat === 'ok' ? icone('coche') : (etat === 'facultatif' ? '' : icone('attention'));
+    const src = etat === 'ok' && texteSur(l.source) ? `<small class="jm-po-src">${esc(l.source)}</small>` : (etat === 'a_completer' ? `<small class="jm-po-src a">${esc(t('a_completer'))}</small>` : '');
+    return `<div class="jm-po-l ${etat}"><div class="jm-po-lib"><b>${esc(texteSur(l.libelle))}</b>${l.obligatoire === true ? `<small>${esc(t('obligatoire'))}</small>` : ''}</div><div class="jm-po-val">${v}</div><div class="jm-po-et">${ic}${src}</div></div>`;
+  }
+
+  // Le récapitulatif avant l'envoi sur le site (maquette C, comme l'envoi par mail)
+  function poRecapHTML(p) {
+    const { esc } = O, o = objet(p.ouvert), t = tPo(o), s = poSaisieDe(p);
+    let h = `<div class="jm-envoi${poVu && poVu.startsWith(`${p.offre}:`) ? '' : ' entree'}" role="dialog" aria-labelledby="jm-po-t"><div class="jm-e-haut"><div class="jm-e-t"><b id="jm-po-t">${esc(t('titre'))}</b><span>${esc([texteSur(o.titre), texteSur(o.entreprise)].filter(Boolean).join(', '))}</span></div>
+      <span class="jm-e-facon">${icone('globe')}${esc(t('facon'))}</span>${bouton('po-fermer', 'po:fermer', t('fermer'), 'croix', 'second')}</div><div class="jm-e-corps">`;
+    const parti = objet(o.parti);
+    if (o.phase === 'parti' && numSur(parti.candidature)) {
+      h += `<div class="jm-e-fini"><div class="jm-e-rond">${icone('coche')}</div><b>${esc(t('parti_t'))}</b><p>${esc(texteSur(parti.texte))}</p>${texteSur(parti.preuve) ? `<p class="jm-po-preuve">${esc(parti.preuve)}</p>` : ''}
+        <div class="jm-btns">${bouton('po-dossier', 'po:dossier', t('voir_dossier'), 'dossier', 'principal', ` data-id="${parti.candidature}"`)}${bouton('po-fermer', 'po:revenir', t('revenir'), 'gauche', 'second')}</div></div></div></div>`;
+      return h;
+    }
+    h += '<div class="jm-mail jm-po">';
+    if (texteSur(o.etape)) h += `<p class="jm-po-etape">${esc(o.etape)}</p>`;
+    const a = objet(o.annonce);
+    if (texteSur(a.texte)) {
+      const g = a.genre === 'connexion' ? 'attention' : (['ok', 'attention', 'erreur'].includes(a.genre) ? a.genre : 'attention');
+      let b = '';
+      if (a.genre === 'connexion' && codeSurP(a.site)) b = `${bouton('cs-connexion', 'po:cx', t('connecter'), 'cadenas', 'principal', ` data-id="${a.site}"`)}${bouton('cs-page-site', 'po:cx-site', t('page_site'), 'globe', 'second', ` data-id="${a.site}"`)}${bouton('po-ouvrir', 'po:reessayer', t('reessayer'), 'recharger', 'second')}`;
+      else if (o.phase === 'bloque') b = `${bouton('po-moi', 'po:voir', t('voir'), 'ext', 'second')}${bouton('po-ouvrir', 'po:reessayer', t('reessayer'), 'recharger', 'second')}`;
+      h += annonceEnHTML(g, texteSur(a.texte), b);
+    }
+    if (o.phase === 'incertain') {
+      h += `<div class="jm-btns jm-po-inc">${bouton('po-moi', 'po:voir', t('voir'), 'ext', 'second')}${bouton('po-fait', 'po:fait', t('fait'), 'coche', 'principal')}${bouton('po-pas-parti', 'po:non', t('pas_parti'), 'croix', 'second')}</div>`;
+    }
+    if (typeof o.attente === 'string' && o.attente) h += `<div class="jm-attente" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(o.attente)}</span></div>`;
+    const lignes = liste(o.lignes).filter((l) => Number.isInteger(l?.i));
+    const manque = lignes.filter((l) => ['a_completer', 'accord', 'a_joindre'].includes(l.etat));
+    if (manque.length && o.phase === 'pret') h += annonceEnHTML('attention', `${t('manque')} ${manque.map((l) => `« ${texteSur(l.libelle)} »`).join(', ')}`);
+    if (lignes.length && o.phase !== 'attente') {
+      if (o.captcha === true) h += annonceEnHTML('attention', t('captcha'));
+      if (!o.bouton && o.phase === 'pret') h += annonceEnHTML('attention', t('sans_bouton'));
+      h += `<h2 class="jm-h2">${esc(t('champs_t'))}</h2><p class="jm-petit">${esc(t('champs_s'))}</p><div class="jm-po-ls">${lignes.map((l) => poLigneHTML(l, s, t)).join('')}</div>`;
+    }
+    const faites = liste(o.faites).filter((x) => texteSur(x?.libelle));
+    if (faites.length) h += `<h2 class="jm-h2">${esc(t('faites_t'))}</h2><div class="jm-po-ls passees">${faites.map((x) => `<div class="jm-po-l ok"><div class="jm-po-lib"><b>${esc(x.libelle)}</b></div><div class="jm-po-val"><span class="jm-po-v long" data-brut>${esc(texteSur(x.valeur))}</span></div><div class="jm-po-et">${icone('coche')}<small class="jm-po-src">${esc(texteSur(x.source))}</small></div></div>`).join('')}</div>`;
+    h += '</div></div>';
+    const attend = poEnAttente(p);
+    const nom = o.bouton?.suivant === true ? t('continuer') : t('envoyer');
+    const peut = o.peut === true && !attend && o.phase === 'pret';
+    const moi = ['pret', 'bloque'].includes(o.phase) ? bouton('po-moi', 'po:moi', t('moi'), 'ext', 'discret') : '';
+    h += `<div class="jm-e-bas">${icone('cadenas')}<span>${esc(t('cadenas'))}</span>${moi}${bouton('po-remplir', 'po:remplir', t('remplir'), 'envoi', 'second', attend && o.phase === 'pret' ? '' : ' hidden')}${o.phase === 'pret' ? bouton('po-envoyer', 'po:envoyer', nom, o.bouton?.suivant === true ? 'droite' : 'envoi', 'principal', peut ? '' : ' disabled') : ''}</div></div>`;
+    return h;
+  }
+
+  // Après une frappe : « Mettre mes réponses sur le site » paraît, « Envoyer » attend
+  function poBas() {
+    const p = poDe(); if (!p) return;
+    const attend = poEnAttente(p);
+    const r = hote.querySelector('[data-k="po:remplir"]'); if (r) r.hidden = !attend;
+    const e = hote.querySelector('[data-k="po:envoyer"]'); if (e && attend) e.disabled = true;
+  }
+
+  // Un geste de l'envoi sur le site ; vrai s'il en était un
+  function validerPo(el, d) {
+    const p = poDe();
+    if (!p) return true;
+    // (la main va au bouton : le kit ne redessine pas tant qu'une case de saisie a la main)
+    if (d.perso !== 'po-champ' && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')) el.focus?.({ preventScroll: true });
+    const s = poSaisieDe(p), i = Number(d.i);
+    switch (d.perso) {
+      case 'po-ouvrir': if (!el.disabled) { O.son?.ok?.(); poSaisie = null; O.action('po-ouvrir', { id: p.offre }); } return true;
+      case 'po-fermer': O.son?.retour?.(); poSaisie = null; O.action('po-fermer'); return true;
+      case 'po-champ': if (el.tagName === 'INPUT') hote.querySelector(poEnAttente(p) ? '[data-k="po:remplir"]' : '[data-k="po:envoyer"]')?.focus(); return true;
+      case 'po-puce': {
+        if (!Number.isInteger(i)) return true;
+        const l = liste(p.ouvert?.lignes).find((x) => x?.i === i);
+        const v = String(d.v || '');
+        if (l?.sorte === 'cases') {
+          const pris = String(s.v[i] ?? (l.voulu || '')).split('\n').filter(Boolean);
+          s.v[i] = (pris.includes(v) ? pris.filter((x) => x !== v) : [...pris, v]).join('\n');
+        } else s.v[i] = s.v[i] === '1' ? '0' : '1';
+        O.son?.bascule?.(); dessinerTout(el.dataset.k); return true;
+      }
+      case 'po-remplir': if (poEnAttente(p) && Date.now() >= enJusqua) { enJusqua = Date.now() + 800; O.son?.ok?.(); const v = { ...s.v }; s.v = {}; O.action('po-remplir', { saisies: v }); } return true;
+      case 'po-envoyer': if (!el.disabled && Date.now() >= enJusqua) { enJusqua = Date.now() + 1500; el.disabled = true; O.son?.ok?.(); O.action('po-envoyer'); } return true;
+      case 'po-moi': O.son?.ok?.(); O.action('po-voir'); return true;
+      case 'po-fait': case 'po-pas-parti': if (!el.disabled) { el.disabled = true; O.son?.ok?.(); O.action(d.perso, { tente: Number(d.tente) || 0 }); } return true;
+      case 'po-dossier': { const k = Number(d.id); if (numSur(k)) { O.son?.ok?.(); O.action('po-fermer'); montrer('candidatures'); ouvrirCandidature(k); } return true; }
+      case 'po-copier': {
+        const c = objet(cs().petite?.cote);
+        const texte = d.quoi === 'lettre' ? texteSur(c.lettre) : texteSur(liste(c.questions)[Number(d.n)]?.reponse);
+        if (texte) copierBrut(texte, el, () => {});
+        return true;
+      }
+      default: return true;
+    }
+  }
+
   function ficheOffreHTML(x, f) {
     const { esc } = O, t = tO(x);
     const rond = (perso, k, ic, aide, on) => `<button type="button" class="jm-rond f${on ? ' on' : ''}" data-perso="${perso}" data-k="${k}" title="${esc(aide)}" aria-label="${esc(aide)}" aria-pressed="${!!on}">${icone(ic)}</button>`;
@@ -2300,6 +2486,7 @@
   function validerOffres(el, d) {
     const x = offresDe(), f = x?.fiche;
     if (typeof d.perso === 'string' && d.perso.startsWith('en-')) return validerEnvoi(el, d);
+    if (typeof d.perso === 'string' && d.perso.startsWith('po-')) return validerPo(el, d);
     if (typeof d.perso === 'string' && d.perso.startsWith('pr-')) return validerPrep(el, d, f);
     switch (d.perso) {
       case 'of-champ':   // (Entrée dans le texte cherché ou la ville : les filtres partent tout de suite)
@@ -2415,6 +2602,8 @@
     // (étape 10, pour les captures) le récapitulatif ouvert, une adresse tapée comme Jordan
     if (o.envoi === 'ouvrir') { const e = enDe(); if (e) { if (onglet !== 'offres') montrer('offres'); O.action('en-ouvrir', { id: e.offre }); } return true; }
     if (typeof o.envoi_a === 'string') { const e = enDe(); if (e) { enSaisieDe(e).a = o.envoi_a.slice(0, 200); if (onglet === 'offres') dessinerTout('en:a'); } return true; }
+    // (essai, étape 11 : une valeur tapée dans le récapitulatif de l'envoi sur le site, comme Jordan)
+    if (o.po_saisie && typeof o.po_saisie === 'object') { const p = poDe(), i = Number(o.po_saisie.i); if (p && Number.isInteger(i) && typeof o.po_saisie.v === 'string') { poSaisieDe(p).v[i] = o.po_saisie.v.slice(0, 300); dessinerTout(`po:c-${i}`); hote.querySelector(`[data-k="po:c-${i}"]`)?.scrollIntoView({ block: 'center' }); } return true; }
     if (numSur(o.recherche_supprimee)) { ofConfirme = null; if (onglet === 'offres') dessinerTout('og:nouvelle'); return true; }
     // (pour les captures) une offre ouverte, Mes recherches
     if (numSur(o.offre)) {
@@ -2453,6 +2642,7 @@
     valider(el) {
       const d = el.dataset;
       if (validerSites(el, d)) return;
+      if (typeof d.perso === 'string' && d.perso.startsWith('po-')) { validerPo(el, d); return; }
       if (d.perso === 'onglet' && idSur(d.id)) { if (d.id !== onglet) O.son?.tic?.(); montrer(d.id); return; }
       if (d.perso === 'rubrique' && idSur(d.id)) { O.son?.ok?.(); ouvrirRubrique(d.id); return; }
       validerSuivi(el, d);
@@ -2463,6 +2653,7 @@
       // (étape 5 bis : la petite fenêtre du site, puis la carte de connexion, se ferment d'abord)
       if (petiteOuverte()) { O.action('cs-fermer'); return true; }
       if (cnx) { fermerConnexion(); return true; }
+      if (poOuvert()) { O.son?.retour?.(); poSaisie = null; O.action('po-fermer'); return true; }
       if (enOuvert()) { O.son?.retour?.(); O.action('en-fermer'); return true; }
       if (sitesConfirme) { sitesConfirme = false; dessinerTout('pn:decon'); return true; }
       if (srcMenu) { srcMenu = false; dessinerTout('cs:ou'); return true; }

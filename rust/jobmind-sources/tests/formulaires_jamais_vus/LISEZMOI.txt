@@ -1,0 +1,28 @@
+Formulaires jamais vus : pages de test pour Jobmind
+====================================================
+
+Pages écrites à la main, d'après l'allure des vrais formulaires de candidature.
+Tout est inventé : entreprises, personnes, adresses (exemple.fr, exemple.com).
+Aucune page ne charge quoi que ce soit depuis internet.
+Le fichier attendu.json dit, pour chaque page, ce qu'un bon lecteur devrait comprendre.
+
+Formulaires à remplir
+f01.html : candidature rapide façon grand site d'annonces, étape 1 sur 3 (coordonnées), bouton pour passer à la suite.
+f02.html : site d'annonces moderne façon magazine d'entreprises, libellés qui entourent les cases, recherche du site dans l'en-tête et abonnement dans le pied de page.
+f03.html : petit garage, formulaire fait main en PHP, cases sans libellé (texte d'aide seulement), case piège cachée, captcha.
+f04.html : grand logiciel de recrutement d'entreprise, étape 1 sur 3, noms techniques opaques, champs obligatoires signalés autrement que par l'attribut habituel, boutons Annuler, Retour et Enregistrer le brouillon.
+f05.html : outil de recrutement de start-up en anglais, libellés dans des div, nom complet en une case, captcha dans un cadre.
+f06.html : outil de recrutement en ligne, page revenue avec des erreurs après un premier essai, confirmation du mail, lettre en fichier.
+f07.html : ancien logiciel de recrutement d'hôpital, mise en page en tableau, noms de cases très longs, questions par boutons radio, boutons Annuler et Imprimer.
+f08.html : candidature en un clic pour une boulangerie, libellés reliés par référence, cases à cocher multiples, case piège cachée, captcha d'un autre fournisseur.
+f09.html : outil de recrutement en anglais, CV et lettre en fichier, questions de l'employeur, captcha invisible, bouton d'envoi qui n'est pas un bouton d'envoi classique.
+f10.html : domaine viticole, formulaire fait main pour des saisonniers, mention (obligatoire) dans le texte, bouton Effacer, case piège cachée.
+f11.html : site public d'emploi façon portail de l'État, étape 2 sur 3 (questions sur le parcours), recherche dans l'en-tête, bouton brouillon.
+
+Pages qui ne sont pas des formulaires à remplir
+p01.html : confirmation après une candidature rapide.
+p02.html : remerciement très court d'un petit garage.
+p03.html : page d'offre d'une enseigne de supermarchés avec des liens Postuler et une recherche dans l'en-tête.
+p04.html : espace candidat qui demande de se connecter avant de postuler.
+p05.html : page d'erreur 500 du site.
+p06.html : confirmation en anglais avec une inscription facultative à une liste de talents.

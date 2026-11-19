@@ -348,6 +348,14 @@ pub fn lancer() -> ! {
             }
             Err(e) => journal.ecrire(&format!("Envoi : reprise impossible ({e})")),
         }
+        // (étape 11 : un envoi sur un site resté en cours devient « incertain »)
+        match jobmind_storage::envois_site::reprendre(b.connexion()) {
+            Ok(0) => {}
+            Ok(n) => journal.ecrire(&format!(
+                "Site : {n} envoi(s) sur un site interrompu(s) par l'arrêt de Jobmind, notés incertains"
+            )),
+            Err(e) => journal.ecrire(&format!("Site : reprise impossible ({e})")),
+        }
     }
     // L'état de départ : le suivi et le profil d'après la base
     // (construction d'essai : le faux serveur local d'Adzuna et Jooble ; aucune demande de l'essai ne sort du PC)
@@ -610,6 +618,7 @@ fn tour(app: &AppHandle) {
             connexion_recue(etat);
             boite_demande(etat, app);
             cle_claude_demande(etat, app);
+            offres_site_demande(etat, app);
         }
         etat.fin = fin;
         fin
@@ -648,6 +657,17 @@ const SCRIPT_LECTURE: &str = "(function () { try { var d = document.documentElem
     var f = c.querySelectorAll('iframe'); for (var j = 0; j < f.length; j++) { f[j].removeAttribute('srcdoc'); } \
     var m = c.querySelectorAll('input'); for (var k = 0; k < m.length; k++) { \
     if (String(m[k].type || '').toLowerCase() === 'password') { m[k].removeAttribute('value'); } } \
+    var S = 'input,textarea,select,button'; var vv = document.querySelectorAll(S); var cc = c.querySelectorAll(S); \
+    for (var n = 0; n < cc.length; n++) { cc[n].removeAttribute('data-jm-valeur'); cc[n].removeAttribute('data-jm-coche'); \
+      cc[n].removeAttribute('data-jm-cache'); cc[n].removeAttribute('data-jm-i'); } \
+    if (vv.length === cc.length) { for (var n2 = 0; n2 < vv.length && n2 < 3000; n2++) { var e = vv[n2], x = cc[n2]; \
+      x.setAttribute('data-jm-i', String(n2)); var st = getComputedStyle(e); var r = e.getBoundingClientRect(); \
+      x.setAttribute('data-jm-cache', (st.display === 'none' || st.visibility === 'hidden' || (r.width === 0 && r.height === 0)) ? '1' : '0'); \
+      var t = String(e.type || '').toLowerCase(); if (t === 'password') { continue; } \
+      if (t === 'checkbox' || t === 'radio') { x.setAttribute('data-jm-coche', e.checked ? '1' : '0'); } \
+      else if (t === 'file') { x.setAttribute('data-jm-valeur', Array.prototype.map.call(e.files || [], function (f) { return String(f.name); }).join(', ')); } \
+      else if (e.tagName === 'SELECT' || e.tagName === 'TEXTAREA' || (e.tagName === 'INPUT' && t !== 'hidden')) { \
+        x.setAttribute('data-jm-valeur', String(e.value || '').slice(0, 9000)); } } } \
     var h = String(c.outerHTML); if (h.length > 3000000) { h = h.slice(0, 3000000); } \
     return { u: String(location.href).slice(0, 4000), h: h, v: String(document.visibilityState) }; } \
     catch (e) { return null; } })()";
@@ -701,8 +721,105 @@ fn script_saisie(attendu: &str, mail: Option<&str>, mdp: Option<&str>) -> String
     s
 }
 
+/// Étape 11 : le script qui pose des valeurs dans le formulaire de candidature de la page, si elle est toujours celle
+/// qui vient d'être lue (`attendu`) : chaque case retrouvée par son rang, sa balise et son nom vérifiés ; un texte posé
+/// par la propriété native avec ses événements (comme au clavier), un choix d'une liste, une case cochée par un clic.
+/// Les valeurs sont des données JSON (échappées) écrites par Jobmind ; rien de ce que la page contient n'est exécuté.
+/// Il rend « ailleurs », ou un code par valeur (« ok » ou « x » : case introuvable).
+fn script_remplir(attendu: &str, actions: &Value) -> String {
+    let mut s = String::with_capacity(2000);
+    s.push_str("(function () { try { var ATTENDU = ");
+    s.push_str(&Value::String(attendu.to_string()).to_string());
+    s.push_str("; var L = ");
+    s.push_str(&actions.to_string().replace("</", "<\\/"));
+    s.push_str(
+        "; if (String(location.href) !== ATTENDU) { return 'ailleurs'; } \
+        var els = document.querySelectorAll('input,textarea,select,button'); \
+        var pI = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; \
+        var pT = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; \
+        var pS = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; \
+        var pC = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked').set; \
+        var ev = function (e, n) { e.dispatchEvent(new Event(n, { bubbles: true })); }; var r = []; \
+        for (var k = 0; k < L.length; k++) { var x = L[k]; var e = els[x.i]; \
+          if (!e || String(e.tagName).toLowerCase() !== x.b || String(e.name || '') !== x.n) { r.push('x'); continue; } \
+          try { if (x.k === 'texte') { e.focus(); (String(e.tagName) === 'TEXTAREA' ? pT : pI).call(e, String(x.v)); \
+              e.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: String(x.v) })); \
+              ev(e, 'change'); e.blur(); } \
+            else if (x.k === 'liste') { pS.call(e, String(x.v)); ev(e, 'input'); ev(e, 'change'); } \
+            else if (x.k === 'coche') { if (!!e.checked !== !!x.c) { e.click(); } \
+              if (!!e.checked !== !!x.c) { pC.call(e, !!x.c); ev(e, 'input'); ev(e, 'change'); } } \
+            r.push('ok'); } catch (z) { r.push('x'); } } \
+        L = null; return r.join(','); } catch (e) { return 'erreur'; } })()",
+    );
+    s
+}
+
+/// Étape 11 : le script qui clique le bouton de rang `i` (sa balise vérifiée), si la page est toujours `attendu`. Le
+/// clic part un peu après la réponse (la page peut partir ailleurs).
+fn script_cliquer(attendu: &str, i: usize, balise: &str) -> String {
+    format!(
+        "(function () {{ try {{ if (String(location.href) !== {}) {{ return 'ailleurs'; }} \
+         var e = document.querySelectorAll('input,textarea,select,button')[{i}]; \
+         if (!e || String(e.tagName).toLowerCase() !== {}) {{ return 'absent'; }} \
+         setTimeout(function () {{ try {{ e.click(); }} catch (z) {{ }} }}, 60); return 'ok'; }} catch (e) {{ return 'erreur'; }} }})()",
+        Value::String(attendu.to_string()),
+        Value::String(balise.to_ascii_lowercase()),
+    )
+}
+
+/// Étape 11 : le script qui vérifie, avant d'y déposer le CV, que la case de rang `i` est bien une case de fichier de
+/// la page attendue.
+fn script_case_fichier(attendu: &str, i: usize) -> String {
+    format!(
+        "(function () {{ try {{ if (String(location.href) !== {}) {{ return 'ailleurs'; }} \
+         var e = document.querySelectorAll('input,textarea,select,button')[{i}]; \
+         return (e && String(e.tagName) === 'INPUT' && String(e.type).toLowerCase() === 'file') ? 'ok' : 'absent'; \
+         }} catch (e) {{ return 'erreur'; }} }})()",
+        Value::String(attendu.to_string()),
+    )
+}
+
+/// Le texte rendu par un script (une chaîne JSON), coupé.
+fn rendu_texte(rendu: &str) -> String {
+    serde_json::from_str::<Value>(rendu)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
+        .chars()
+        .take(400)
+        .collect()
+}
+
+/// Étape 11 : ce qu'un ordre de la candidature a donné, appliqué sur le fil de la fenêtre dès qu'il est libre.
+fn rapporter_po(app: &AppHandle, no: u64, r: crate::postuler::Rendu) {
+    let a = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let pour_etat = a.clone();
+        let reste = ETAT.with(move |e| match e.try_borrow_mut() {
+            Ok(mut e) => {
+                if let Some(etat) = e.as_mut() {
+                    etat.faire(&pour_etat, |etat, d| {
+                        etat.coulisse.po_rendu(d.base.as_ref(), no, r, heure::maintenant())
+                    });
+                }
+                None
+            }
+            Err(_) => Some(r),
+        });
+        if let Some(r) = reste {
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(20));
+                rapporter_po(&a, no, r);
+            });
+        }
+    });
+}
+
 /// Ce que la vue des sites doit faire à ce pas (pris dans l'état, fait hors de son verrou).
 enum ActionVue {
+    Remplir { no: u64, attendu: String, actions: Value },
+    Fichier { no: u64, attendu: String, i: usize, chemin: String },
+    Cliquer { no: u64, attendu: String, i: usize, balise: String },
     Naviguer(String),
     Lire(u64),
     Taper { attendu: String, mail: Option<String>, mdp: Option<Secret> },
@@ -846,6 +963,58 @@ fn vue_des_sites(app: &AppHandle) {
                 }
             }
             (ActionVue::Taper { .. }, None) => saisie = Some("pas de vue".into()),
+            // (étape 11 : la candidature sur le site)
+            (ActionVue::Remplir { no, attendu, actions }, Some(v)) => {
+                let a = app.clone();
+                let r = v.eval_with_callback(script_remplir(&attendu, &actions), move |rendu| {
+                    rapporter_po(&a, no, crate::postuler::Rendu::Rempli(rendu_texte(&rendu)))
+                });
+                if let Err(e) = r {
+                    rapporter_po(app, no, crate::postuler::Rendu::Rempli(format!("ailleurs ({e})")));
+                }
+            }
+            (ActionVue::Cliquer { no, attendu, i, balise }, Some(v)) => {
+                let a = app.clone();
+                let r = v.eval_with_callback(script_cliquer(&attendu, i, &balise), move |rendu| {
+                    rapporter_po(&a, no, crate::postuler::Rendu::Clique(rendu_texte(&rendu)))
+                });
+                if let Err(e) = r {
+                    rapporter_po(app, no, crate::postuler::Rendu::Clique(format!("script refusé ({e})")));
+                }
+            }
+            (ActionVue::Fichier { no, attendu, i, chemin }, Some(v)) => {
+                let a = app.clone();
+                let r = v.eval_with_callback(script_case_fichier(&attendu, i), move |rendu| {
+                    let x = rendu_texte(&rendu);
+                    if x != "ok" {
+                        rapporter_po(&a, no, crate::postuler::Rendu::Fichier(Err(format!("case : {x}"))));
+                        return;
+                    }
+                    let Some(vue) = SITES.with(|s| s.borrow().clone()) else {
+                        rapporter_po(&a, no, crate::postuler::Rendu::Fichier(Err("pas de vue".into())));
+                        return;
+                    };
+                    let b = a.clone();
+                    let r = crate::windows::sites::deposer_fichier(&vue, i, chemin.clone(), move |x| {
+                        rapporter_po(&b, no, crate::postuler::Rendu::Fichier(x))
+                    });
+                    if let Err(e) = r {
+                        rapporter_po(&a, no, crate::postuler::Rendu::Fichier(Err(format!("vue ({e})"))));
+                    }
+                });
+                if let Err(e) = r {
+                    rapporter_po(app, no, crate::postuler::Rendu::Fichier(Err(format!("script refusé ({e})"))));
+                }
+            }
+            (ActionVue::Remplir { no, .. }, None) => {
+                rapporter_po(app, no, crate::postuler::Rendu::Rempli("ailleurs".into()))
+            }
+            (ActionVue::Cliquer { no, .. }, None) => {
+                rapporter_po(app, no, crate::postuler::Rendu::Clique("pas de vue".into()))
+            }
+            (ActionVue::Fichier { no, .. }, None) => {
+                rapporter_po(app, no, crate::postuler::Rendu::Fichier(Err("pas de vue".into())))
+            }
             (ActionVue::Montrer, Some(_)) => {
                 montree = true;
                 place = None;
@@ -883,7 +1052,7 @@ fn vue_des_sites(app: &AppHandle) {
             etat.montree = montree;
             for no in perdues {
                 etat.lecture_en_cours = None;
-                etat.faire(app, |e, _| e.coulisse.lecture_perdue(no, "pas de vue"));
+                etat.faire(app, |e, d| e.coulisse.perdue_ou_po(no, "pas de vue", d.base.as_ref(), heure::maintenant()));
             }
             if let Some(r) = saisie {
                 etat.faire(app, |e, _| e.coulisse.saisie_ratee(&r));
@@ -998,8 +1167,10 @@ fn lecture_rendue(app: &AppHandle, no: u64, rendu: String) {
             None => brute.clone(),
         };
         let comprise = jobmind_sources::sites::comprendre(&u, &h);
+        // (étape 11 : le formulaire de candidature de la page, s'il y en a un)
+        let formulaire = Some(jobmind_sources::formulaire::lire(&u, &h));
         drop(h);
-        rapporter_lecture(&a, no, Some(Lecture { brute, comprise }), visible);
+        rapporter_lecture(&a, no, Some(Lecture { brute, comprise, formulaire }), visible);
     });
     if r.is_err() {
         rapporter_lecture(app, no, None, String::new());
@@ -1032,7 +1203,9 @@ fn rapporter_lecture(app: &AppHandle, no: u64, l: Option<Lecture>, visible: Stri
                                 etat.coulisse.lu(d.base.as_ref(), no, l, heure::maintenant())
                             });
                         }
-                        None => etat.faire(&pour_etat, |etat, _| etat.coulisse.lecture_perdue(no, "réponse illisible")),
+                        None => etat.faire(&pour_etat, |etat, d| {
+                            etat.coulisse.perdue_ou_po(no, "réponse illisible", d.base.as_ref(), heure::maintenant())
+                        }),
                     }
                 }
                 None
@@ -1232,6 +1405,7 @@ impl Etat {
                     || coulisse::est_geste(id)
                     || crate::mail::est_geste(id)
                     || crate::envoi::est_geste(id)
+                    || crate::postuler::est_geste(id)
                     || crate::preparation::est_geste(id)
                     || crate::style::est_geste(id) =>
             {
@@ -1283,6 +1457,8 @@ impl Etat {
                 self.journal.ecrire(&r);
             }
             perso.insert("envoi".into(), v);
+            // (étape 11 : la candidature sur le site de l'offre ouverte)
+            perso.insert("postuler".into(), self.coulisse.po_vue(d.base.as_ref(), self.offres.ouverte, self.jour));
         }
         // (étape 8 : le dossier d'une candidature liée à une offre propose sa candidature préparée)
         if let Some(k) = self.suivi.ouverte
@@ -1393,6 +1569,14 @@ impl Etat {
             if crate::preparation::est_geste(id) {
                 let ctx = crate::preparation::Contexte { base: d.base.as_ref(), cles: Some(&etat.cles) };
                 return etat.preparation.geste(&ctx, id, valeur, maintenant);
+            }
+            if crate::postuler::est_geste(id) {
+                let dossier = d.dossier().to_path_buf();
+                let gmail = crate::mail::branchee(&etat.cles)
+                    .then(|| etat.cles.lire(jobmind_core::cle::Cle::GmailAdresse))
+                    .flatten();
+                let ctx = crate::postuler::Contexte { base: d.base.as_ref(), dossier: &dossier, gmail };
+                return etat.coulisse.po_geste(&ctx, id, valeur, maintenant);
             }
             if crate::envoi::est_geste(id) {
                 let dossier = d.dossier().to_path_buf();
@@ -1969,6 +2153,17 @@ impl Etat {
                 self.lecture_prevue = Some((Instant::now() + Duration::from_millis(delai_ms), no));
             }
             Ordre::Taper { attendu, mail, mdp, .. } => self.actions_vue.push(ActionVue::Taper { attendu, mail, mdp }),
+            Ordre::Remplir { no, attendu, actions } => {
+                self.actions_vue.push(ActionVue::Remplir { no, attendu, actions })
+            }
+            Ordre::Fichier { no, attendu, i, chemin } => {
+                self.actions_vue.push(ActionVue::Fichier { no, attendu, i, chemin })
+            }
+            Ordre::Cliquer { no, attendu, i, balise, .. } => {
+                #[cfg(feature = "essai")]
+                self.mode_formulaires_essai();
+                self.actions_vue.push(ActionVue::Cliquer { no, attendu, i, balise })
+            }
             Ordre::Montrer => self.actions_vue.push(ActionVue::Montrer),
             Ordre::Cacher => self.actions_vue.push(ActionVue::Cacher),
             Ordre::Effacer => {
@@ -2000,6 +2195,25 @@ impl Etat {
         self.journal.ecrire(&format!("Essai : prochaine liste des sites imités : {m:?}"));
     }
 
+    /// Construction d'essai (étape 11) : `formulaires.essai` (« refus ») fait refuser le prochain envoi par le site
+    /// imité, une seule fois (le fichier est supprimé).
+    #[cfg(feature = "essai")]
+    fn mode_formulaires_essai(&mut self) {
+        use jobmind_sources::formulaire::exemples::{MODE, ModeFormulaires};
+        let f = self.dossier.join(crate::essai::FORMULAIRES);
+        let Ok(t) = std::fs::read_to_string(&f) else { return };
+        let _ = std::fs::remove_file(&f);
+        let m = if t.trim_start_matches('\u{feff}').trim() == "refus" {
+            ModeFormulaires::Refus
+        } else {
+            ModeFormulaires::Normal
+        };
+        if let Ok(mut x) = MODE.lock() {
+            *x = m;
+        }
+        self.journal.ecrire(&format!("Essai : prochain envoi des formulaires imités : {m:?}"));
+    }
+
     /// Les temps des sites, à chaque pas : le chargement qui attendait son tour, la lecture prévue, une lecture ou une
     /// page qui ne répond pas, un mot de passe gardé trop longtemps.
     fn minuteries_des_sites(&mut self, app: &AppHandle) {
@@ -2026,7 +2240,9 @@ impl Etat {
             && ici.duration_since(depuis) > LECTURE_PAGE_MAX
         {
             self.lecture_en_cours = None;
-            self.faire(app, |e, _| e.coulisse.lecture_perdue(no, "la page n'a pas répondu"));
+            self.faire(app, |e, d| {
+                e.coulisse.perdue_ou_po(no, "la page n'a pas répondu", d.base.as_ref(), heure::maintenant())
+            });
         }
         // (ce qui est en cours, et la connexion : leur temps compte depuis qu'ils ont commencé)
         match (self.coulisse.attente_id(), self.attente_vue) {
@@ -2041,7 +2257,7 @@ impl Etat {
             self.attente_vue = None;
             self.chargement_prevu = None;
             self.lecture_prevue = None;
-            self.faire(app, |e, _| e.coulisse.trop_long());
+            self.faire(app, |e, d| e.coulisse.trop_long_ou_po(d.base.as_ref(), heure::maintenant()));
         }
         match (self.coulisse.connexion_id(), self.connexion_vue) {
             (None, _) => self.connexion_vue = None,
@@ -2421,6 +2637,30 @@ fn cle_claude_demande(etat: &mut Etat, app: &AppHandle) {
     match etat.cles.garder_plusieurs(&[(jobmind_core::cle::Cle::Claude, crate::essai::CLE_CLAUDE_ESSAI)]) {
         Ok(()) => etat.journal.ecrire("Essai : clé Claude inventée donnée (le faux Claude local seulement)"),
         Err(e) => etat.journal.ecrire(&format!("Essai : clé Claude inventée non gardée ({e})")),
+    }
+    etat.renvoyer(app);
+}
+
+/// Construction d'essai (étape 11) : un fichier `offres-site.demande` ajoute les offres inventées des formulaires imités
+/// (leurs numéros au journal).
+#[cfg(feature = "essai")]
+fn offres_site_demande(etat: &mut Etat, app: &AppHandle) {
+    let demande = etat.dossier.join(crate::essai::OFFRES_SITE_DEMANDE);
+    if !demande.is_file() {
+        return;
+    }
+    let _ = std::fs::remove_file(&demande);
+    let r = {
+        let d = etat.donnees.borrow();
+        d.as_ref().and_then(|d| d.base.as_ref()).map(|b| crate::essai::offres_site(b.connexion(), heure::maintenant()))
+    };
+    match r {
+        Some(Ok(l)) => etat.journal.ecrire(&format!(
+            "Essai : offres d'essai pour postuler ajoutées ({})",
+            l.iter().map(|(n, i)| format!("{n}={i}")).collect::<Vec<_>>().join(", ")
+        )),
+        Some(Err(e)) => etat.journal.ecrire(&format!("Essai : offres d'essai pour postuler non ajoutées ({e})")),
+        None => etat.journal.ecrire("Essai : offres d'essai pour postuler non ajoutées (pas de base)"),
     }
     etat.renvoyer(app);
 }

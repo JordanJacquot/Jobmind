@@ -772,3 +772,50 @@ mark.jm-verif { background: color-mix(in srgb, var(--jm) 13%, transparent); colo
 .jm-pj > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .jm-pj svg { flex: none; }
 .jm-pj small { white-space: nowrap; }
+/* Étape 11 : l'envoi sur le site, le récapitulatif relu sur la page, et la petite fenêtre avec les textes à côté */
+.jm-po-bar { margin-top: -8px; }
+.jm-po-etape { margin: 0 0 10px; font-size: 13px; font-weight: 650; color: var(--jm); }
+.jm-po-ls { display: flex; flex-direction: column; margin: 6px 0 14px; }
+.jm-po-l { display: grid; grid-template-columns: minmax(130px, 30%) minmax(0, 1fr) 132px; align-items: center; gap: 12px; min-height: 46px; padding: 6px 0; border-bottom: 1px solid color-mix(in srgb, var(--ligne) 70%, transparent); }
+.jm-po-lib { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.jm-po-lib b { font-size: 14px; font-weight: 600; line-height: 1.35; color: var(--doux); overflow-wrap: anywhere; }
+.jm-po-lib small { font-size: 11.5px; color: var(--pale); }
+.jm-po-val { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.jm-po-v { font-size: 14.5px; color: var(--texte); overflow-wrap: anywhere; }
+.jm-po-v.long { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; font-size: 13.5px; line-height: 1.5; color: var(--doux); }
+.jm-po-in { width: 100%; box-sizing: border-box; height: 36px; padding: 0 10px; border-radius: 9px; border: 1px solid color-mix(in srgb, var(--jm) 45%, var(--ligne)); background: rgba(255, 255, 255, 0.04); color: var(--texte); font: inherit; font-size: 14.5px; outline: none; }
+.jm-po-in:focus { border-color: var(--jm); background: rgba(255, 255, 255, 0.07); }
+.jm-po-zone { height: 92px; padding: 8px 10px; resize: vertical; line-height: 1.45; }
+select.jm-po-in option { color: #111; }
+.jm-po-puces { display: flex; flex-wrap: wrap; gap: 6px; }
+.jm-po-val small, .jm-po-note { font-size: 12.5px; color: var(--pale); }
+.jm-po-diff { color: var(--rouge, #ff7a7a) !important; }
+.jm-po-et { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.jm-po-et svg { width: 16px; height: 16px; flex: none; }
+.jm-po-l.ok .jm-po-et svg { color: var(--vert); }
+.jm-po-l.a_completer .jm-po-et svg, .jm-po-l.accord .jm-po-et svg, .jm-po-l.a_joindre .jm-po-et svg, .jm-po-l.different .jm-po-et svg { color: var(--jm); }
+.jm-po-src { font-size: 11.5px; color: var(--pale); text-align: right; line-height: 1.3; }
+.jm-po-src.a { color: var(--jm); font-weight: 650; }
+.jm-po-l.a_completer, .jm-po-l.accord, .jm-po-l.a_joindre { background: linear-gradient(90deg, color-mix(in srgb, var(--jm) 7%, transparent), transparent 70%); }
+.jm-po-ls.passees .jm-po-l { min-height: 38px; opacity: 0.85; }
+.jm-po-preuve { font-size: 13px !important; color: var(--pale) !important; }
+.jm-po-inc { margin: 0 0 12px; }
+.jm-e-bas .jm-bt[hidden] { display: none; }
+.jm-pf-apres { flex: none; margin: 6px 16px 0; font-size: 13px; font-weight: 650; color: var(--jm); }
+.jm-pf-corps { flex: 1; min-height: 0; display: flex; }
+.jm-pf-corps > .jm-pf-site { flex: 1; min-width: 0; }
+.jm-pf-cote { flex: none; width: 290px; display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; box-sizing: border-box; overflow-y: auto; border-left: 1px solid color-mix(in srgb, var(--ligne) 70%, transparent); scrollbar-width: thin; }
+.jm-pf-ct { font-size: 14.5px; font-weight: 750; }
+.jm-pf-ct.petit { font-size: 13px; margin-top: 4px; }
+.jm-pf-cote .jm-petit { margin: 0; }
+.jm-pf-bloc { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 12px; background: rgba(255, 255, 255, 0.04); }
+.jm-pf-bt { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 650; color: var(--doux); }
+.jm-pf-bt span { flex: 1; min-width: 0; }
+.jm-pf-bt .jm-bt { height: 30px; padding: 0 8px; }
+.jm-pf-txt-l { max-height: 140px; overflow-y: auto; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; color: var(--texte); scrollbar-width: thin; }
+.jm-pf-fin { margin-top: auto; padding-top: 6px; }
+.jm-pf-fin .jm-bt { width: 100%; justify-content: center; }
+@media (max-width: 1040px) {
+  .jm-po-l { grid-template-columns: minmax(110px, 32%) minmax(0, 1fr) 96px; gap: 8px; }
+  .jm-pf-cote { width: 230px; padding: 10px; }
+}

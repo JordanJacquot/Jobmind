@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Postuler : Chauffeur livreur H/F | Transports Mirabelle</title>
+<style>
+body{font-family:Arial,sans-serif;background:#f3f2f1;margin:0}
+.ia-shell{max-width:640px;margin:24px auto;background:#fff;border-radius:8px;padding:24px}
+.ia-progress{height:6px;background:#e4e2e0;border-radius:3px;margin-bottom:8px}
+.ia-progress span{display:block;height:6px;width:33%;background:#2557a7;border-radius:3px}
+.ia-step{color:#595959;font-size:13px}
+.ia-field{margin:16px 0}
+.ia-field label{display:block;font-weight:bold;margin-bottom:4px}
+.ia-field input{width:100%;padding:10px;border:1px solid #767676;border-radius:6px}
+.ia-footer{display:flex;justify-content:flex-end;margin-top:24px}
+.ia-btn{background:#2557a7;color:#fff;border:0;border-radius:8px;padding:12px 24px;font-weight:bold}
+</style>
+</head>
+<body>
+<div class="ia-shell" id="ia-container">
+  <div class="ia-progress" role="progressbar" aria-valuenow="33" aria-valuemin="0" aria-valuemax="100"><span></span></div>
+  <p class="ia-step">Étape 1 sur 3</p>
+  <h1>Ajoutez vos coordonnées</h1>
+  <p>Chauffeur livreur H/F, Transports Mirabelle, Metz (57)</p>
+  <form id="ia-ContactInfo" method="post" action="/apply/contact-info" novalidate>
+    <input type="hidden" name="jobKey" value="a8f3c21e9b7d4410">
+    <input type="hidden" name="applyToken" value="tk_5512aa90e">
+    <div class="ia-field">
+      <label for="input-firstName">Prénom</label>
+      <input id="input-firstName" name="firstName" type="text" autocomplete="given-name" required>
+    </div>
+    <div class="ia-field">
+      <label for="input-lastName">Nom</label>
+      <input id="input-lastName" name="lastName" type="text" autocomplete="family-name" required>
+    </div>
+    <div class="ia-field">
+      <label for="input-email">Adresse e-mail</label>
+      <input id="input-email" name="email" type="email" autocomplete="email" required>
+    </div>
+    <div class="ia-field">
+      <label for="input-phoneNumber">Numéro de téléphone (facultatif)</label>
+      <input id="input-phoneNumber" name="phoneNumber" type="tel" autocomplete="tel">
+    </div>
+    <div class="ia-field">
+      <label for="input-location">Ville, code postal</label>
+      <input id="input-location" name="location.city" type="text" placeholder="Ex. : Metz 57000">
+    </div>
+    <div class="ia-footer">
+      <button class="ia-btn" type="submit" data-testid="continue-button">Continuer</button>
+    </div>
+  </form>
+  <p class="ia-step">Vous pourrez relire votre candidature avant de l'envoyer.</p>
+</div>
+</body>
+</html>

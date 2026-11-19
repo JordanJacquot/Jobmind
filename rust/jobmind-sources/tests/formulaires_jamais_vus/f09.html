@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Job Application for Data Analyst at Brightfield Analytics</title>
+<style>
+body{font-family:Georgia,serif;margin:0;color:#222}
+#app_body{max-width:680px;margin:30px auto}
+.field{margin:18px 0}
+.field label{display:block;margin-bottom:5px}
+.asterisk{color:#b94a48}
+.field input[type=text],.field textarea,.field select{width:100%;padding:7px;border:1px solid #aaa}
+#submit_app{background:#3b8b3b;color:#fff;border:0;padding:12px 24px;font-size:15px}
+</style>
+</head>
+<body>
+<div id="app_body">
+  <div id="header">
+    <h1 class="app-title">Data Analyst</h1>
+    <div class="company-name">at Brightfield Analytics</div>
+    <div class="location">Lille, France</div>
+  </div>
+  <div id="application">
+    <h2>Apply for this Job</h2>
+    <div><span class="asterisk">*</span> Required</div>
+    <form id="application_form" action="/embed/job_app" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="job_application[job_post_id]" value="5590213">
+      <input type="hidden" name="fingerprint" value="d41d8cd98f00">
+      <div class="field">
+        <label for="first_name">First Name <span class="asterisk">*</span></label>
+        <input type="text" id="first_name" name="job_application[first_name]" aria-required="true">
+      </div>
+      <div class="field">
+        <label for="last_name">Last Name <span class="asterisk">*</span></label>
+        <input type="text" id="last_name" name="job_application[last_name]" aria-required="true">
+      </div>
+      <div class="field">
+        <label for="email">Email <span class="asterisk">*</span></label>
+        <input type="text" id="email" name="job_application[email]" aria-required="true">
+      </div>
+      <div class="field">
+        <label for="phone">Phone</label>
+        <input type="text" id="phone" name="job_application[phone]">
+      </div>
+      <div class="field">
+        <label for="resume_file">Resume/CV <span class="asterisk">*</span></label>
+        <input type="file" id="resume_file" name="job_application[resume]" accept=".pdf,.doc,.docx,.txt,.rtf" aria-required="true">
+      </div>
+      <div class="field">
+        <label for="cover_letter_file">Cover Letter</label>
+        <input type="file" id="cover_letter_file" name="job_application[cover_letter]" accept=".pdf,.doc,.docx,.txt,.rtf">
+      </div>
+      <div class="field">
+        <label for="job_application_answers_attributes_0_text_value">LinkedIn Profile</label>
+        <input type="text" id="job_application_answers_attributes_0_text_value" name="job_application[answers_attributes][0][text_value]">
+      </div>
+      <div class="field">
+        <label for="job_application_answers_attributes_1_boolean_value">Are you legally authorized to work in France? <span class="asterisk">*</span></label>
+        <select id="job_application_answers_attributes_1_boolean_value" name="job_application[answers_attributes][1][boolean_value]" aria-required="true">
+          <option value="">--</option>
+          <option value="1">Yes</option>
+          <option value="0">No</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="job_application_answers_attributes_2_text_value">What is your expected annual salary (EUR)?</label>
+        <input type="text" id="job_application_answers_attributes_2_text_value" name="job_application[answers_attributes][2][text_value]">
+      </div>
+      <div class="field">
+        <label><input type="checkbox" name="job_application[data_compliance][gdpr_processing_consent_given]" value="1" aria-required="true"> I consent to Brightfield Analytics processing my personal data for recruitment purposes <span class="asterisk">*</span></label>
+      </div>
+      <div class="g-recaptcha" data-sitekey="6LdExempleSiteKeyPourTest000000000000Zz" data-size="invisible"></div>
+      <input type="button" id="submit_app" value="Submit Application">
+    </form>
+  </div>
+</div>
+</body>
+</html>

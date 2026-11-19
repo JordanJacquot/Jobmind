@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Développeur web junior : Atelier Coquelicot | Offres d'emploi</title>
+<style>
+body{font-family:"Helvetica Neue",sans-serif;margin:0;color:#212121}
+header{display:flex;justify-content:space-between;align-items:center;padding:12px 32px;background:#ffcd00}
+header form{display:flex;gap:6px}
+main{max-width:760px;margin:32px auto;padding:0 16px}
+.sc-field{display:block;margin:18px 0;font-weight:600}
+.sc-field input,.sc-field textarea{display:block;width:100%;margin-top:6px;padding:10px;border:1px solid #bdbdbd;border-radius:4px;font-weight:normal}
+.sc-check{display:flex;gap:8px;align-items:flex-start;margin:12px 0;font-size:14px}
+.sc-submit{background:#212121;color:#fff;border:0;padding:14px 28px;border-radius:4px;font-size:16px}
+footer{background:#212121;color:#fff;padding:24px 32px;margin-top:48px}
+</style>
+</head>
+<body>
+<header>
+  <a href="/" class="sc-logo">Jungle Emploi</a>
+  <form role="search" action="/fr/jobs" method="get" id="recherche-site">
+    <input type="search" name="query" placeholder="Rechercher un métier, une entreprise" aria-label="Rechercher">
+    <button type="submit">Rechercher</button>
+  </form>
+  <a href="/fr/signin">Se connecter</a>
+</header>
+<main>
+  <h1>Développeur web junior (H/F)</h1>
+  <p>Atelier Coquelicot, Nantes, CDI, Télétravail partiel</p>
+  <section aria-labelledby="titre-candidature">
+    <h2 id="titre-candidature">Postuler à cette offre</h2>
+    <form id="apply-form" action="/fr/companies/atelier-coquelicot/jobs/dev-web-junior/apply" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="authenticity_token" value="Zx81kP0qLm2">
+      <input type="hidden" name="source" value="wttj">
+      <label class="sc-field">Prénom *
+        <input type="text" name="candidate[firstname]" required>
+      </label>
+      <label class="sc-field">Nom *
+        <input type="text" name="candidate[lastname]" required>
+      </label>
+      <label class="sc-field">Email *
+        <input type="email" name="candidate[email]" required>
+      </label>
+      <label class="sc-field">Téléphone
+        <input type="tel" name="candidate[phone]">
+      </label>
+      <label class="sc-field">CV * <small>(PDF, 5 Mo maximum)</small>
+        <input type="file" name="candidate[resume]" accept=".pdf" required>
+      </label>
+      <label class="sc-field">Message pour l'équipe recrutement
+        <textarea name="candidate[cover_letter]" rows="6" placeholder="Dites-nous pourquoi ce poste vous intéresse"></textarea>
+      </label>
+      <label class="sc-field">Profil LinkedIn ou portfolio
+        <input type="url" name="candidate[portfolio_url]" placeholder="https://">
+      </label>
+      <label class="sc-check">
+        <input type="checkbox" name="candidate[terms]" value="1" required>
+        <span>J'accepte la politique de confidentialité et le traitement de mes données personnelles *</span>
+      </label>
+      <label class="sc-check">
+        <input type="checkbox" name="candidate[newsletter]" value="1">
+        <span>Je souhaite recevoir les nouvelles offres de Jungle Emploi par e-mail</span>
+      </label>
+      <button type="submit" class="sc-submit">Je postule</button>
+    </form>
+  </section>
+</main>
+<footer>
+  <form action="/fr/newsletter" method="post" id="newsletter-pied">
+    <label for="nl-email">Recevez chaque semaine notre sélection d'entreprises</label>
+    <input id="nl-email" type="email" name="newsletter_email" placeholder="Votre adresse e-mail">
+    <button type="submit">S'abonner</button>
+  </form>
+  <p>Jungle Emploi, exemple.fr</p>
+</footer>
+</body>
+</html>

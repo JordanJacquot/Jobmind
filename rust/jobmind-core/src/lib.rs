@@ -29,7 +29,9 @@
 //! - [`style`] (étape 9) : l'intensité de la réécriture, la longueur des phrases et les expressions à éviter de Jordan,
 //!   vérifiées ;
 //! - [`envoi`] (étape 10) : l'adresse pour postuler lue dans une offre, l'adresse tapée et l'objet vérifiés, le rythme
-//!   des envois (un à la fois, une minute entre deux, 20 par jour au plus).
+//!   des envois (un à la fois, une minute entre deux, 20 par jour au plus) ;
+//! - [`postuler`] (étape 11) : l'envoi sur le site : ce que Jordan tape dans le récapitulatif vérifié, ses coordonnées
+//!   trouvées dans son CV, une question du site rapprochée d'une réponse préparée, le choix d'une liste.
 
 pub mod candidature;
 pub mod cle;
@@ -40,6 +42,7 @@ pub mod lieux;
 pub mod mails;
 pub mod offre;
 pub mod pertinence;
+pub mod postuler;
 pub mod preparation;
 pub mod profil;
 pub mod recherche;

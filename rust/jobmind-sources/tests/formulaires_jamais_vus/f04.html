@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Carrières Groupe Hexalis</title>
+<style>
+body{font-family:Arial,sans-serif;margin:0;background:#fafafa}
+.css-hdr{background:#0b3d6e;color:#fff;padding:12px 24px;display:flex;justify-content:space-between}
+.css-steps{display:flex;gap:24px;list-style:none;padding:16px 24px;margin:0;background:#fff;border-bottom:1px solid #ddd}
+.css-steps li[aria-current="step"]{font-weight:bold;color:#0b3d6e}
+.css-body{max-width:720px;margin:24px auto;background:#fff;padding:24px}
+.css-row{margin:14px 0}
+.css-lbl{display:block;font-size:14px;margin-bottom:4px}
+.css-req{color:#de2e21}
+.css-row input,.css-row select{width:100%;padding:8px;border:1px solid #7b7b7b;border-radius:3px}
+.css-actions{display:flex;justify-content:space-between;margin-top:28px;border-top:1px solid #ddd;padding-top:16px}
+</style>
+</head>
+<body>
+<div class="css-hdr">
+  <span>Groupe Hexalis</span>
+  <button type="button" data-automation-id="utilityButtonSignIn">Mon compte</button>
+</div>
+<ol class="css-steps" data-automation-id="progressBar">
+  <li aria-current="step">Mes informations</li>
+  <li>Mon expérience</li>
+  <li>Vérification</li>
+</ol>
+<div class="css-body">
+  <p data-automation-id="progressBarStep">Étape 1 sur 3</p>
+  <h2>Mes informations</h2>
+  <p>Gestionnaire de paie (F/H), Lyon. Les champs marqués d'un <span class="css-req">*</span> sont obligatoires.</p>
+  <form id="wd-form-7781" data-automation-id="applyFlowPage">
+    <input type="hidden" name="wd_sid" value="98fe1c">
+    <div class="css-row">
+      <label class="css-lbl" for="input-4">Comment avez-vous connu cette offre ? <span class="css-req">*</span></label>
+      <select id="input-4" name="source--source" aria-required="true">
+        <option value="">Sélectionner</option>
+        <option>Site carrière Hexalis</option>
+        <option>Jobboard</option>
+        <option>Cooptation</option>
+        <option>Salon ou forum</option>
+      </select>
+    </div>
+    <div class="css-row">
+      <label class="css-lbl" for="input-5">Civilité</label>
+      <select id="input-5" name="legalName--title">
+        <option value="">Sélectionner</option>
+        <option>Madame</option>
+        <option>Monsieur</option>
+      </select>
+    </div>
+    <div class="css-row">
+      <label class="css-lbl" for="input-6">Prénom <span class="css-req">*</span></label>
+      <input id="input-6" name="legalName--firstName" type="text" aria-required="true">
+    </div>
+    <div class="css-row">
+      <label class="css-lbl" for="input-7">Nom de famille <span class="css-req">*</span></label>
+      <input id="input-7" name="legalName--lastName" type="text" aria-required="true">
+    </div>
+    <div class="css-row">
+      <label class="css-lbl" for="input-8">Adresse ligne 1 <span class="css-req">*</span></label>
+      <input id="input-8" name="address--addressLine1" type="text" aria-required="true">
+    </div>
+    <div class="css-row">
+      <label class="css-lbl" for="input-9">Code postal <span class="css-req">*</span></label>
+      <input id="input-9" name="address--postalCode" type="text" aria-required="true">
+    </div>
+    <div class="css-row">
+      <label class="css-lbl" for="input-10">Ville <span class="css-req">*</span></label>
+      <input id="input-10" name="address--city" type="text" aria-required="true">
+    </div>
+    <div class="css-row">
+      <label class="css-lbl" for="input-11">Adresse e-mail <span class="css-req">*</span></label>
+      <input id="input-11" name="email" type="text" aria-required="true">
+    </div>
+    <div class="css-row">
+      <label class="css-lbl" for="input-12">Type d'appareil téléphonique</label>
+      <select id="input-12" name="phoneNumber--phoneType">
+        <option>Mobile</option>
+        <option>Fixe</option>
+      </select>
+    </div>
+    <div class="css-row">
+      <label class="css-lbl" for="input-13">Numéro de téléphone <span class="css-req">*</span></label>
+      <input id="input-13" name="phoneNumber--phoneNumber" type="text" aria-required="true">
+    </div>
+    <div class="css-actions">
+      <div>
+        <button type="button" data-automation-id="cancelButton">Annuler</button>
+        <button type="button" data-automation-id="backButton" disabled>Retour</button>
+      </div>
+      <div>
+        <button type="button" data-automation-id="saveButton">Enregistrer le brouillon</button>
+        <button type="button" data-automation-id="bottom-navigation-next-button">Enregistrer et continuer</button>
+      </div>
+    </div>
+  </form>
+</div>
+</body>
+</html>

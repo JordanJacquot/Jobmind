@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Postuler : Assistant(e) administratif(ve) - Cabinet Lemarchand Conseil</title>
+<style>
+body{font-family:Inter,sans-serif;margin:0;background:#fff}
+.wrap{max-width:560px;margin:40px auto}
+.field{margin-bottom:18px}
+.field label{display:block;font-size:14px;margin-bottom:4px}
+.field input{width:100%;padding:10px;border:1px solid #d0d0d0;border-radius:6px}
+.field input[aria-invalid="true"]{border-color:#d92d20}
+.err{color:#d92d20;font-size:13px;margin-top:4px}
+.alerte{background:#fef3f2;border:1px solid #d92d20;color:#7a271a;padding:12px;border-radius:6px;margin-bottom:20px}
+.envoi{width:100%;padding:12px;background:#1d4ed8;color:#fff;border:0;border-radius:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Assistant(e) administratif(ve)</h1>
+  <p>Cabinet Lemarchand Conseil, Rennes</p>
+  <div class="alerte" role="alert" id="resume-erreurs">
+    Votre candidature n'a pas pu être envoyée. Merci de corriger les 3 champs signalés ci-dessous.
+  </div>
+  <form id="new_job_application" action="/jobs/4471/applications" method="post" enctype="multipart/form-data">
+    <input type="hidden" name="utf8" value="✓">
+    <input type="hidden" name="job_application[referrer]" value="">
+    <div class="field">
+      <label for="job_application_candidate_attributes_first_name">Prénom</label>
+      <input id="job_application_candidate_attributes_first_name" name="job_application[candidate_attributes][first_name]" type="text" value="Camille" required>
+    </div>
+    <div class="field">
+      <label for="job_application_candidate_attributes_last_name">Nom</label>
+      <input id="job_application_candidate_attributes_last_name" name="job_application[candidate_attributes][last_name]" type="text" value="" required aria-invalid="true" aria-describedby="err-nom">
+      <div class="err" id="err-nom">Ce champ est obligatoire</div>
+    </div>
+    <div class="field">
+      <label for="job_application_candidate_attributes_email">E-mail</label>
+      <input id="job_application_candidate_attributes_email" name="job_application[candidate_attributes][email]" type="email" value="camille.exemple@exemple.fr" required>
+    </div>
+    <div class="field">
+      <label for="job_application_email_confirmation">Confirmez votre e-mail</label>
+      <input id="job_application_email_confirmation" name="job_application[email_confirmation]" type="email" value="camile.exemple@exemple.fr" required aria-invalid="true" aria-describedby="err-confirm">
+      <div class="err" id="err-confirm">Les deux adresses ne correspondent pas</div>
+    </div>
+    <div class="field">
+      <label for="job_application_candidate_attributes_phone">Téléphone</label>
+      <input id="job_application_candidate_attributes_phone" name="job_application[candidate_attributes][phone]" type="tel" value="06 00 00 00 00">
+    </div>
+    <div class="field">
+      <label for="job_application_candidate_attributes_resume">CV</label>
+      <input id="job_application_candidate_attributes_resume" name="job_application[candidate_attributes][resume]" type="file" accept=".pdf,.doc,.docx" required aria-invalid="true" aria-describedby="err-cv">
+      <div class="err" id="err-cv">Ce champ est obligatoire</div>
+    </div>
+    <div class="field">
+      <label for="job_application_cover_letter_file">Lettre de motivation (facultatif)</label>
+      <input id="job_application_cover_letter_file" name="job_application[cover_letter_file]" type="file" accept=".pdf,.doc,.docx">
+    </div>
+    <div class="field">
+      <label><input type="checkbox" name="job_application[consent]" value="1" checked required> J'ai lu et j'accepte la politique de protection des données</label>
+    </div>
+    <button type="submit" class="envoi">Envoyer</button>
+  </form>
+</div>
+</body>
+</html>

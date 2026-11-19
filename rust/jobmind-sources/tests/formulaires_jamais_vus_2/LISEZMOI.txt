@@ -1,0 +1,19 @@
+Formulaires jamais vus, deuxième lot
+====================================
+
+Ce dossier contient des pages de test écrites sans connaître le code de Jobmind,
+pour mesurer honnêtement la reconnaissance des formulaires de candidature.
+
+- g01.html à g12.html : formulaires de candidature à remplir (styles variés :
+  intérim, formulaire en ligne recopié, WordPress, hôpital en plusieurs étapes,
+  sites anglais, site mobile, page revenue avec des erreurs, mairie, grande
+  distribution, restauration rapide).
+- q01.html à q06.html : pages qui ne sont pas des formulaires à remplir
+  (confirmations après envoi, offre avec un bouton Postuler, connexion
+  demandée, erreur du site).
+- attendu.json : ce que Jobmind devrait trouver sur chaque page (genre de page,
+  bon bouton, captcha, erreurs, liste des cases visibles avec leur genre et
+  si elles sont obligatoires).
+
+Tout est inventé : entreprises, personnes et adresses (exemple.fr, exemple.com).
+Aucune ressource distante n'est chargée.

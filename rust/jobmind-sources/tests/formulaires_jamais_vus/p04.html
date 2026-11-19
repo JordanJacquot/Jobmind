@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Connexion - Espace candidat Groupe Hexalis</title>
+<style>
+body{font-family:Arial,sans-serif;background:#eef2f6;margin:0}
+.boite{max-width:420px;margin:60px auto;background:#fff;padding:28px;border-radius:6px}
+.boite label{display:block;margin-top:14px}
+.boite input[type=email],.boite input[type=password]{width:100%;padding:9px;border:1px solid #888}
+.principal{width:100%;margin-top:20px;padding:11px;background:#0b3d6e;color:#fff;border:0}
+</style>
+</head>
+<body>
+<div class="boite">
+  <h1>Pour postuler, connectez-vous</h1>
+  <p>Gestionnaire de paie (F/H), Lyon. Connectez-vous à votre espace candidat ou créez un compte pour continuer.</p>
+  <form action="/login" method="post" id="form-login">
+    <input type="hidden" name="redirect" value="/job/R-10442/apply">
+    <label for="login-mail">Adresse e-mail *</label>
+    <input id="login-mail" type="email" name="username" required autocomplete="username">
+    <label for="login-mdp">Mot de passe *</label>
+    <input id="login-mdp" type="password" name="password" required autocomplete="current-password">
+    <label><input type="checkbox" name="remember"> Rester connecté</label>
+    <button type="submit" class="principal">Se connecter</button>
+  </form>
+  <p><a href="/forgot">Mot de passe oublié ?</a></p>
+  <hr>
+  <p>Pas encore de compte ?</p>
+  <button type="button" onclick="location.href='/signup'">Créer un compte</button>
+</div>
+</body>
+</html>

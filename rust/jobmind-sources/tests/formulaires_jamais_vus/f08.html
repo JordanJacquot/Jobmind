@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Équipier polyvalent - Boulangerie des Trois Ponts</title>
+<style>
+body{font-family:Roboto,sans-serif;margin:0;background:#f7f4ef}
+.sr-card{max-width:620px;margin:30px auto;background:#fff;padding:28px;border-radius:10px}
+.sr-q{margin:16px 0}
+.sr-title{font-size:14px;color:#444;margin-bottom:6px}
+.sr-input{width:100%;padding:10px;border:1px solid #c9c2b8;border-radius:6px}
+.sr-chips label{display:inline-block;margin-right:12px}
+.sr-cta{background:#8a4b14;color:#fff;border:0;padding:12px 26px;border-radius:24px}
+</style>
+</head>
+<body>
+<div class="sr-card">
+  <h1>Équipier polyvalent (H/F)</h1>
+  <p>Boulangerie des Trois Ponts, Annecy. Temps partiel, 24 h par semaine.</p>
+  <form id="oneclick-form" action="/api/apply/77120" method="post" enctype="multipart/form-data">
+    <input type="hidden" name="postingId" value="77120">
+    <input type="text" name="hp_field" hidden tabindex="-1" autocomplete="off">
+
+    <div class="sr-q">
+      <span class="sr-title" id="lbl-a1">Prénom</span>
+      <input class="sr-input" type="text" name="field_1" id="field_1" aria-labelledby="lbl-a1" aria-required="true">
+    </div>
+    <div class="sr-q">
+      <span class="sr-title" id="lbl-a2">Nom de famille</span>
+      <input class="sr-input" type="text" name="field_2" id="field_2" aria-labelledby="lbl-a2" aria-required="true">
+    </div>
+    <div class="sr-q">
+      <span class="sr-title" id="lbl-a3">Adresse électronique</span>
+      <input class="sr-input" type="email" name="field_3" id="field_3" aria-labelledby="lbl-a3" aria-required="true">
+    </div>
+    <div class="sr-q">
+      <span class="sr-title" id="lbl-a4">Numéro de portable</span>
+      <input class="sr-input" type="tel" name="field_4" id="field_4" aria-labelledby="lbl-a4" aria-required="true">
+    </div>
+    <div class="sr-q">
+      <input class="sr-input" type="text" name="field_5" id="field_5" aria-label="Ville où vous habitez">
+    </div>
+    <div class="sr-q" role="group" aria-labelledby="lbl-a6">
+      <span class="sr-title" id="lbl-a6">Quels horaires vous conviennent ?</span>
+      <div class="sr-chips">
+        <label><input type="checkbox" name="field_6[]" value="matin"> Matin (5 h 30 à 12 h)</label>
+        <label><input type="checkbox" name="field_6[]" value="apres-midi"> Après-midi</label>
+        <label><input type="checkbox" name="field_6[]" value="week-end"> Week-end</label>
+      </div>
+    </div>
+    <div class="sr-q">
+      <span class="sr-title" id="lbl-a7">Avez-vous déjà travaillé dans la vente ou en boulangerie ?</span>
+      <select class="sr-input" name="field_7" id="field_7" aria-labelledby="lbl-a7">
+        <option value="">Choisir</option>
+        <option>Non, ce serait une première</option>
+        <option>Oui, moins d'un an</option>
+        <option>Oui, plus d'un an</option>
+      </select>
+    </div>
+    <div class="sr-q">
+      <span class="sr-title" id="lbl-a8">Votre CV (facultatif)</span>
+      <input type="file" name="field_8" id="field_8" aria-labelledby="lbl-a8" accept=".pdf,.doc,.docx,.jpg,.png">
+    </div>
+    <div class="sr-q">
+      <label><input type="checkbox" name="field_9" aria-required="true"> J'accepte les conditions générales d'utilisation du service</label>
+    </div>
+    <div class="sr-q">
+      <iframe src="https://challenges.cloudflare.com/turnstile/v0/b/0a1b2c3d/api.js?onload=x" title="Widget contenant un défi de sécurité Cloudflare" width="300" height="65" style="border:none"></iframe>
+    </div>
+    <button type="submit" class="sr-cta">Valider ma candidature</button>
+  </form>
+</div>
+</body>
+</html>
