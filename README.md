@@ -348,7 +348,9 @@ livrée :
   d'appeler Jobmind échoue ; nouvel onglet, téléchargement, session gardée puis effacée, « Ajouter à Jobmind » dans
   la petite fenêtre), les sites en coulisse (étape 5 bis, sur les quatre sites imités : la liste lue alors que la vue
   est invisible, une offre, « Ajouter à Jobmind », « Page suivante », la connexion par la carte de Jobmind à LinkedIn
-  en un écran et à Indeed en deux, un captcha qui ouvre puis referme la petite fenêtre, une lecture qui casse), puis
+  en un écran et à Indeed en deux, « Me connecter sur la page du site » de France Travail avec le bandeau de Jobmind et
+  « Fermer », Échap qui ferme la petite fenêtre dans la page du site comme dans celle de Jobmind, le bandeau dessiné à
+  chaque ouverture de la petite fenêtre, un captcha qui ouvre puis referme la petite fenêtre, une lecture qui casse), puis
   fermée par « Fermer » et « Tout quitter » ; à la fin, le mot de passe inventé est cherché dans tout le dossier de
   l'essai (journal, base, session des sites, WebView2) : il ne doit y être nulle part ;
 - `outils\captures.ps1 -Exe <Mindset.exe d'essai> -Relais <Jobmind.exe> -Resultats <dossier> [-Theme <thème>]
@@ -377,7 +379,10 @@ livrée :
   `wttj`, `francetravail`, `mes`) choisit la source, `chercher-site` clique « Chercher sur le site » et attend la
   lecture en coulisse, `resultat:<n>` ouvre le résultat n, `connexion:linkedin` remplit la carte de connexion avec les
   identifiants inventés (`connexion.demande`), `connecter:linkedin` la remplit et l'envoie, `sites:captcha` et
-  `sites:casse` changent la prochaine liste (`sites.essai`), `pause:<s>` attend ; `liste` (étape 6) descend la liste des offres jusqu'à ses offres, `clic:pf:fermer`, `clic:cs:voir`,
+  `sites:casse` changent la prochaine liste (`sites.essai`), `pause:<s>` attend ; `clic:cs:connecter,clic:cx:site`
+  ouvre la page de connexion du site ; `bandeau` vérifie que la page a dessiné le bandeau de la petite fenêtre (journal),
+  `echap-site` et `echap-page` pressent Échap dans la page du site ou dans celle de Jobmind (des messages de fenêtre,
+  jamais une vraie touche) et vérifient que la petite fenêtre se ferme ; `liste` (étape 6) descend la liste des offres jusqu'à ses offres, `clic:pf:fermer`, `clic:cs:voir`,
   `clic:cs:a-voir` et `clic:pn:decon` cliquent dans la petite fenêtre, l'offre, la phrase d'une lecture qui casse et
   Réglages, par exemple
   `-Vues 'site:linkedin,chercher-site,resultat:1,connexion:linkedin,connecter:linkedin,sites:captcha,chercher-site'` ;

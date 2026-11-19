@@ -12,9 +12,11 @@
 //!   Jobmind.
 
 use tauri::Webview;
+use webview2_com::AcceleratorKeyPressedEventHandler;
 use webview2_com::Microsoft::Web::WebView2::Win32::{
-    COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL, COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL, ICoreWebView2_22,
-    ICoreWebView2Controller, ICoreWebView2Settings3, ICoreWebView2Settings4,
+    COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN, COREWEBVIEW2_KEY_EVENT_KIND_KEY_UP, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
+    COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL, ICoreWebView2_22, ICoreWebView2Controller,
+    ICoreWebView2Settings3, ICoreWebView2Settings4,
 };
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::IsChild;
@@ -61,14 +63,55 @@ fn preparer(c: &ICoreWebView2Controller) -> windows::core::Result<usize> {
     }
 }
 
-/// Prépare la vue des sites tout juste créée (sur le fil de la fenêtre, un peu plus tard) ; le résultat va au journal.
-pub fn preparer_sites(v: &Webview, journal: impl Fn(&str) + Send + 'static) -> tauri::Result<()> {
-    v.with_webview(move |pw| match preparer(&pw.controller()) {
-        Ok(n) => journal(&format!(
-            "Sites : menu du clic droit, raccourcis du navigateur, saisie automatique et outils coupés ; {n} \
-             protocoles de Jobmind retirés"
-        )),
-        Err(e) => journal(&format!("Sites : réglages de WebView2 non posés ({e})")),
+/// La touche Échap (le code de touche virtuelle de Windows).
+const VK_ECHAP: u32 = 0x1B;
+
+/// Échap pressée dans la page du site : `echap` est appelé (la petite fenêtre se ferme, comme sur la page de Jobmind).
+/// WebView2 compte toujours Échap parmi ses raccourcis : elle passe par cet événement, et la page du site ne la reçoit
+/// plus.
+fn ecouter_echap(c: &ICoreWebView2Controller, echap: Box<dyn Fn()>) -> windows::core::Result<()> {
+    let h = AcceleratorKeyPressedEventHandler::create(Box::new(move |_, args| {
+        let Some(a) = args else { return Ok(()) };
+        let mut genre = COREWEBVIEW2_KEY_EVENT_KIND_KEY_UP;
+        let mut touche = 0u32;
+        // SAFETY : appels COM ordinaires sur les arguments de l'événement, valides pendant l'événement ; les deux
+        // variables sont locales et passées par pointeur valide pendant chaque appel.
+        unsafe {
+            a.KeyEventKind(&mut genre)?;
+            a.VirtualKey(&mut touche)?;
+            if genre == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN && touche == VK_ECHAP {
+                a.SetHandled(true)?;
+                echap();
+            }
+        }
+        Ok(())
+    }));
+    let mut jeton = 0i64;
+    // SAFETY : appel COM ordinaire sur le contrôleur que Tauri nous prête, sur le fil de la fenêtre ; le rappel est
+    // gardé par WebView2 tant que la vue existe.
+    unsafe { c.add_AcceleratorKeyPressed(&h, &mut jeton) }
+}
+
+/// Prépare la vue des sites tout juste créée (sur le fil de la fenêtre, un peu plus tard) : ses réglages, et Échap
+/// (`echap`) ; le résultat va au journal.
+pub fn preparer_sites(
+    v: &Webview,
+    journal: impl Fn(&str) + Send + 'static,
+    echap: impl Fn() + Send + 'static,
+) -> tauri::Result<()> {
+    v.with_webview(move |pw| {
+        let c = pw.controller();
+        match preparer(&c) {
+            Ok(n) => journal(&format!(
+                "Sites : menu du clic droit, raccourcis du navigateur, saisie automatique et outils coupés ; {n} \
+                 protocoles de Jobmind retirés"
+            )),
+            Err(e) => journal(&format!("Sites : réglages de WebView2 non posés ({e})")),
+        }
+        match ecouter_echap(&c, Box::new(echap)) {
+            Ok(()) => journal("Sites : Échap ferme la petite fenêtre, même dans la page du site"),
+            Err(e) => journal(&format!("Sites : Échap non écoutée dans la page du site ({e})")),
+        }
     })
 }
 

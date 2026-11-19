@@ -415,6 +415,10 @@ fn page_illisible_puis_lecture_cassee() {
     // « Le faire moi-même sur la page » : la petite fenêtre, sans recharger
     let f = c.po_geste(&ctx, VOIR, &json!({}), m(10, 1));
     assert_eq!(f.coulisse, vec![Ordre::Montrer]);
+    // (l'état envoyé à la page contient la petite fenêtre : son bandeau, « Fermer »)
+    crate::coulisse::bandeau_envoye(&mut c, &f, "La page du formulaire");
+    let f = c.geste(Some(&b), crate::coulisse::FERMER, &Value::Null, m(10, 2));
+    assert!(f.coulisse.contains(&Ordre::Cacher) && c.petite.is_none(), "{f:?}");
     let _ = std::fs::remove_dir_all(&d);
 }
 
@@ -488,6 +492,7 @@ fn linkedin_jordan_postule_lui_meme() {
         vec![Ordre::Charger("https://www.linkedin.com/jobs/view/4000000099/".into()), Ordre::Montrer]
     );
     assert_eq!(c.petite.as_ref().unwrap().raison, Raison::Postuler);
+    crate::coulisse::bandeau_envoye(&mut c, &f, "Postuler sur LinkedIn");
     let v = c.vue(m(10, 0).jour());
     assert!(v["petite"]["cote"]["lettre"].as_str().unwrap().contains("préparateur de commandes"));
     assert_eq!(v["petite"]["cote"]["questions"].as_array().unwrap().len(), 2);

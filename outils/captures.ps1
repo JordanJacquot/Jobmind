@@ -39,7 +39,11 @@
 # inventés, sans l'envoyer), « connecter:<site> » (remplie et envoyée, puis attendre la connexion), « sites:<captcha|
 # casse> » (la prochaine liste des sites imités ; sans capture), « pause:<s> » (attendre s secondes, sans capture) ;
 # les boutons par « clic:pf:fermer », « clic:cs:voir »,
-# « clic:cs:ajouter », « clic:cs:suivante », « clic:pn:decon » (Réglages : « Me déconnecter de tous les sites »).
+# « clic:cs:ajouter », « clic:cs:suivante », « clic:pn:decon » (Réglages : « Me déconnecter de tous les sites ») ;
+# « Me connecter sur la page du site » par « clic:cs:connecter,clic:cx:site » ; « bandeau » (sans capture) vérifie que
+# la page a dessiné le bandeau de la petite fenêtre depuis le dernier « bandeau » (journal) ; « echap-site » et
+# « echap-page » pressent Échap dans la page du site ou dans celle de Jobmind (des messages de fenêtre, jamais une vraie
+# touche) et vérifient que la petite fenêtre se ferme ; « fenetres » (sans capture) écrit les fenêtres enfants de Jobmind.
 # -Exemples : la base d'essai est remplie de candidatures inventées à des statuts variés (exemples.demande, lu par la
 # construction d'essai au démarrage). -Largeur et -Hauteur : la taille du panneau (944 x 608 : un panneau de 1180 x 760
 # vu à 125 % d'affichage).
@@ -103,6 +107,37 @@ public static class JobmindBoite {
             b.Save(fichier, System.Drawing.Imaging.ImageFormat.Png);
         }
         return true;
+    }
+    // Les fenêtres enfants de la fenêtre de Jobmind (WebView2 : la page de Jobmind et la vue des sites), pour Échap
+    [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr p, Proc f, IntPtr l);
+    public static string[] Arbre(IntPtr racine) {
+        var l = new System.Collections.Generic.List<string>();
+        EnumChildWindows(racine, (h, x) => {
+            uint p; GetWindowThreadProcessId(h, out p);
+            var c = new StringBuilder(128); GetClassName(h, c, 128);
+            RECT r; GetWindowRect(h, out r);
+            l.Add(h.ToInt64() + " " + c + " pid " + p + (IsWindowVisible(h) ? " visible " : " cachée ") + r.G + "," + r.H + " " + (r.D - r.G) + " x " + (r.B - r.H));
+            return true;
+        }, IntPtr.Zero);
+        return l.ToArray();
+    }
+    // Les fenêtres visibles de cette classe sous la fenêtre de Jobmind, de la plus petite à la plus grande (la vue des
+    // sites, dans la petite fenêtre, est plus petite que la page de Jobmind)
+    public static IntPtr[] DeClasse(IntPtr racine, string classe) {
+        var l = new System.Collections.Generic.List<Tuple<long, IntPtr>>();
+        EnumChildWindows(racine, (h, x) => {
+            var c = new StringBuilder(128); GetClassName(h, c, 128);
+            RECT r;
+            if (c.ToString() == classe && IsWindowVisible(h) && GetWindowRect(h, out r)) l.Add(Tuple.Create((long)(r.D - r.G) * (r.B - r.H), h));
+            return true;
+        }, IntPtr.Zero);
+        l.Sort((a, b) => a.Item1.CompareTo(b.Item1));
+        return l.ConvertAll(t => t.Item2).ToArray();
+    }
+    // Échap pressée puis relâchée dans cette fenêtre (des messages de la fenêtre, jamais une vraie touche : rien ne part
+    // vers le bureau de Jordan)
+    public static bool Echap(IntPtr h) {
+        return PostMessage(h, 0x0100, (IntPtr)0x1B, (IntPtr)0x00010001) && PostMessage(h, 0x0101, (IntPtr)0x1B, unchecked((IntPtr)(int)0xC0010001));
     }
     public static bool Choisir(IntPtr boite, string chemin) {
         IntPtr ex = FindWindowEx(boite, IntPtr.Zero, "ComboBoxEx32", null);
@@ -288,6 +323,34 @@ try {
             Ordre '{"kit":"accueil","cliquer":"cs:ou"}'
             [void](Attendre { $false } 300)
             Ordre ('{"kit":"accueil","cliquer":"cs:s' + $i + '"}')
+        }
+        # « bandeau » : la page a dessiné le bandeau de la petite fenêtre (titre, « Fermer ») depuis le dernier
+        # « bandeau » (elle envoie alors sa place, notée au journal) ; sans capture
+        elseif ($v -eq 'bandeau') {
+            $nB = { Compter 'Sites : bandeau de la petite fenêtre dessiné par la page' }
+            Verifier (Attendre { (& $nB) -gt [int]$script:bandeaux } 5000) 'le bandeau de la petite fenêtre est dessiné par la page (journal)'
+            $script:bandeaux = & $nB
+            continue
+        }
+        # « fenetres » : les fenêtres enfants de Jobmind (classe, processus, place), écrites dans la sortie ; sans capture
+        elseif ($v -eq 'fenetres') {
+            [JobmindBoite]::Arbre($script:h) | ForEach-Object { Write-Output "Fenêtre : $_" }
+            continue
+        }
+        # « echap-site » : Échap dans la page du site (la plus petite vue de WebView2, dans la petite fenêtre) ;
+        # « echap-page » : Échap dans la page de Jobmind (la plus grande) ; la petite fenêtre doit se fermer
+        elseif ($v -in 'echap-site', 'echap-page') {
+            $fermees = { (Compter 'Sites : petite fenêtre fermée') + (Compter 'Site : petite fenêtre') }
+            $fAvant = & $fermees
+            $echaps = Compter 'Sites : Échap dans la page du site'
+            $rendus = @([JobmindBoite]::DeClasse($script:h, 'Chrome_WidgetWin_1'))
+            Verifier ($rendus.Count -ge 2) "deux vues WebView2 visibles (la page de Jobmind et celle du site : $($rendus.Count))"
+            if ($rendus.Count -ge 1) {
+                $cible = if ($v -eq 'echap-site') { $rendus[0] } else { $rendus[$rendus.Count - 1] }
+                Verifier ([JobmindBoite]::Echap($cible)) "Échap envoyée à la $(if ($v -eq 'echap-site') { 'page du site' } else { 'page de Jobmind' })"
+                Verifier (Attendre { (& $fermees) -gt $fAvant } 5000) "Échap ($v) : la petite fenêtre se ferme (journal)"
+                if ($v -eq 'echap-site') { Verifier ((Compter 'Sites : Échap dans la page du site') -gt $echaps) 'Échap reçue de la page du site (journal)' }
+            }
         }
         elseif ($v -match '^pause:(\d{1,2})$') {
             [void](Attendre { $false } (1000 * [int]$Matches[1]))

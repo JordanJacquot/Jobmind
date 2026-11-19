@@ -1043,7 +1043,9 @@ fn vue_des_sites(app: &AppHandle) {
                 Ok(v) => {
                     place = Some(p);
                     let j = t.journal.clone();
-                    if let Err(e) = crate::windows::sites::preparer_sites(&v, move |x| j.ecrire(x)) {
+                    let r = Arc::clone(&t.rapport);
+                    let echap = move || r(EvenementSites::Echap);
+                    if let Err(e) = crate::windows::sites::preparer_sites(&v, move |x| j.ecrire(x), echap) {
                         t.journal.ecrire(&format!("Sites : réglages de WebView2 non posés ({e})"));
                     }
                     let (j, h) = (t.journal.clone(), t.hwnd);
@@ -1731,6 +1733,10 @@ impl Etat {
             let e = self.etat_page(d);
             page.changer(e);
             d.ecrire_etat();
+        }
+        // (la petite fenêtre vient de s'ouvrir : la page la dessine tout de suite, même si une case de texte a la main)
+        if (fait.change || self.coulisse.petite.is_none()) && self.coulisse.petite_a_annoncer() {
+            page.ordre(json!({ "kit": "accueil", "petite": true }));
         }
         if let Some(o) = fait.ordre {
             page.ordre(o);
@@ -2614,6 +2620,17 @@ impl Etat {
                     #[cfg(feature = "essai")]
                     self.journal.ecrire(&format!("Essai : titre de la vue des sites « {} »", court(&_t)));
                 }
+                // (Échap dans la page du site : comme « Fermer », puis la main revient à la page de Jobmind)
+                EvenementSites::Echap if self.montree && self.coulisse.petite.is_some() => {
+                    self.journal.ecrire("Sites : Échap dans la page du site, la petite fenêtre se ferme");
+                    self.faire(app, |e, d| {
+                        e.coulisse.geste(d.base.as_ref(), coulisse::FERMER, &Value::Null, heure::maintenant())
+                    });
+                    if let Some(w) = app.get_webview(LABEL) {
+                        let _ = w.set_focus();
+                    }
+                }
+                EvenementSites::Echap => {}
             }
         }
         if renvoyer {

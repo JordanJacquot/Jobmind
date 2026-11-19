@@ -841,7 +841,16 @@
       }
       case 'cs-cx-ok': envoyerConnexion(); return true;
       case 'cs-cx-non': O.son?.retour?.(); fermerConnexion(); return true;
-      case 'cs-page-site': { const id = codeSurP(d.id) ? d.id : cnx?.site; if (cnx) cnx.mdp = ''; cnx = null; if (codeSurP(id)) { O.son?.ok?.(); O.action('cs-page-site', { site: id }); } return true; }
+      case 'cs-page-site': {
+        // (la carte de connexion se ferme tout de suite, comme après « Me connecter » : ses cases de texte partent, et
+        // la petite fenêtre envoyée par Rust se dessine dès qu'elle arrive)
+        const id = codeSurP(d.id) ? d.id : cnx?.site, avecCarte = !!cnx;
+        if (cnx) cnx.mdp = '';
+        cnx = null;
+        if (avecCarte) dessinerTout('cs:chercher');
+        if (codeSurP(id)) { O.son?.ok?.(); O.action('cs-page-site', { site: id }); }
+        return true;
+      }
       case 'cs-fermer': O.son?.retour?.(); O.action('cs-fermer'); return true;
       case 'cs-ajouter-page': if (!el.disabled) { el.disabled = true; O.son?.ok?.(); O.action('cs-ajouter-page'); } return true;
       case 'cs-deconnecter': O.son?.tic?.(); sitesConfirme = true; dessinerTout('pn:non'); hote.querySelector('.jm-r-sites .jm-suppr')?.scrollIntoView({ block: 'nearest', behavior: reduit() ? 'auto' : 'smooth' }); return true;
@@ -2798,6 +2807,13 @@
     // Les ordres de l'appli
     ordre(o) {
       if (!hote || !P) return;
+      // (la petite fenêtre du site vient de s'ouvrir : le kit garde le nouvel état sans le dessiner tant qu'une case
+      // de texte a la main ; elle la rend, et le kit dessine aussitôt le bandeau et « Fermer »)
+      if (o.petite === true) {
+        const a = document.activeElement;
+        if (a && a.tagName === 'INPUT' && hote.contains(a)) a.blur();
+        return;
+      }
       if (ordreProfil(o)) return;
       if (ordreOffres(o)) return;
       // (construction d'essai seulement : la carte de connexion remplie comme Jordan, avec des identifiants inventés)

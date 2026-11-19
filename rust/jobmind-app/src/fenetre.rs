@@ -159,6 +159,8 @@ pub enum EvenementSites {
     Refusee(String),
     /// Le titre de la page (la construction d'essai le note au journal)
     Titre(String),
+    /// Échap pressée dans la page du site (la petite fenêtre se ferme, comme sur la page de Jobmind)
+    Echap,
 }
 
 /// Ce qui dit si une adresse s'affiche dans la vue des sites ([`adresse_site_permise`] ; la construction d'essai ne

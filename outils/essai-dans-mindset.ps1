@@ -39,7 +39,11 @@
 #  7 bis. (étape 5 bis) les sites en coulisse, sur les quatre sites imités : la liste de LinkedIn lue alors que la vue
 #     des sites est invisible, et montrée dans le design de Jobmind ; une offre ouverte, « Ajouter à Jobmind » ;
 #     « Page suivante » ; la connexion par la carte de Jobmind (LinkedIn en un écran, Indeed en deux : le faux serveur
-#     a bien reçu le mail et le mot de passe inventés) ; un captcha ouvre la petite fenêtre, qui se referme seule
+#     a bien reçu le mail et le mot de passe inventés) ; « Me connecter » puis « Me connecter sur la page du site »
+#     (France Travail) ouvre la petite fenêtre avec le bandeau de Jobmind et « Fermer », qu'Échap ferme (dans la page
+#     du site comme dans celle de Jobmind) ; à chaque ouverture de la petite fenêtre (« Voir sur le site », connexion
+#     par la page du site, captcha, « Voir la page du site »), la page dessine son bandeau (sa place envoyée à
+#     Jobmind, notée au journal) ; un captcha ouvre la petite fenêtre, qui se referme seule
 #     ensuite, et Jobmind reprend ; une lecture qui casse (une phrase simple, une trace au journal) ; la session des
 #     sites est toujours là, puis « Me déconnecter de tous les sites » (après sa question) l'efface ; « Tout quitter »
 #     (quitter.demande) : elle quitte en moins de 6 s ;
@@ -94,6 +98,26 @@ public static class EssaiMindset
             return true;
         }, IntPtr.Zero);
         return l.ToArray();
+    }
+    // Les fenêtres du navigateur de WebView2 sous la fenêtre de Jobmind (la page de Jobmind, la vue des sites), de la
+    // plus petite à la plus grande : la vue des sites, dans la petite fenêtre, est la plus petite
+    [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr p, Proc f, IntPtr l);
+    [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+    public static IntPtr[] Navigateurs(IntPtr racine) {
+        var l = new System.Collections.Generic.List<Tuple<long, IntPtr>>();
+        EnumChildWindows(racine, (h, x) => {
+            var c = new System.Text.StringBuilder(128); GetClassName(h, c, 128);
+            RECT r;
+            if (c.ToString() == "Chrome_WidgetWin_1" && IsWindowVisible(h) && GetWindowRect(h, out r)) l.Add(Tuple.Create((long)(r.D - r.G) * (r.B - r.H), h));
+            return true;
+        }, IntPtr.Zero);
+        l.Sort((a, b) => a.Item1.CompareTo(b.Item1));
+        return l.ConvertAll(t => t.Item2).ToArray();
+    }
+    // Échap pressée puis relâchée dans cette fenêtre (des messages de la fenêtre, jamais une vraie touche : rien ne part
+    // vers le bureau de Jordan)
+    public static bool Echap(IntPtr h) {
+        return PostMessage(h, 0x0100, (IntPtr)0x1B, (IntPtr)0x00010001) && PostMessage(h, 0x0101, (IntPtr)0x1B, unchecked((IntPtr)(int)0xC0010001));
     }
 }
 '@
@@ -251,6 +275,26 @@ function Capturer-Vue([string]$Nom) {
     }
 }
 
+# La petite fenêtre vient de s'ouvrir : la page de Jobmind a dessiné son bandeau (titre, explication, « Fermer ») ; elle
+# envoie alors sa place à Jobmind, noté une fois par ouverture au journal
+function Compter-Bandeaux { Compter 'Sites : bandeau de la petite fenêtre dessiné par la page' }
+function Bandeau-Dessine([int]$Avant, [string]$Quoi) {
+    Verifier (Attendre { (Compter-Bandeaux) -gt $Avant } 6000) "$Quoi : la page dessine le bandeau de la petite fenêtre, avec « Fermer » (journal)"
+}
+# Échap dans la page du site (la plus petite vue de WebView2) ou dans celle de Jobmind (la plus grande) : la petite
+# fenêtre se ferme
+function Echap-Dans([IntPtr]$Fenetre, [bool]$Site, [string]$Quoi) {
+    $fermees = Compter 'Sites : petite fenêtre fermée'
+    $echaps = Compter 'Sites : Échap dans la page du site'
+    $n = @([EssaiMindset]::Navigateurs($Fenetre))
+    Verifier ($n.Count -ge 2) "$Quoi : la page de Jobmind et la page du site sont là ($($n.Count) vues)"
+    if ($n.Count -lt 1) { return }
+    $cible = if ($Site) { $n[0] } else { $n[$n.Count - 1] }
+    Verifier ([EssaiMindset]::Echap($cible)) "$Quoi : Échap pressée dans la $(if ($Site) { 'page du site' } else { 'page de Jobmind' })"
+    Verifier (Attendre { (Compter 'Sites : petite fenêtre fermée') -gt $fermees } 5000) "$Quoi : Échap ferme la petite fenêtre (journal)"
+    if ($Site) { Verifier ((Compter 'Sites : Échap dans la page du site') -gt $echaps) "$Quoi : Échap vient de la page du site (journal)" }
+}
+
 try {
     # --- 1 à 4. Lancée par son relais, trouvée et accrochée ------------------------------------------------------------
     $a = Open-DansMindset 'Premier lancement'
@@ -316,8 +360,10 @@ try {
         Sans-FenetreAPart $a.Id 'avant la vue des sites : aucune fenêtre à part'
         # a. La sécurité : une page de la vue des sites (dans la petite fenêtre) essaie d'appeler Jobmind par tous les
         # chemins connus
+        $bd = Compter-Bandeaux
         Voir-Page '/essai/piege-ipc'
         Verifier (Attendre { (Compter 'Sites : vue des sites créée dans la fenêtre de Jobmind') -eq 1 } 20000) 'la vue des sites est créée DANS la fenêtre de Jobmind (sa fenêtre parente, journal)'
+        Bandeau-Dessine $bd '« Voir sur le site »'
         Verifier ((Compter 'HORS de la fenêtre') -eq 0) 'jamais hors de la fenêtre de Jobmind'
         Verifier (Attendre { (Compter 'protocoles de Jobmind retirés') -ge 1 } 5000) "vue des sites : menu, raccourcis, saisie automatique coupés, protocoles de Jobmind retirés ($(@(Get-Journal | Where-Object { $_ -like '*protocoles de Jobmind retirés*' }) -join ''))"
         Verifier (Attendre-Titre 'ipc internals=') 'la page piégée a fini ses essais (son titre, journal)'
@@ -343,8 +389,10 @@ try {
         Verifier (Attendre-Titre 'session posee') 'un cookie de session est posé'
         Cliquer 'pf:fermer'
         Verifier (Attendre { (Compter 'Sites : petite fenêtre fermée') -ge 1 } 4000) '« Fermer » : la petite fenêtre se ferme (journal)'
+        $bd = Compter-Bandeaux
         Voir-Page '/essai/session-voir'
         Verifier (Attendre-Titre 'session gardee') 'fermée puis rouverte : la session est gardée'
+        Bandeau-Dessine $bd 'rouverte'
         # e. « Ajouter à Jobmind » dans la petite fenêtre, sur l'offre d'exemple de LinkedIn
         Voir-Page 'https://www.linkedin.com/jobs/collections/recommended/?currentJobId=4012345678'
         Verifier (Attendre-Titre '(3) Cariste H/F') 'l''offre d''exemple de LinkedIn s''affiche dans la petite fenêtre'
@@ -469,13 +517,52 @@ try {
         Connexion-Demande 'indeed' $true
         Verifier (Attendre { (Compter 'Sites : connecté à indeed') -ge 1 } 30000) 'connecté à Indeed en deux écrans (journal)'
         Verifier ((Compter 'Sites : saisie du mail sur la page de connexion de indeed') -eq 1 -and (Compter 'Sites : saisie du mot de passe sur la page de connexion de indeed') -eq 1) 'Indeed : le mail puis le mot de passe, chacun une fois (journal)'
+        # d bis. « Me connecter », puis « Me connecter sur la page du site » (France Travail) : la page du site dans la
+        # petite fenêtre, avec le bandeau de Jobmind et « Fermer » ; Échap la ferme, dans la page du site comme dans
+        # celle de Jobmind
+        Cliquer 'cs:ou'
+        Cliquer 'cs:s4'
+        Verifier (Attendre { (Compter 'Sites : source francetravail') -ge 1 } 4000) 'la source France Travail est choisie (journal)'
+        [void](Attendre { $false } 600)
+        $bd = Compter-Bandeaux
+        Cliquer 'cs:connecter'
+        [void](Attendre { $false } 500)
+        Cliquer 'cx:site'
+        Verifier (Attendre { (Compter 'Sites : page de connexion de francetravail montrée') -ge 1 } 4000) '« Me connecter sur la page du site » : la page de connexion de France Travail est montrée (journal)'
+        Bandeau-Dessine $bd '« Me connecter sur la page du site »'
+        Verifier (Attendre-Titre 'Connexion candidat') 'la page de connexion imitée de France Travail s''affiche dans la petite fenêtre'
+        [void](Attendre { $false } 800)
+        Capturer-Vue 'sites-connexion-page-du-site'
+        Echap-Dans $b.Fenetre $true '« Me connecter sur la page du site »'
+        [void](Attendre { $false } 800)
+        # (fermée sans être connecté : l'annonce « pas finie » remplace la ligne de connexion ; le bouton de droite reste)
+        $bd = Compter-Bandeaux
+        Cliquer 'cs:connecter2'
+        [void](Attendre { $false } 500)
+        Cliquer 'cx:site'
+        Bandeau-Dessine $bd 'rouverte par « Me connecter sur la page du site »'
+        [void](Attendre { $false } 800)
+        Echap-Dans $b.Fenetre $false 'rouverte'
+        [void](Attendre { $false } 800)
+        $bd = Compter-Bandeaux
+        $fermees = Compter 'Sites : petite fenêtre fermée'
+        Cliquer 'cs:connecter2'
+        [void](Attendre { $false } 500)
+        Cliquer 'cx:site'
+        Bandeau-Dessine $bd 'rouverte une troisième fois'
+        [void](Attendre { $false } 800)
+        Cliquer 'pf:fermer'
+        Verifier (Attendre { (Compter 'Sites : petite fenêtre fermée') -gt $fermees } 4000) '« Fermer » du bandeau ferme la petite fenêtre (journal)'
+        [void](Attendre { $false } 600)
         # e. Un captcha : la petite fenêtre s'ouvre, puis se referme seule quand la page redevient normale
         Cliquer 'cs:ou'
         Cliquer 'cs:s1'
         [void](Attendre { $false } 600)
         Mode-Sites 'captcha'
+        $bd = Compter-Bandeaux
         Cliquer 'cs:chercher'
         Verifier (Attendre { (Compter 'demande une personne (captcha), petite fenêtre ouverte') -ge 1 } 20000) 'un captcha ouvre la petite fenêtre du site (journal)'
+        Bandeau-Dessine $bd 'le captcha'
         [void](Attendre { $false } 500)
         Capturer-Vue 'sites-captcha'
         Sans-FenetreAPart $b.Id 'le captcha : aucune fenêtre à part'
@@ -490,9 +577,12 @@ try {
         Verifier ($casse -match 'scaffold-layout__list-item=0' -and $casse -match 'par les liens') 'la trace dit ce qui a été essayé'
         [void](Attendre { $false } 600)
         Capturer-Vue 'sites-cassee'
+        $bd = Compter-Bandeaux
         Cliquer 'cs:a-voir'
         Verifier (Attendre { (Compter 'Sites : page du site montrée (linkedin)') -ge 1 } 4000) '« Voir la page du site » ouvre la petite fenêtre (journal)'
-        Cliquer 'pf:fermer'
+        Bandeau-Dessine $bd '« Voir la page du site »'
+        [void](Attendre { $false } 800)
+        Echap-Dans $b.Fenetre $true '« Voir la page du site »'
         [void](Attendre { $false } 800)
         Verifier ((Compter 'Sites : adresse refusée') -eq 0) 'aucune adresse refusée pendant les essais des sites'
         Verifier ((Compter 'Écran : erreur') -eq 0 -and (Compter 'message refusé') -eq 0) 'aucune erreur de la page avec les sites (journal)'

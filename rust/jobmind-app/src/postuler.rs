@@ -1642,7 +1642,10 @@ impl Coulisse {
             if p.phase == Phase::MoiMeme {
                 p.phase = Phase::Bloque;
             }
-            return ordres(vec![Ordre::Cacher], true);
+            return Fait {
+                journal: Some("Site : petite fenêtre fermée, rien à relire".into()),
+                ..ordres(vec![Ordre::Cacher], true)
+            };
         }
         // (relue : la phase de remplissage relit sans rien poser ; ce que Jordan a mis devient ses saisies)
         p.phase = Phase::Remplissage;

@@ -600,3 +600,73 @@ fn france_travail_espace_personnel_reconnu() {
     assert!(c.annonces[3].is_some());
     assert_ne!(c.connecte[3], Some(true));
 }
+
+/// « Fermer » (ou Échap, qui fait le même geste) : la petite fenêtre se referme, et la prochaine sera annoncée.
+fn fermer_et_oublier(c: &mut Coulisse, b: Option<&Base>) {
+    let f = c.geste(b, FERMER, &Value::Null, m(9, 30));
+    assert!(f.coulisse.contains(&Ordre::Cacher) && f.change, "{f:?}");
+    assert!(c.petite.is_none() && c.vue(jour())["petite"].is_null());
+    assert!(!c.petite_a_annoncer());
+}
+
+#[test]
+fn chaque_chemin_envoie_la_petite_fenetre_a_la_page() {
+    // 1. « Me connecter », puis « Me connecter sur la page du site » (France Travail, puis les autres sites)
+    let mut c = Coulisse { source: Some(Site::FranceTravail), ..Coulisse::default() };
+    let f = c.geste(None, PAGE_SITE, &json!({ "site": "francetravail" }), m(9, 0));
+    crate::coulisse::bandeau_envoye(&mut c, &f, "Connecte-toi à France Travail");
+    fermer_et_oublier(&mut c, None);
+    // (rouverte : annoncée de nouveau, son bandeau noté de nouveau)
+    let f = c.geste(None, PAGE_SITE, &json!({ "site": "francetravail" }), m(9, 1));
+    crate::coulisse::bandeau_envoye(&mut c, &f, "Connecte-toi à France Travail");
+    fermer_et_oublier(&mut c, None);
+    for (s, nom) in [("linkedin", "LinkedIn"), ("indeed", "Indeed"), ("wttj", "Welcome to the Jungle")] {
+        let f = c.geste(None, PAGE_SITE, &json!({ "site": s }), m(9, 2));
+        crate::coulisse::bandeau_envoye(&mut c, &f, &format!("Connecte-toi à {nom}"));
+        fermer_et_oublier(&mut c, None);
+    }
+    // 2. Un captcha pendant une recherche
+    let (b, rid) = base();
+    let mut n = Navigateur::nouveau();
+    *n.mode.lock().unwrap() = ModeSites::Captcha;
+    let f = c.geste(Some(&b), CHERCHER, &json!({ "site": "linkedin", "recherche": rid }), m(9, 3));
+    let f = charger_et_lire(&mut c, Some(&b), &mut n, &f);
+    crate::coulisse::bandeau_envoye(&mut c, &f, "LinkedIn vérifie que tu es une personne");
+    fermer_et_oublier(&mut c, Some(&b));
+    // 3. Une vérification (un code) pendant la connexion
+    let mut c = Coulisse::default();
+    c.connecter("indeed", MAIL_ESSAI, Secret::new(MDP_ESSAI.into()));
+    let u = "https://secure.indeed.com/auth/otp";
+    let p = c.page_chargee(u);
+    let html = "<html><body><h1>Code envoyé</h1><input autocomplete=\"one-time-code\" type=\"text\"></body></html>";
+    let f =
+        c.lu(None, lire_no(&p), Lecture { brute: u.into(), comprise: comprendre(u, html), formulaire: None }, m(9, 4));
+    crate::coulisse::bandeau_envoye(&mut c, &f, "Indeed demande une vérification");
+    fermer_et_oublier(&mut c, None);
+    // 4. Un écran inconnu pendant la connexion (lu, puis la saisie ratée)
+    c.connecter("wttj", MAIL_ESSAI, Secret::new(MDP_ESSAI.into()));
+    let u = "https://www.welcometothejungle.com/fr/signin";
+    let p = c.page_chargee(u);
+    let html = "<html><body><h1>Bienvenue</h1><p>Une page toute nouvelle.</p></body></html>";
+    let f =
+        c.lu(None, lire_no(&p), Lecture { brute: u.into(), comprise: comprendre(u, html), formulaire: None }, m(9, 5));
+    crate::coulisse::bandeau_envoye(&mut c, &f, "Termine la connexion sur Welcome to the Jungle");
+    fermer_et_oublier(&mut c, None);
+    c.connecter("francetravail", MAIL_ESSAI, Secret::new(MDP_ESSAI.into()));
+    let f = c.saisie_ratee("sans_mdp");
+    crate::coulisse::bandeau_envoye(&mut c, &f, "Termine la connexion sur France Travail");
+    fermer_et_oublier(&mut c, None);
+    // 5. « Voir la page du site » (une lecture qui casse)
+    let mut c = Coulisse::default();
+    let mut n = Navigateur::nouveau();
+    *n.mode.lock().unwrap() = ModeSites::Casse;
+    let f = c.geste(Some(&b), CHERCHER, &json!({ "site": "linkedin", "recherche": rid }), m(9, 6));
+    let mut f = charger_et_lire(&mut c, Some(&b), &mut n, &f);
+    for _ in 0..RELECTURES {
+        f = c.lu(Some(&b), lire_no(&f), n.lecture(), m(9, 6));
+    }
+    c.source = Some(Site::LinkedIn);
+    let f = c.geste(Some(&b), VOIR, &Value::Null, m(9, 7));
+    crate::coulisse::bandeau_envoye(&mut c, &f, "La page du site : LinkedIn");
+    fermer_et_oublier(&mut c, Some(&b));
+}

@@ -338,6 +338,10 @@ pub struct Coulisse {
     pub filtres: (bool, bool),
     /// Étape 11 : la candidature en cours sur un site
     pub postuler: Option<crate::postuler::Postuler>,
+    /// La petite fenêtre ouverte déjà annoncée à la page (voir [`Coulisse::petite_a_annoncer`])
+    annoncee: bool,
+    /// Sa place reçue de la page depuis qu'elle est ouverte : la page a dessiné son bandeau
+    bandeau: bool,
 }
 
 /// Au plus ce nombre d'offres des sites lues gardées en mémoire (le temps que Jobmind est ouverte).
@@ -403,6 +407,20 @@ fn ordres(o: Vec<Ordre>, change: bool) -> Fait {
 }
 
 impl Coulisse {
+    /// Vrai une fois quand la petite fenêtre vient de s'ouvrir (appelé après chaque geste, une fois l'état envoyé à la
+    /// page) : la page reçoit alors l'ordre `{ kit: 'accueil', petite: true }`. Le kit garde un nouvel état sans le
+    /// dessiner tant qu'une case de texte a la main (pour ne pas gêner la saisie) ; cet ordre la lui reprend, et le
+    /// bandeau de la petite fenêtre (son titre, « Fermer ») se dessine, quel que soit le chemin qui l'a ouverte.
+    pub fn petite_a_annoncer(&mut self) -> bool {
+        let ouverte = self.petite.is_some();
+        let nouvelle = ouverte && !self.annoncee;
+        self.annoncee = ouverte;
+        if nouvelle {
+            self.bandeau = false;
+        }
+        nouvelle
+    }
+
     /// Une sauvegarde vient d'être remise : la candidature sur un site, l'offre d'un site ouverte et la petite fenêtre
     /// sont oubliées (les connexions et les listes restent). Vrai si la petite fenêtre était ouverte (à cacher).
     pub fn apres_remise(&mut self) -> bool {
@@ -504,10 +522,18 @@ impl Coulisse {
             FERMER => self.fermer(),
             AJOUTER_PAGE => self.ajouter_page(),
             ZONE => {
-                if let Some(z) = lire_zone(v) {
-                    self.zone = Some(z);
+                let Some(z) = lire_zone(v) else { return Fait::default() };
+                self.zone = Some(z);
+                // (la page envoie cette place seulement quand elle a dessiné le bandeau de la petite fenêtre : noté
+                // une fois par ouverture, la preuve que la page a bien reçu la petite fenêtre ouverte)
+                if self.petite.is_none() || self.bandeau {
+                    return Fait::default();
                 }
-                Fait::default()
+                self.bandeau = true;
+                Fait {
+                    journal: Some("Sites : bandeau de la petite fenêtre dessiné par la page".into()),
+                    ..Fait::default()
+                }
             }
             VOIR_OFFRE => {
                 let Some(id) = v.get("id").and_then(Value::as_i64).filter(|n| *n > 0) else { return Fait::default() };
@@ -1501,6 +1527,28 @@ fn garder(base: Option<&Base>, p: &PageLue, maintenant: Moment) -> Result<(i64, 
         p.candidats.as_ref().map(|c| format!(", {}", c.texte)).unwrap_or_default()
     );
     Ok((a.id, texte, journal))
+}
+
+/// Pour les tests (ici et ceux de la candidature sur un site) : un geste vient d'ouvrir la petite fenêtre ; l'état
+/// envoyé à la page la contient (titre, explication : la page dessine son bandeau et « Fermer »), la page est prévenue
+/// une seule fois (l'ordre `{ kit: 'accueil', petite: true }`), et sa place renvoyée par la page est notée une fois.
+#[cfg(test)]
+pub(crate) fn bandeau_envoye(c: &mut Coulisse, f: &Fait, titre: &str) {
+    let t = Moment::nouveau(2026, 11, 19, 9, 0, 0).unwrap();
+    assert!(f.change, "l'état est renvoyé à la page : {f:?}");
+    assert!(f.coulisse.contains(&Ordre::Montrer), "la vue est montrée : {f:?}");
+    let v = c.vue(t.jour());
+    let p = &v["petite"];
+    assert!(p.is_object(), "la petite fenêtre est dans l'état envoyé à la page : {v}");
+    assert!(p["titre"].as_str().is_some_and(|x| x.starts_with(titre)), "{p}");
+    assert!(p["texte"].as_str().is_some_and(|x| !x.trim().is_empty()), "{p}");
+    assert!(c.petite_a_annoncer(), "la page est prévenue que la petite fenêtre s'ouvre");
+    assert!(!c.petite_a_annoncer(), "une seule fois");
+    // (la page a dessiné le bandeau : elle envoie sa place, notée une fois au journal)
+    let z = json!({ "x": 100.0, "y": 150.0, "l": 800.0, "h": 450.0 });
+    let f = c.geste(None, ZONE, &z, t);
+    assert_eq!(f.journal.as_deref(), Some("Sites : bandeau de la petite fenêtre dessiné par la page"));
+    assert_eq!(c.geste(None, ZONE, &z, t).journal, None);
 }
 
 #[cfg(test)]
