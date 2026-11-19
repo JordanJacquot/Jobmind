@@ -8,7 +8,11 @@ all-features = false
 
 [advisories]
 # Toute faille connue (base RustSec) ou version retirée fait échouer la vérification
-ignore = []
+ignore = [
+    # ttf-parser n'est plus entretenu (ce n'est pas une faille). lopdf s'en sert pour lire les polices d'un PDF, et
+    # Jobmind ne lit que le CV que Jordan choisit lui-même. À revoir quand lopdf changera de bibliothèque.
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser plus entretenu, tiré par lopdf (lecture du CV de Jordan)" },
+]
 
 [licenses]
 # Licences compatibles avec la licence MIT de la suite
@@ -140,6 +144,9 @@ allow = [
     # Apache-2.0 ; webpki-root-certs : des données (voir [[licenses.exceptions]])
     "ureq", "ureq-proto", "utf-8", "native-tls", "schannel", "rustls-pki-types", "der", "pem-rfc7468", "base64ct",
     "zeroize", "webpki-root-certs",
+    # Première vérification sur GitHub (19/11/2026) : httparse (lecture des réponses HTTP, tirée par ureq-proto et par
+    # Tauri) et rustversion (petit outil de construction tiré par Tauri), MIT ou Apache-2.0
+    "httparse", "rustversion",
 ]
 
 [sources]
