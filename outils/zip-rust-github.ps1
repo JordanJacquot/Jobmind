@@ -120,6 +120,23 @@ $null = Invoke-Outil gh @('run', 'download', [string]$bonne.databaseId, '--repo'
 $recus = @(Get-ChildItem -LiteralPath $dossier -Recurse -File | ForEach-Object { $_.FullName.Substring($dossier.Length + 1) })
 if (($recus -join '|') -cne 'Jobmind.zip') { throw "Publication annulée : l'artefact $Artefact de la construction $($bonne.url) contient « $($recus -join ', ') » au lieu de « Jobmind.zip »." }
 $zip = Join-Path $dossier 'Jobmind.zip'
+# Le dépôt de Jobmind est privé (étape 13, 19/11/2026) : sur un compte GitHub gratuit, les attestations ne marchent que
+# pour les dépôts publics (docs.github.com, « Artifact attestations »). Pour un dépôt privé, la construction est
+# vérifiée par l'API de GitHub : cette exécution est bien celle de release.yml de ce dépôt, sur ce commit, réussie, et
+# tous ses jobs ont tourné sur les machines de GitHub. Seuls Jordan et les workflows de ce dépôt peuvent y déposer un
+# artefact. Si le dépôt redevient public, l'attestation reprend.
+$prive = ((Invoke-Outil gh @('repo', 'view', $Depot, '--json', 'isPrivate', '--jq', '.isPrivate')) -join '').Trim()
+if ($prive -eq 'true') {
+    $ex = (Invoke-Outil gh @('api', "repos/$Depot/actions/runs/$($bonne.databaseId)")) -join "`n" | ConvertFrom-Json
+    if ($ex.path -cne $Workflow -or $ex.head_sha -ne $commit -or $ex.conclusion -ne 'success' -or $ex.event -notin 'push', 'workflow_dispatch' -or $ex.repository.full_name -ne $Depot) {
+        throw "Publication annulée : la construction $($bonne.url) n'est pas une construction réussie de $Workflow de $Depot pour le commit $commit."
+    }
+    $jobs = @(((Invoke-Outil gh @('api', "repos/$Depot/actions/runs/$($bonne.databaseId)/jobs")) -join "`n" | ConvertFrom-Json).jobs)
+    $ailleurs = @($jobs | Where-Object { $_.runner_group_name -and $_.runner_group_name -ne 'GitHub Actions' })
+    if (-not $jobs.Count -or $ailleurs.Count) { throw "Publication annulée : la construction $($bonne.url) n'a pas tourné seulement sur les machines de GitHub." }
+    Write-Host "Jobmind.zip : construction $($bonne.url) vérifiée par l'API (dépôt privé : release.yml, commit $commit, machines de GitHub), SHA-256 $((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash)" -ForegroundColor Green
+    return $zip
+}
 $ErrorActionPreference = 'Continue'
 $verif = @(& gh attestation verify $zip --repo $Depot --signer-workflow "$Depot/$Workflow" --source-digest $commit --signer-digest $commit --deny-self-hosted-runners 2>&1 | ForEach-Object { "$_" })
 $code = $LASTEXITCODE
