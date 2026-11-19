@@ -60,7 +60,6 @@ fn repondue(s: Statut) -> bool {
 pub fn nom_source(code: &str) -> &'static str {
     match code {
         "adzuna" => "Adzuna",
-        "jooble" => "Jooble",
         "linkedin" => "LinkedIn",
         "indeed" => "Indeed",
         "wttj" => "Welcome to the Jungle",
@@ -212,22 +211,23 @@ mod tests {
         let offres = vec![
             o(1, "adzuna", j(11, 19), false),
             o(2, "adzuna", j(11, 13), false), // le premier des 7 jours (13 au 19)
-            o(3, "jooble", j(11, 17), false),
+            o(3, "indeed", j(11, 17), false),
             o(4, "linkedin", j(11, 18), false),
             o(5, "adzuna", j(11, 12), false), // trop vieille
-            o(6, "jooble", j(11, 18), true),  // cachée
+            o(6, "indeed", j(11, 18), true),  // cachée
             o(7, "page", j(11, 18), false),   // un autre site
             o(8, "indeed", j(11, 20), false), // demain : jamais comptée
+            o(9, "jooble", j(11, 18), false), // une source retirée (une ancienne base) : un autre site
         ];
         let t = calculer(&l, &offres, auj, 14);
         assert_eq!((t.semaine, t.mois, t.total), (3, 5, 10));
         assert_eq!((t.comptees, t.reponses, t.taux), (9, 3, Some(33)));
         assert_eq!((t.entretiens, t.entretiens_a_venir), (2, 1));
         assert_eq!(t.relances, 2);
-        assert_eq!(t.offres_nouvelles, 5);
+        assert_eq!(t.offres_nouvelles, 6);
         assert_eq!(
             t.par_source,
-            vec![("Adzuna".to_string(), 2), ("Jooble".into(), 1), ("LinkedIn".into(), 1), (AUTRES.into(), 1)]
+            vec![("Adzuna".to_string(), 2), ("Indeed".into(), 1), ("LinkedIn".into(), 1), (AUTRES.into(), 2)]
         );
         // Les barres : les 8 semaines, du lundi 28 septembre à cette semaine
         let textes: Vec<&str> = t.barres.iter().map(|b| b.texte.as_str()).collect();

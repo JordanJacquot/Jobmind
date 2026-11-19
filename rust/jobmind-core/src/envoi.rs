@@ -146,7 +146,7 @@ const MUETTES: [&str; 12] = [
 ];
 
 /// Les domaines des sites d'emploi et des boîtes de messagerie des sites (jamais une adresse pour postuler).
-const SITES: [&str; 14] = [
+const SITES: [&str; 13] = [
     "linkedin.com",
     "indeed.com",
     "indeed.fr",
@@ -156,7 +156,6 @@ const SITES: [&str; 14] = [
     "wttj.co",
     "adzuna.fr",
     "adzuna.com",
-    "jooble.org",
     "hellowork.com",
     "apec.fr",
     "monster.fr",

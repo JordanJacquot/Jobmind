@@ -181,11 +181,11 @@ fn liste_offre_et_ajout() {
     assert_eq!(v["liste"]["suivante"], true);
     assert_eq!(v["sites"][0]["etat"], "Pas connecté à LinkedIn");
     assert!(v["attente"].is_null());
-    // (la liste déroulante « Où chercher » : « Chercher sur Adzuna et Jooble » pour les offres gardées)
+    // (la liste déroulante « Où chercher » : « Chercher sur Adzuna » pour les offres gardées)
     assert_eq!(v["textes"]["ou_t"], "Où chercher");
     assert_eq!(
         v["textes"]["chercher"].as_str().unwrap().replace("{site}", v["textes"]["mes_offres"].as_str().unwrap()),
-        "Chercher sur Adzuna et Jooble"
+        "Chercher sur Adzuna"
     );
     sans_tiret_long(&v);
     // Un résultat ouvert : son offre lue en coulisse, montrée dans le design de Jobmind
@@ -550,4 +550,53 @@ fn lecture_et_filtres_des_resultats() {
     assert_eq!(v[0]["valeur"], "Aucun diplôme demandé");
     assert_eq!(v[0]["preuve"], "Poste sans diplôme");
     assert_eq!(v[1]["par"], "lu par Jobmind");
+}
+
+/// Vu en vrai le 19/11/2026 (France Travail) : la petite fenêtre ouverte sur un écran inconnu, Jordan se connecte ; la
+/// page devient l'espace personnel (candidat.francetravail.fr/espacepersonnel/, sans repère connu). Elle est reconnue :
+/// la petite fenêtre se ferme seule, « Connecté à France Travail », plus d'annonce ; et quand Jordan ferme lui-même la
+/// petite fenêtre alors qu'il est déjà connecté, la page est relue : « La connexion n'est pas finie » s'en va.
+#[test]
+fn france_travail_espace_personnel_reconnu() {
+    // 1. L'écran inconnu, puis Jordan connecté : la petite fenêtre se ferme seule
+    let mut c = Coulisse::default();
+    let mut n = Navigateur::nouveau();
+    c.connecter("francetravail", MAIL_ESSAI, Secret::new(MDP_ESSAI.into()));
+    let f = c.saisie_ratee("sans_mdp");
+    assert_eq!(c.petite.as_ref().unwrap().raison, Raison::Inconnue);
+    n.aller("https://candidat.francetravail.fr/espacepersonnel/");
+    assert!(n.adresse.contains("authentification-candidat"), "{}", n.adresse);
+    n.taper(Some(MAIL_ESSAI), None);
+    n.taper(None, Some(MDP_ESSAI));
+    assert_eq!(n.adresse, "https://candidat.francetravail.fr/espacepersonnel/");
+    assert_eq!(n.lecture().comprise.titre, "Accueil - Espace numérique | France Travail");
+    let f = c.lu(None, lire_no(&f), n.lecture(), m(9, 1));
+    assert!(f.coulisse.contains(&Ordre::Cacher) && f.bravo, "{f:?}");
+    assert_eq!(f.message.as_deref(), Some("Tu es connecté à France Travail."));
+    assert!(c.petite.is_none() && c.attente.is_none());
+    let v = c.vue(jour());
+    assert_eq!(v["sites"][3]["etat"], "Connecté à France Travail");
+    // 2. Jordan ferme lui-même la petite fenêtre, déjà connecté : relue, l'annonce s'en va
+    let mut c = Coulisse::default();
+    c.geste(None, PAGE_SITE, &json!({ "site": "francetravail" }), m(9, 2));
+    let f = c.geste(None, FERMER, &Value::Null, m(9, 3));
+    assert_eq!(f.coulisse[0], Ordre::Cacher);
+    assert!(c.annonces[3].as_ref().unwrap().texte.contains("La connexion à France Travail n'est pas finie"));
+    c.source = Some(Site::FranceTravail);
+    assert_eq!(c.vue(jour())["annonce"]["bouton"], "connexion");
+    let f = c.lu(None, lire_no(&f), n.lecture(), m(9, 4));
+    assert!(f.journal.unwrap().contains("annonce de connexion à francetravail retirée"));
+    assert!(c.annonces[3].is_none());
+    let v = c.vue(jour());
+    assert!(v["annonce"].is_null());
+    assert_eq!(v["sites"][3]["etat"], "Connecté à France Travail");
+    // 3. Fermée sans être connecté : l'annonce reste
+    let mut c = Coulisse::default();
+    let mut dehors = Navigateur::nouveau();
+    dehors.aller("https://candidat.francetravail.fr/espacepersonnel/");
+    c.geste(None, PAGE_SITE, &json!({ "site": "francetravail" }), m(9, 5));
+    let f = c.geste(None, FERMER, &Value::Null, m(9, 6));
+    c.lu(None, lire_no(&f), dehors.lecture(), m(9, 7));
+    assert!(c.annonces[3].is_some());
+    assert_ne!(c.connecte[3], Some(true));
 }

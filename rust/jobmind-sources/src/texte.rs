@@ -1,4 +1,4 @@
-//! Le texte d'une offre remis au propre : les sources mettent du HTML dans leurs extraits (Jooble : `<b>cariste</b>`,
+//! Le texte d'une offre remis au propre : les sources mettent du HTML dans leurs extraits (`<b>cariste</b>`,
 //! `&nbsp;`), des retours à la ligne en trop, parfois des caractères de contrôle. Ici : les balises retirées (un
 //! paragraphe ou un saut de ligne gardés en retour à la ligne), les entités lues, les espaces remis d'aplomb.
 
@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn adresses() {
         assert_eq!(adresse(" https://www.adzuna.fr/land/ad/123?se=x "), "https://www.adzuna.fr/land/ad/123?se=x");
-        assert_eq!(adresse("http://jooble.org/desc/42"), "http://jooble.org/desc/42");
+        assert_eq!(adresse("http://exemple-emploi.fr/desc/42"), "http://exemple-emploi.fr/desc/42");
         for faux in [
             "javascript:alert(1)",
             "file:///C:/x",

@@ -109,15 +109,15 @@ mod tests {
         use jobmind_storage::cles::{Cles, EtatCle};
         let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let d = std::env::temp_dir().join(format!("JobmindEssai-{}-dpapi-{n}", std::process::id()));
-        let jooble = "aaaabbbb-cccc-dddd-eeee-ffff00001111";
+        let claude = "sk-ant-api03-Inventee-1111";
         let (mut c, _) = Cles::ouvrir(&d, Box::new(Dpapi));
-        c.garder(Cle::Jooble, jooble).unwrap();
+        c.garder(Cle::Claude, claude).unwrap();
         let f = std::fs::read(Cles::chemin_dans(&d)).unwrap();
-        assert!(!f.windows(jooble.len()).any(|w| w == jooble.as_bytes()));
+        assert!(!f.windows(claude.len()).any(|w| w == claude.as_bytes()));
         let (c, j) = Cles::ouvrir(&d, Box::new(Dpapi));
         assert!(j.is_none());
-        assert_eq!(c.etat(Cle::Jooble), Some(&EtatCle::Gardee("se termine par 1111".into())));
-        assert_eq!(c.lire(Cle::Jooble).as_deref(), Some(jooble));
+        assert_eq!(c.etat(Cle::Claude), Some(&EtatCle::Gardee("se termine par 1111".into())));
+        assert_eq!(c.lire(Cle::Claude).as_deref(), Some(claude));
         let _ = std::fs::remove_dir_all(&d);
     }
 }

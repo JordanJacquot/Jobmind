@@ -214,7 +214,7 @@ pub fn lecture_de(c: &Connection, id: i64) -> rusqlite::Result<LectureGardee> {
     Ok(r.unwrap_or_default())
 }
 
-/// Le texte d'une offre est assez long pour que Claude y trouve quelque chose (Adzuna et Jooble n'en donnent que le
+/// Le texte d'une offre est assez long pour que Claude y trouve quelque chose (Adzuna n'en donne que le
 /// début).
 pub const TEXTE_MIN_IA: usize = 200;
 

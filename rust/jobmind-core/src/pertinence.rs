@@ -5,7 +5,8 @@
 //!
 //! La note va de 0 à 100 :
 //! - le poste : 35 si tous les mots d'un des postes cherchés sont dans le titre, 22 si la moitié, 14 s'ils ne sont que
-//!   dans le texte ; aucun poste nulle part : l'offre est **hors sujet** (rangée à part, jamais effacée) ;
+//!   dans le texte ; aucun poste nulle part : l'offre est **hors sujet** (rangée à part, jamais effacée) ; aucun poste
+//!   cherché (tous les métiers du lieu) : 25 pour toutes, jamais hors sujet ;
 //! - le lieu : 20 dans la ville ou le rayon (un peu moins vers le bord), 6 jusqu'au double du rayon, 0 au-delà ; sans
 //!   position connue, le département de la ville cherchée (12 dedans, 2 dehors) ; un département ou une région
 //!   cherchés : 20 dedans, 0 dehors ; partout : 15 ; une offre en télétravail complet compte comme dans le rayon ;
@@ -23,6 +24,9 @@ use crate::recherche::{Contrat, Lieu, Recherche, Teletravail};
 
 /// La version du calcul : une note faite par une autre version est refaite.
 pub const VERSION: u32 = 1;
+/// La part du poste quand « Ce que je cherche » n'a aucun poste (tous les métiers du lieu) : ni hors sujet, ni « très
+/// proche » sans le reste (lieu, diplôme, expérience).
+pub const POSTE_SANS_MOTS: u32 = 25;
 
 /// Le niveau montré à Jordan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -247,6 +251,10 @@ pub fn noter(p: &Profil, o: &OffreANoter) -> Note {
             poste = s;
             poste_texte = s == 14;
         }
+    }
+    // (sans poste ni mot : tous les métiers du lieu ; jamais hors sujet faute de poste, une part moyenne pour tous)
+    if r.postes.iter().all(|x| mots_utiles(x).is_empty()) {
+        poste = POSTE_SANS_MOTS;
     }
     if poste == 0 {
         let noms: Vec<&str> = r.postes.iter().take(2).map(String::as_str).collect();

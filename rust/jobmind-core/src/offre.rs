@@ -291,7 +291,7 @@ pub struct Offre {
     pub salaire: String,
     pub publiee_le: Option<Jour>,
     pub ajoutee_le: Jour,
-    /// Les sources qui l'ont donnée (« adzuna », « jooble »), la sienne d'abord
+    /// Les sources qui l'ont donnée (« adzuna », « linkedin »), la sienne d'abord
     pub sources: Vec<String>,
     pub favori: bool,
     pub plus_tard: bool,
@@ -683,7 +683,7 @@ pub fn hote(url: &str) -> String {
         .collect()
 }
 
-/// « Adzuna », « Adzuna et Jooble », « Adzuna, Jooble et LinkedIn ».
+/// « Adzuna », « Adzuna et LinkedIn », « Adzuna, Indeed et LinkedIn ».
 pub fn noms_sources(noms: &[&str]) -> String {
     match noms {
         [] => String::new(),
@@ -737,7 +737,7 @@ mod tests {
             "Chargement et déchargement des camions, contrôle des palettes à l'arrivée, rangement en zone de stockage.",
         );
         let b = c(
-            "jooble",
+            "indeed",
             "ENTREPOTS DU VAL DE MOSELLE",
             "Agent de quai (H/F)",
             "Ennery (57)",
@@ -745,19 +745,19 @@ mod tests {
         );
         assert!(meme_offre(&a, &b));
         // La même adresse
-        let u1 = Comparee { url: "https://x.fr/1", ..c("jooble", "", "Cariste", "Metz", "") };
-        let u2 = Comparee { url: "https://x.fr/1", ..c("jooble", "", "Cariste", "Metz", "") };
+        let u1 = Comparee { url: "https://x.fr/1", ..c("indeed", "", "Cariste", "Metz", "") };
+        let u2 = Comparee { url: "https://x.fr/1", ..c("indeed", "", "Cariste", "Metz", "") };
         assert!(meme_offre(&u1, &u2));
         // Différentes : autre entreprise, autre ville, autre poste, sans entreprise
         for x in [
-            c("jooble", "Transports Seille Express", "Agent de quai", "Ennery", ""),
-            c("jooble", "Entrepôts du Val de Moselle", "Agent de quai", "Woippy (57)", ""),
-            c("jooble", "Entrepôts du Val de Moselle", "Opérateur logistique de nuit", "Ennery", ""),
-            c("jooble", "", "Agent de quai H/F", "Ennery", ""),
+            c("indeed", "Transports Seille Express", "Agent de quai", "Ennery", ""),
+            c("indeed", "Entrepôts du Val de Moselle", "Agent de quai", "Woippy (57)", ""),
+            c("indeed", "Entrepôts du Val de Moselle", "Opérateur logistique de nuit", "Ennery", ""),
+            c("indeed", "", "Agent de quai H/F", "Ennery", ""),
         ] {
             assert!(!meme_offre(&a, &x), "{x:?}");
         }
-        assert!(!meme_offre(&c("adzuna", "", "Cariste", "Metz", ""), &c("jooble", "", "Cariste", "Metz", "")));
+        assert!(!meme_offre(&c("adzuna", "", "Cariste", "Metz", ""), &c("indeed", "", "Cariste", "Metz", "")));
         // Du même site, sous deux numéros : seulement si les textes se ressemblent
         let jour = c(
             "adzuna",
@@ -939,8 +939,8 @@ mod tests {
         }
         assert_eq!(hote("https://www.adzuna.fr/land/ad/1?app_key=x"), "www.adzuna.fr");
         assert_eq!(noms_sources(&["Adzuna"]), "Adzuna");
-        assert_eq!(noms_sources(&["Adzuna", "Jooble"]), "Adzuna et Jooble");
-        assert_eq!(noms_sources(&["Adzuna", "Jooble", "LinkedIn"]), "Adzuna, Jooble et LinkedIn");
+        assert_eq!(noms_sources(&["Adzuna", "LinkedIn"]), "Adzuna et LinkedIn");
+        assert_eq!(noms_sources(&["Adzuna", "Indeed", "LinkedIn"]), "Adzuna, Indeed et LinkedIn");
     }
 
     /// Étape 6 : « Aucun diplôme requis », « Débutant accepté », la rubrique Hors sujet et le tri par pertinence.

@@ -1,6 +1,6 @@
 //! Les clés (étape 3 du plan) : celles des sources d'offres et de l'IA, jamais dans la base ni en clair. Chacune est
 //! chiffrée par un [`Coffre`] (Windows : DPAPI, portée utilisateur, dans jobmind-app) puis gardée dans
-//! `data\cles.json` (`{"version": 1, "cles": {"jooble": "<chiffré, en hexadécimal>"}}`), écrit à côté puis remplacé
+//! `data\cles.json` (`{"version": 1, "cles": {"claude": "<chiffré, en hexadécimal>"}}`), écrit à côté puis remplacé
 //! d'un coup. Seul le même utilisateur Windows, sur ce PC, peut les rouvrir.
 //!
 //! Ce qui reste en mémoire : les clés chiffrées, et pour l'écran les 4 derniers caractères de chacune (lus une fois à
@@ -250,37 +250,37 @@ mod tests {
     }
 
     // (des clés inventées)
-    const JOOBLE: &str = "aaaabbbb-cccc-dddd-eeee-ffff00001111";
+    const CLAUDE: &str = "sk-ant-api03-Inventee-1111";
 
     #[test]
     fn garder_relire_effacer() {
         let d = dossier("garder");
         let (mut c, j) = Cles::ouvrir(&d, Box::new(Faux(0x5A)));
         assert!(j.is_none());
-        assert_eq!(c.etat(Cle::Jooble), None);
-        c.garder(Cle::Jooble, JOOBLE).unwrap();
+        assert_eq!(c.etat(Cle::Claude), None);
+        c.garder(Cle::Claude, CLAUDE).unwrap();
         c.garder_plusieurs(&[(Cle::AdzunaId, "1a2b3c4d"), (Cle::AdzunaCle, "0123456789abcdef0123456789abcdef")])
             .unwrap();
-        assert_eq!(c.etat(Cle::Jooble), Some(&EtatCle::Gardee("se termine par 1111".into())));
+        assert_eq!(c.etat(Cle::Claude), Some(&EtatCle::Gardee("se termine par 1111".into())));
         // Le fichier ne contient aucune clé en clair, ni en hexadécimal simple
         let f = std::fs::read_to_string(Cles::chemin_dans(&d)).unwrap();
-        for clair in [JOOBLE, "1a2b3c4d", "0123456789abcdef0123456789abcdef"] {
+        for clair in [CLAUDE, "1a2b3c4d", "0123456789abcdef0123456789abcdef"] {
             assert!(!f.contains(clair) && !f.contains(&hex(clair.as_bytes())), "{f}");
         }
         // Rouvert : les mêmes clés
         let (c2, _) = Cles::ouvrir(&d, Box::new(Faux(0x5A)));
-        assert_eq!(c2.lire(Cle::Jooble).as_deref(), Some(JOOBLE));
+        assert_eq!(c2.lire(Cle::Claude).as_deref(), Some(CLAUDE));
         assert_eq!(c2.etat(Cle::AdzunaId), Some(&EtatCle::Gardee("se termine par 3c4d".into())));
         // Un autre coffre (un autre utilisateur) ne les lit pas
         let (c3, j) = Cles::ouvrir(&d, Box::new(Faux(0x11)));
-        assert_eq!(c3.etat(Cle::Jooble), Some(&EtatCle::Illisible));
+        assert_eq!(c3.etat(Cle::Claude), Some(&EtatCle::Illisible));
         assert!(j.unwrap().contains("illisibles"));
         // Effacées
         assert!(c.effacer(&[Cle::AdzunaId, Cle::AdzunaCle]).unwrap());
-        assert!(!c.effacer(&[Cle::Claude]).unwrap());
+        assert!(!c.effacer(&[Cle::GmailMdp]).unwrap());
         let (c4, _) = Cles::ouvrir(&d, Box::new(Faux(0x5A)));
         assert_eq!(c4.etat(Cle::AdzunaId), None);
-        assert!(c4.etat(Cle::Jooble).is_some());
+        assert!(c4.etat(Cle::Claude).is_some());
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -298,9 +298,9 @@ mod tests {
         assert!(c.etat(Cle::Claude).is_none());
         assert!(d.join("data").join("cles.json.abime").is_file());
         // Une valeur qui n'est pas de l'hexadécimal, une clé inconnue : laissées de côté
-        std::fs::write(Cles::chemin_dans(&d), r#"{"version":1,"cles":{"jooble":"zz","inconnue":"00"}}"#).unwrap();
+        std::fs::write(Cles::chemin_dans(&d), r#"{"version":1,"cles":{"claude":"zz","inconnue":"00"}}"#).unwrap();
         let (c, j) = Cles::ouvrir(&d, Box::new(Faux(1)));
-        assert!(j.is_none() && c.etat(Cle::Jooble).is_none());
+        assert!(j.is_none() && c.etat(Cle::Claude).is_none());
         assert_eq!(depuis_hex("0aFf"), Some(vec![10, 255]));
         assert_eq!(depuis_hex("abc"), None);
         assert_eq!(depuis_hex("éé"), None);
@@ -314,21 +314,21 @@ mod tests {
     fn ecriture_interrompue_reprise() {
         let d = dossier("reprise");
         let (mut c, _) = Cles::ouvrir(&d, Box::new(Faux(7)));
-        c.garder(Cle::Jooble, JOOBLE).unwrap();
+        c.garder(Cle::Claude, CLAUDE).unwrap();
         let f = Cles::chemin_dans(&d);
         let nouveau = f.with_extension("json.nouveau");
         assert!(!nouveau.exists(), "rien ne reste à côté après une écriture");
         std::fs::copy(&f, &nouveau).unwrap();
-        std::fs::write(&f, b"{\"version\":1,\"cles\":{\"joo").unwrap();
+        std::fs::write(&f, b"{\"version\":1,\"cles\":{\"cla").unwrap();
         let (c2, j) = Cles::ouvrir(&d, Box::new(Faux(7)));
-        assert_eq!(c2.lire(Cle::Jooble).as_deref(), Some(JOOBLE));
+        assert_eq!(c2.lire(Cle::Claude).as_deref(), Some(CLAUDE));
         assert!(j.unwrap().contains("reprise"));
         assert!(!nouveau.exists() && f.is_file());
         // Les deux abîmés : aucune clé, rien de faux repris
         std::fs::write(&f, b"{ abime").unwrap();
         std::fs::write(&nouveau, b"{ abime aussi").unwrap();
         let (c3, j) = Cles::ouvrir(&d, Box::new(Faux(7)));
-        assert!(c3.etat(Cle::Jooble).is_none());
+        assert!(c3.etat(Cle::Claude).is_none());
         assert!(!j.unwrap().contains("reprise"));
         let _ = std::fs::remove_dir_all(&d);
     }

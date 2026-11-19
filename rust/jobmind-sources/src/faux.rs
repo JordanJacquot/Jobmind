@@ -2,9 +2,8 @@
 //! l'appli (option « faux », jamais livrée) : aucune demande ne part sur internet. Il répond à chaque demande par ce
 //! que dit son répondeur, et garde les demandes reçues (les tests vérifient ce qui a été envoyé).
 //!
-//! [`imitation`] imite Adzuna (`GET /v1/api/jobs/fr/search/1`) et Jooble (`POST /api/<clé>`) avec des offres
-//! inventées (entreprises qui n'existent pas, villes de Moselle et de Meurthe-et-Moselle), dont deux annoncées par les
-//! deux sites (les doublons à fusionner). Son mode change sa réponse : normale, trop de demandes (429), clé refusée.
+//! [`imitation`] imite Adzuna (`GET /v1/api/jobs/fr/search/1`) avec des offres inventées (entreprises qui n'existent
+//! pas, villes de Moselle). Son mode change sa réponse : normale, trop de demandes (429), clé refusée.
 //! Étape 5 : il sert aussi les pages d'exemple des sites (`/site/...`) et des essais du panneau (`/essai/...`) :
 //! crate::page::exemples.
 
@@ -172,14 +171,14 @@ fn servir(c: TcpStream, repondeur: &Repondeur, recues: &Mutex<Vec<Requete>>) {
     let _ = c.flush();
 }
 
-/// Le mode de l'imitation d'Adzuna et Jooble.
+/// Le mode de l'imitation d'Adzuna.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
     #[default]
     Normal,
     /// 429 : trop de demandes aujourd'hui
     Quota,
-    /// Clé refusée (Adzuna : 401 AUTH_FAIL ; Jooble : 403)
+    /// Clé refusée (Adzuna : 401 AUTH_FAIL)
     CleRefusee,
 }
 
@@ -385,75 +384,6 @@ pub const ADZUNA: [Inventee; 12] = [
     ),
 ];
 
-type InventeeJooble =
-    (&'static str, &'static str, &'static str, &'static str, &'static str, &'static str, u32, &'static str);
-
-/// Les offres inventées de Jooble : (id, titre, entreprise, lieu, type, salaire, jour de novembre 2026, extrait). Les
-/// deux premières sont aussi chez Adzuna (la même offre, écrite autrement).
-pub const JOOBLE: [InventeeJooble; 7] = [
-    (
-        "-7100000000000000001",
-        "Agent de quai (H/F)",
-        "ENTREPOTS DU VAL DE MOSELLE",
-        "Ennery (57)",
-        "CDI",
-        "1 850 € par mois",
-        17,
-        "...<b>Chargement</b> et déchargement des camions, contrôle des palettes à l'arrivée...",
-    ),
-    (
-        "-7100000000000000002",
-        "Cariste CACES 3 - CDI",
-        "Comptoir Mosellan des Matériaux",
-        "Woippy",
-        "CDI",
-        "",
-        15,
-        "...conduite de chariot élévateur, réception des livraisons...",
-    ),
-    (
-        "-7100000000000000003",
-        "Réceptionniste de nuit",
-        "Hôtel des Remparts",
-        "Nancy",
-        "CDD",
-        "1 800 € par mois",
-        14,
-        "Accueil des clients de nuit, préparation des petits déjeuners&nbsp;; anglais apprécié.",
-    ),
-    (
-        "-7100000000000000004",
-        "Agent de quai",
-        "Transports Seille Express",
-        "Woippy (57)",
-        "Intérim",
-        "",
-        13,
-        "Mission d'intérim, chargement des semi-remorques, équipe du matin. Pour postuler, envoyez CV et lettre à recrutement@seille-express-exemple.fr.",
-    ),
-    (
-        "-7100000000000000005",
-        "Vendeur en boulangerie",
-        "Fournil de la Cathédrale",
-        "Metz",
-        "CDI",
-        "",
-        12,
-        "Vente et mise en place de la boutique. Débutant accepté.",
-    ),
-    (
-        "-7100000000000000006",
-        "Stage assistant logistique",
-        "Logipôle Lorraine",
-        "Thionville (57)",
-        "Stage",
-        "",
-        11,
-        "Stage de 2 mois : suivi des stocks, tableaux de bord.",
-    ),
-    ("-7100000000000000007", "Agent de tri", "", "Forbach (57)", "", "", 10, "Tri de colis, horaires de jour."),
-];
-
 /// La réponse d'Adzuna inventée.
 pub fn reponse_adzuna() -> String {
     let l: Vec<Value> = ADZUNA
@@ -488,22 +418,7 @@ pub fn reponse_adzuna() -> String {
         .to_string()
 }
 
-/// La réponse de Jooble inventée.
-pub fn reponse_jooble() -> String {
-    let l: Vec<Value> = JOOBLE
-        .iter()
-        .map(|(id, titre, ent, lieu, typ, sal, jour, texte)| {
-            json!({
-                "title": titre, "location": lieu, "snippet": texte, "salary": sal, "source": "exemple-emploi.fr",
-                "type": typ, "link": format!("https://jooble.org/desc/{id}"), "company": ent,
-                "updated": format!("2026-11-{jour:02}T07:00:00.0000000"), "id": id.parse::<i64>().unwrap_or(0),
-            })
-        })
-        .collect();
-    json!({ "totalCount": l.len(), "jobs": l }).to_string()
-}
-
-/// Le répondeur qui imite Adzuna et Jooble ; `mode` se change pendant qu'il tourne.
+/// Le répondeur qui imite Adzuna ; `mode` se change pendant qu'il tourne.
 pub fn imitation(mode: Arc<Mutex<Mode>>) -> impl Fn(&Requete) -> RepFaux + Send + Sync + 'static {
     imitation_avec_sites(mode, Arc::new(Mutex::new(crate::sites::exemples::ModeSites::Normal)))
 }
@@ -530,18 +445,16 @@ pub fn imitation_avec_sites(
             return crate::page::exemples::repondre(&r.chemin);
         }
         let m = mode.lock().map(|m| *m).unwrap_or_default();
-        let adzuna = r.methode == "GET" && r.chemin.starts_with("/v1/api/jobs/fr/search/");
-        let jooble = r.methode == "POST" && r.chemin.starts_with("/api/");
-        match (adzuna, jooble, m) {
-            (false, false, _) => RepFaux::json(404, "{}"),
-            (_, _, Mode::Quota) => RepFaux::json(429, "{\"exception\":\"TOO_MANY_REQUESTS\"}"),
-            (true, _, Mode::CleRefusee) => RepFaux::json(
+        if r.methode != "GET" || !r.chemin.starts_with("/v1/api/jobs/fr/search/") {
+            return RepFaux::json(404, "{}");
+        }
+        match m {
+            Mode::Quota => RepFaux::json(429, "{\"exception\":\"TOO_MANY_REQUESTS\"}"),
+            Mode::CleRefusee => RepFaux::json(
                 401,
                 r#"{"exception":"AUTH_FAIL","doc":"https://api.adzuna.com/v1/doc","__CLASS__":"Adzuna::API::Response::Exception","display":"Authorisation failed"}"#,
             ),
-            (_, true, Mode::CleRefusee) => RepFaux::json(403, ""),
-            (true, _, Mode::Normal) => RepFaux { morceaux: true, ..RepFaux::json(200, reponse_adzuna()) },
-            (_, true, Mode::Normal) => RepFaux::json(200, reponse_jooble()),
+            Mode::Normal => RepFaux { morceaux: true, ..RepFaux::json(200, reponse_adzuna()) },
         }
     }
 }
@@ -551,7 +464,6 @@ mod tests {
     use super::*;
     use crate::adzuna::Adzuna;
     use crate::http::HttpUreq;
-    use crate::jooble::Jooble;
     use crate::{JobSource, Recherche};
 
     fn recherche() -> Recherche {
@@ -561,7 +473,7 @@ mod tests {
     /// De bout en bout, avec le vrai client HTTP (ureq) contre le faux serveur local : la demande envoyée (la clé là
     /// où il faut), la réponse en morceaux lue, les offres rendues.
     #[test]
-    fn adzuna_et_jooble_par_le_vrai_client() {
+    fn adzuna_par_le_vrai_client() {
         let mode = Arc::new(Mutex::new(Mode::Normal));
         let s = FauxServeur::demarrer(imitation(Arc::clone(&mode))).unwrap();
         let http = HttpUreq::nouveau(false);
@@ -575,28 +487,18 @@ mod tests {
         assert_eq!(l.len(), ADZUNA.len());
         assert_eq!(l[0].titre, "Agent de quai H/F");
         assert_eq!(l[11].entreprise, "");
-        let j = Jooble::nouvelle(&http, &format!("{}/api/", s.adresse()), "aaaabbbb-cccc-dddd-eeee-ffff00001111");
-        let l = j.chercher(&recherche()).unwrap();
-        assert_eq!(l.len(), JOOBLE.len());
-        assert_eq!(l[0].description, "...Chargement et déchargement des camions, contrôle des palettes à l'arrivée...");
         let r = s.recues();
-        assert_eq!(r.len(), 2);
+        assert_eq!(r.len(), 1);
         assert!(r[0].chemin.starts_with("/v1/api/jobs/fr/search/1?"), "{}", r[0].chemin);
         assert!(r[0].chemin.contains("app_key=0123456789abcdef0123456789abcdef"));
         assert!(r[0].chemin.contains("what=agent") && r[0].chemin.contains("where=Metz"), "{}", r[0].chemin);
-        assert_eq!(
-            (r[1].methode.as_str(), r[1].chemin.as_str()),
-            ("POST", "/api/aaaabbbb-cccc-dddd-eeee-ffff00001111")
-        );
-        let corps: Value = serde_json::from_str(&r[1].corps).unwrap();
-        assert_eq!(corps["keywords"], "agent de quai");
+        // Une autre demande (un POST, une autre adresse) : rien
+        assert_eq!(imitation(Arc::clone(&mode))(&Requete { methode: "POST".into(), ..r[0].clone() }).statut, 404);
         // Les modes : quota, clé refusée
         *mode.lock().unwrap() = Mode::Quota;
         assert_eq!(a.chercher(&recherche()).unwrap_err().code(), "quota");
-        assert_eq!(j.chercher(&recherche()).unwrap_err().code(), "quota");
         *mode.lock().unwrap() = Mode::CleRefusee;
         assert_eq!(a.chercher(&recherche()).unwrap_err().code(), "cle_refusee");
-        assert_eq!(j.chercher(&recherche()).unwrap_err().code(), "cle_refusee");
     }
 
     /// Le réseau coupé (un port fermé), une page de protection, une réponse abîmée : chaque fois une erreur simple, sans
@@ -624,18 +526,25 @@ mod tests {
                     ..RepFaux::json(403, "<!DOCTYPE html><title>Just a moment...</title>")
                 }
             } else {
-                RepFaux::json(200, "{\"jobs\": [ {\"title\": \"coupé")
+                RepFaux::json(200, "{\"results\": [ {\"title\": \"coupé")
             }
         })
         .unwrap();
-        let j = Jooble::nouvelle(&http, &format!("{}/api/", s.adresse()), "protege-1234-5678");
-        assert_eq!(j.chercher(&recherche()).unwrap_err().code(), "bloquee");
-        let j = Jooble::nouvelle(&http, &format!("{}/api/", s.adresse()), "abime-1234-5678");
-        assert_eq!(j.chercher(&recherche()).unwrap_err().code(), "illisible");
+        let adresse = format!("{}/v1/api/jobs/fr/search", s.adresse());
+        let cle = "0123456789abcdef0123456789abcdef";
+        assert_eq!(
+            Adzuna::nouvelle(&http, &adresse, "protege1", cle).chercher(&recherche()).unwrap_err().code(),
+            "bloquee"
+        );
+        let e = Adzuna::nouvelle(&http, &adresse, "abime123", cle).chercher(&recherche()).unwrap_err();
+        assert_eq!(e.code(), "illisible");
+        assert!(!e.to_string().contains(cle), "{e}");
         // Le vrai Jobmind refuse le http
         let sur = HttpUreq::nouveau(true);
-        let j = Jooble::nouvelle(&sur, &format!("{}/api/", s.adresse()), "abime-1234-5678");
-        assert_eq!(j.chercher(&recherche()).unwrap_err().code(), "reseau");
+        assert_eq!(
+            Adzuna::nouvelle(&sur, &adresse, "abime123", cle).chercher(&recherche()).unwrap_err().code(),
+            "reseau"
+        );
     }
 
     /// Un serveur trop lent : le délai d'attente coupe (ici réglé court pour le test : le vrai est de 25 s).

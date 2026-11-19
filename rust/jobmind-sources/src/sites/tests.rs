@@ -52,15 +52,39 @@ fn adresses_de_recherche() {
     );
     assert_eq!(
         adresse_recherche(Site::FranceTravail, "cariste", &moselle, 2).unwrap(),
-        "https://candidat.francetravail.fr/offres/recherche?motsCles=cariste&offresPartenaires=true&lieux=57D&range=20-39"
+        "https://candidat.francetravail.fr/offres/recherche?motsCles=cariste&lieux=57D&offresPartenaires=true&range=20-39"
     );
     let ge = LieuSite::Region { code: "grand_est".into(), nom: "Grand Est".into() };
-    assert!(adresse_recherche(Site::FranceTravail, "vendeur", &ge, 1).unwrap().contains("&lieux=44R&range=0-19"));
-    // Une ville va avec les mots chez France Travail (il cherche le lieu par son code)
+    assert!(
+        adresse_recherche(Site::FranceTravail, "vendeur", &ge, 1)
+            .unwrap()
+            .contains("lieux=44R&offresPartenaires=true&range=0-19")
+    );
+    // Une ville par son code INSEE chez France Travail (vu en vrai : Sarrebourg, lieux=57630) ; une ville inconnue ou
+    // portée par plusieurs communes sans département va avec les mots, comme avant
+    assert_eq!(
+        adresse_recherche(Site::FranceTravail, "technicien support", &ville("Sarrebourg", 20), 1).unwrap(),
+        "https://candidat.francetravail.fr/offres/recherche?motsCles=technicien%20support&lieux=57630&offresPartenaires=true&rayon=20&range=0-19"
+    );
     assert!(
         adresse_recherche(Site::FranceTravail, "cariste", &ville("Saint-Étienne", 10), 1)
             .unwrap()
-            .contains("motsCles=cariste%20Saint-%C3%89tienne&offresPartenaires=true&rayon=10")
+            .contains("motsCles=cariste&lieux=42218&offresPartenaires=true&rayon=10")
+    );
+    assert!(
+        adresse_recherche(Site::FranceTravail, "cariste", &ville("Saint-Denis", 10), 1)
+            .unwrap()
+            .contains("motsCles=cariste%20Saint-Denis&offresPartenaires=true&rayon=10")
+    );
+    assert!(
+        adresse_recherche(Site::FranceTravail, "cariste", &ville("Saint-Denis (93)", 10), 1)
+            .unwrap()
+            .contains("motsCles=cariste&lieux=93066&")
+    );
+    assert!(
+        adresse_recherche(Site::FranceTravail, "cariste", &ville("Atlantide", 10), 1)
+            .unwrap()
+            .contains("motsCles=cariste%20Atlantide&offresPartenaires=true&rayon=10")
     );
     assert_eq!(
         adresse_recherche(Site::Wttj, "développeur", &LieuSite::Partout, 2).unwrap(),
@@ -76,6 +100,29 @@ fn adresses_de_recherche() {
     assert_eq!(adresse_recherche(Site::LinkedIn, "cariste", &metz, 0), None);
     assert_eq!(adresse_recherche(Site::LinkedIn, "   ", &LieuSite::Partout, 1), None);
     assert!(adresse_recherche(Site::LinkedIn, "", &metz, 1).is_some());
+    // Sans mots, avec un lieu (tous les métiers du coin, demande de Jordan, 19/11/2026) : les quatre sites
+    let sarrebourg = ville("Sarrebourg", 20);
+    assert_eq!(
+        adresse_recherche(Site::LinkedIn, "", &sarrebourg, 1).unwrap(),
+        "https://www.linkedin.com/jobs/search/?keywords=&location=Sarrebourg%2C%20France&distance=25"
+    );
+    assert_eq!(
+        adresse_recherche(Site::Indeed, " ", &sarrebourg, 1).unwrap(),
+        "https://fr.indeed.com/jobs?q=&l=Sarrebourg&radius=20"
+    );
+    assert_eq!(
+        adresse_recherche(Site::Wttj, "", &sarrebourg, 1).unwrap(),
+        "https://www.welcometothejungle.com/fr/jobs?query=&refinementList%5Boffices.country_code%5D%5B%5D=FR&aroundQuery=Sarrebourg&page=1"
+    );
+    // (France Travail : le code INSEE de la commune et le rayon, sans « motsCles », comme le vrai site)
+    assert_eq!(
+        adresse_recherche(Site::FranceTravail, "", &sarrebourg, 1).unwrap(),
+        "https://candidat.francetravail.fr/offres/recherche?lieux=57630&offresPartenaires=true&rayon=20&range=0-19"
+    );
+    assert_eq!(
+        adresse_recherche(Site::FranceTravail, "", &moselle, 1).unwrap(),
+        "https://candidat.francetravail.fr/offres/recherche?lieux=57D&offresPartenaires=true&range=0-19"
+    );
     // Des mots trop longs sont coupés
     let long = "a".repeat(500);
     assert!(adresse_recherche(Site::Indeed, &long, &LieuSite::Partout, 1).unwrap().len() < 200);
@@ -305,4 +352,45 @@ fn une_liste_piegee_ne_donne_que_du_texte() {
     }
     let c = comprendre("https://www.linkedin.com/jobs/search/?keywords=x", &h);
     assert_eq!(c.liste.resultats.len(), RESULTATS_MAX);
+}
+
+/// Vu en vrai le 19/11/2026 : après la connexion, France Travail montre son espace personnel
+/// (candidat.francetravail.fr/espacepersonnel/, « Accueil - Espace numérique | France Travail ») sans aucun repère
+/// connu ; Jobmind la lisait « écran normal, connecté inconnu » et relisait la page sans fin. Elle est reconnue à son
+/// adresse (texte inventé ici, aucune donnée de Jordan). Les pages d'accueil connectées des trois autres sites ne sont
+/// jamais un écran inconnu ; une page de connexion ou une page qui dit « pas connecté » ne passe jamais pour connectée.
+#[test]
+fn espaces_connectes_reconnus() {
+    let c = compris("https://candidat.francetravail.fr/espacepersonnel/", "essai_francetravail=1");
+    assert_eq!(c.titre, exemples::FT_ESPACE_TITRE);
+    assert_eq!((c.ecran, c.connecte), (Ecran::Normale, Some(true)), "{}", c.trace);
+    // La même page, écrite autrement (sans le dernier « / », une sous-page, le titre seul pour repère)
+    let html = "<html><head><title>Accueil - Espace numérique | France Travail</title></head><body><main><h1>Bonjour</h1>\
+                <p>Vos démarches.</p><footer><a href=\"/aide\">Connexion</a></footer></main></body></html>";
+    for u in [
+        "https://candidat.francetravail.fr/espacepersonnel",
+        "https://candidat.francetravail.fr/espacepersonnel/mes-demarches",
+        "https://candidat.francetravail.fr/accueil",
+    ] {
+        assert_eq!(comprendre(u, html).connecte, Some(true), "{u}");
+    }
+    // Jamais connecté : la page d'authentification (un autre hôte), une page ordinaire du site sans repère
+    let auth = "https://authentification-candidat.francetravail.fr/connexion/XUI/?realm=/individu";
+    assert_ne!(comprendre(auth, "<title>Connexion</title><p>Identifiant</p>").connecte, Some(true));
+    assert_eq!(
+        comprendre("https://candidat.francetravail.fr/offres/recherche", "<title>Offres</title>").connecte,
+        None
+    );
+    assert_eq!(comprendre("https://candidat.francetravail.fr/espacepersonnelx", "<title>X</title>").connecte, None);
+    // LinkedIn /feed, l'espace candidat de Welcome to the Jungle, « Mes emplois » d'Indeed : connectés même sans repère
+    for u in [
+        "https://www.linkedin.com/feed/",
+        "https://www.welcometothejungle.com/fr/me/applications",
+        "https://myjobs.indeed.com/saved",
+    ] {
+        let c = comprendre(u, "<title>Accueil</title><main><p>Bonjour</p></main>");
+        assert_eq!((c.ecran, c.connecte), (Ecran::Normale, Some(true)), "{u} {}", c.trace);
+    }
+    // ... mais une page qui dit « pas connecté » le reste (l'espace candidat de WTTJ sans session)
+    assert_eq!(compris("https://www.welcometothejungle.com/fr/me", "").connecte, Some(false));
 }

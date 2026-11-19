@@ -384,7 +384,7 @@ pub fn vue_reglages(bord: &Bord, base: Option<&Base>, dossier: &Path, maintenant
         if t.plafond {
             s.push_str(", les recherches du jour étaient déjà toutes faites.");
         } else if t.erreurs > 0 && t.nouvelles == 0 {
-            s.push_str(", Adzuna ou Jooble n'a pas répondu.");
+            s.push_str(", Adzuna n'a pas répondu.");
         } else {
             s.push_str(&match t.nouvelles {
                 0 => ", aucune nouvelle offre.".to_string(),
@@ -420,8 +420,8 @@ pub fn vue_reglages(bord: &Bord, base: Option<&Base>, dossier: &Path, maintenant
     json!({
         "rafraichir": {
             "titre": "Chercher de nouvelles offres toute seule",
-            "texte": "Quand Jobmind est ouverte, elle refait tes recherches gardées chez Adzuna et Jooble, sans dépasser \
-                      les limites du jour. LinkedIn, Indeed, Welcome to the Jungle et France Travail : jamais toute \
+            "texte": "Quand Jobmind est ouverte, elle refait tes recherches gardées chez Adzuna, sans dépasser les \
+                      limites du jour. LinkedIn, Indeed, Welcome to the Jungle et France Travail : jamais toute \
                       seule, seulement quand tu cliques.",
             "valeur": rythme,
             "choix": RYTHMES.iter().map(|h| json!({ "heures": h, "texte": match h {

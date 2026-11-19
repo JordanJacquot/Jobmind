@@ -21,18 +21,19 @@
 # (étape 3 : un clic sur « Importer un fichier », puis la VRAIE boîte « Ouvrir » de Windows trouvée parmi les fenêtres de
 # l'essai, capturée dans <Prefixe>-<vue>-boite.png, le chemin tapé dans son champ et « Importer » cliqué). Chaque vue est
 # capturée après son geste ; un import attend la fin de sa lecture (journal : « Profil : CV ... importé » ou « fichier refusé »).
-# Étape 4 (l'onglet Offres, contre le faux serveur local qui imite Adzuna et Jooble, jamais internet) : « chercher »
+# Étape 4 (l'onglet Offres, contre le faux serveur local qui imite Adzuna, jamais internet) : « chercher »
 # (un clic sur « Chercher maintenant », puis attendre la fin de la recherche au journal), « offre:<n> » (l'offre n
-# ouverte), « recherches » (Mes recherches), « nouvelle-recherche » (son formulaire), « filtres:<champ>=<valeur>;... »
+# ouverte), « recherches » (Mes recherches), « nouvelle-recherche » (son formulaire ; « rf-saisie:<mots|nom|ville>=<texte> » y tape une valeur, « clic:rf:ok »
+# l'enregistre), « filtres:<champ>=<valeur>;... »
 # (des filtres posés, par exemple filtres:liste=favoris ou filtres:genre=ville;ville=Metz;rayon=10), « reseau:<mode> »
-# (la réponse du faux serveur pour la suite : normal, coupe, quota, refuse ; sans capture), « essayer:<adzuna|jooble> »
+# (la réponse du faux serveur pour la suite : normal, coupe, quota, refuse ; sans capture), « essayer:adzuna »
 # (« Essayer la clé » dans Mes clés, puis attendre sa réponse).
 # Étapes 5 et 5 bis (les sites, contre les sites imités du faux serveur local, jamais un vrai site) :
 # « voir:<nom>=<adresse> » (la petite fenêtre du site ouverte sur cette page, comme « Voir sur le site » :
 # voir.demande, lu seulement par la construction d'essai ; une adresse d'un site est changée pour la page qui l'imite ;
 # attendre que sa page soit chargée ; capture <Prefixe>-voir-<nom>.png), « ajouter-page » (« Ajouter à Jobmind » dans
 # la petite fenêtre, puis attendre la lecture au journal), « site:<mes|linkedin|indeed|wttj|francetravail> » (la
-# source de l'onglet Offres, choisie dans la liste « Où chercher » ; « mes » : Adzuna et Jooble), « clic:cs:ou » (la
+# source de l'onglet Offres, choisie dans la liste « Où chercher » ; « mes » : Adzuna), « clic:cs:ou » (la
 # liste « Où chercher » ouverte), « chercher-site » (« Chercher sur le site », puis attendre la lecture en coulisse),
 # « resultat:<n> » (le résultat n ouvert), « connexion:<site> » (la carte de connexion remplie avec les identifiants
 # inventés, sans l'envoyer), « connecter:<site> » (remplie et envoyée, puis attendre la connexion), « sites:<captcha|
@@ -260,7 +261,7 @@ try {
             Ordre '{"kit":"accueil","cliquer":"or:chercher"}'
             Verifier (Attendre { ((Compter ' finie (') + (Compter 'trop longue')) -gt $finies } 30000) 'Chercher maintenant : la recherche est finie (journal)'
         }
-        elseif ($v -match '^essayer:(adzuna|jooble)$') {
+        elseif ($v -match '^essayer:(adzuna)$') {
             $s = $Matches[1]
             $essais = Compter "Clés : essai de la clé $s "
             Ordre ('{"kit":"accueil","cliquer":"kt:' + $s + '"}')
@@ -396,6 +397,9 @@ try {
             [IO.File]::WriteAllText((Join-Path $donnees 'formulaires.essai'), $Matches[1], $sansBom)
             Ok "prochain envoi des formulaires imités : $($Matches[1])"
             continue
+        }
+        elseif ($v -match '^rf-saisie:(mots|nom|ville)=([\w ,''éèàêç-]{0,60})$') {
+            Ordre ([ordered]@{ kit = 'accueil'; rf_saisie = [ordered]@{ champ = $Matches[1]; v = $Matches[2] } } | ConvertTo-Json -Compress)
         }
         elseif ($v -match '^po-saisie:(\d{1,4})=([\w ,''.@éèàêç-]{0,80})$') {
             Ordre ([ordered]@{ kit = 'accueil'; po_saisie = [ordered]@{ i = [int]$Matches[1]; v = $Matches[2] } } | ConvertTo-Json -Compress)

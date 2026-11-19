@@ -261,15 +261,16 @@ fn lire_salaire(t: &str) -> Result<Option<u32>, String> {
     Ok(Some(n))
 }
 
-/// Vérifie ce que la page a envoyé. L'erreur est une phrase pour la bulle de l'écran.
+/// La phrase quand une recherche n'a ni poste ni lieu.
+pub const SANS_POSTE_NI_LIEU: &str = "Écris un poste, ou choisis un lieu.";
+
+/// Vérifie ce que la page a envoyé. L'erreur est une phrase pour la bulle de l'écran. Sans poste ni mot, la recherche
+/// prend toutes les offres du lieu, quel que soit le métier : il faut alors un lieu (pas « partout en France »).
 pub fn verifier_recherche(s: &SaisieRecherche) -> Result<Recherche, String> {
     if trop_long(&s.postes, POSTES_SAISIE_MAX) {
         return Err(format!("La liste des postes est trop longue ({POSTES_SAISIE_MAX} caractères au plus)."));
     }
     let postes = lire_postes(&s.postes);
-    if postes.is_empty() {
-        return Err("Écris au moins un poste ou un mot, par exemple : agent de quai.".into());
-    }
     if postes.len() > POSTES_MAX {
         return Err(format!("Garde {POSTES_MAX} postes ou mots au plus."));
     }
@@ -298,6 +299,9 @@ pub fn verifier_recherche(s: &SaisieRecherche) -> Result<Recherche, String> {
         GenreLieu::Region => Lieu::Region(lieux::region(&s.region).ok_or("Choisis une région dans la liste.")?),
         GenreLieu::Partout => Lieu::Partout,
     };
+    if postes.is_empty() && lieu == Lieu::Partout {
+        return Err(SANS_POSTE_NI_LIEU.into());
+    }
     let mut contrats = Vec::new();
     for c in &s.contrats {
         let c = Contrat::depuis_code(c).ok_or("Ce type de contrat n'existe pas.")?;
@@ -322,6 +326,9 @@ pub fn verifier_recherche(s: &SaisieRecherche) -> Result<Recherche, String> {
 impl Recherche {
     /// La ligne de la liste de Mon profil : les postes, coupés (« Agent de quai, cariste et 2 autres »).
     pub fn resume(&self) -> String {
+        if self.postes.is_empty() {
+            return "Tous les métiers".into();
+        }
         let mut t = self.postes.iter().take(2).cloned().collect::<Vec<_>>().join(", ");
         if self.postes.len() > 2 {
             let n = self.postes.len() - 2;
@@ -406,6 +413,23 @@ mod tests {
         assert_eq!(verifier_recherche(&s).unwrap().lieu, Lieu::Partout);
     }
 
+    /// Sans poste ni mot, avec un lieu : toutes les offres du coin (demande de Jordan, 19/11/2026) ; sans lieu non plus :
+    /// refusée.
+    #[test]
+    fn sans_poste_avec_un_lieu() {
+        let mut s = SaisieRecherche { postes: "  ".into(), ville: "Sarrebourg".into(), debutant: true, ..saisie() };
+        let r = verifier_recherche(&s).unwrap();
+        assert!(r.postes.is_empty());
+        assert_eq!(r.lieu, Lieu::Ville { nom: "Sarrebourg".into(), rayon: 30 });
+        assert_eq!(r.resume(), "Tous les métiers");
+        assert!(r.sans_diplome && r.debutant);
+        s.lieu = "departement".into();
+        s.departement = "57".into();
+        assert!(verifier_recherche(&s).unwrap().postes.is_empty());
+        s.lieu = "partout".into();
+        assert_eq!(verifier_recherche(&s).unwrap_err(), SANS_POSTE_NI_LIEU);
+    }
+
     #[test]
     fn les_salaires_tapes() {
         for (t, n) in [
@@ -429,7 +453,13 @@ mod tests {
     fn saisies_refusees() {
         type Changer = Box<dyn Fn(&mut SaisieRecherche)>;
         let cas: Vec<(Changer, &str)> = vec![
-            (Box::new(|s| s.postes = " , ; ".into()), "au moins un poste"),
+            (
+                Box::new(|s| {
+                    s.postes = " , ; ".into();
+                    s.lieu = "partout".into()
+                }),
+                "Écris un poste, ou choisis un lieu",
+            ),
             (Box::new(|s| s.postes = (0..13).map(|i| format!("poste {i}")).collect::<Vec<_>>().join(",")), "12 postes"),
             (Box::new(|s| s.postes = "x".repeat(70)), "trop long pour un poste"),
             (Box::new(|s| s.postes = "x,".repeat(500)), "trop longue"),

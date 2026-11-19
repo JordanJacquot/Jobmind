@@ -564,7 +564,7 @@ mod tests {
         assert!(r[0]["dossier"]["ouvert"].is_null() && r[0]["dossier"]["import"].is_null());
         assert_eq!(r[1]["dossier"]["enregistree"], false);
         assert_eq!(r[1]["dossier"]["departements"].as_array().unwrap().len(), 101);
-        assert_eq!(r[3]["dossier"]["services"][2]["etat"], "absente");
+        assert_eq!(r[3]["dossier"]["services"][1]["etat"], "absente");
         assert_eq!(r[5]["dossier"]["reglage"]["valeur"], 14);
         assert_eq!(
             (r[5]["dossier"]["reglage"]["min"].as_u64(), r[5]["dossier"]["reglage"]["max"].as_u64()),

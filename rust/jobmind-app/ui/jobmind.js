@@ -25,11 +25,11 @@
 //   (donner, remplacer, effacer : une clé tapée n'est gardée ici que le temps de l'envoyer) ; Réglages montre le délai
 //   avant relance ('reglage-relance') ;
 // - Offres (étape 4) : la barre des filtres ('o-filtres'), la recherche choisie et « Chercher maintenant »
-//   ('o-chercher' : Rust interroge Adzuna et Jooble sur un fil à part), la liste ('o-ouvrir'), l'offre ouverte
+//   ('o-chercher' : Rust interroge Adzuna sur un fil à part), la liste ('o-ouvrir'), l'offre ouverte
 //   (favori, plus tard, « Pas pour moi », « Voir sur le site », la mention « Adzuna », « J'ai postulé »), Mes recherches
 //   ('o-recherche', 'o-recherche-supprimer', 'o-depuis-profil') ; Mes clés : « Essayer la clé » ('cle-essayer') ;
 // - les sites en coulisse (étape 5 bis) : en haut de la liste des offres, la liste déroulante « Où chercher »
-//   (LinkedIn, France Travail, Indeed, Welcome to the Jungle, ou Adzuna et Jooble avec mes offres gardées :
+//   (LinkedIn, France Travail, Indeed, Welcome to the Jungle, ou Adzuna avec mes offres gardées :
 //   'cs-source') ; un site choisi, « Chercher sur LinkedIn » ('cs-chercher'),
 //   ses résultats lus par Rust en coulisse ('cs-ouvrir', « Page suivante » : 'cs-suivante'), l'offre ouverte
 //   (« Ajouter à Jobmind » : 'cs-ajouter', « Voir la page du site » : 'cs-voir') ; la carte de connexion de Jobmind
@@ -555,9 +555,9 @@
 
   // « Où chercher » : la liste déroulante des sources de l'onglet Offres, en haut de la colonne de gauche. Fermée, elle
   // montre le choix (et son point vert s'il est connecté) ; ouverte (srcMenu), ses cinq choix « Chercher sur ... » :
-  // les quatre sites (LinkedIn, France Travail, Indeed, Welcome to the Jungle), puis Adzuna et Jooble (mes offres
+  // les quatre sites (LinkedIn, France Travail, Indeed, Welcome to the Jungle), puis Adzuna (mes offres
   // gardées). Les flèches choisissent dans la liste, Entrée (A) prend le choix, Échap (B) la referme sans rien changer.
-  // (le data-k de chaque choix garde le rang de Rust : « cs:s0 » Adzuna et Jooble, « cs:s1 » LinkedIn, etc.)
+  // (le data-k de chaque choix garde le rang de Rust : « cs:s0 » Adzuna, « cs:s1 » LinkedIn, etc.)
   let srcMenu = false;
   const ORDRE_SITES = ['linkedin', 'francetravail', 'indeed', 'wttj'];
   function sourcesListe() {
@@ -635,7 +635,9 @@
     if (occupe) h += `<div class="jm-attente petite" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(occupe)}</span></div>`;
     h += annonceSitesHTML(c.annonce, s);
     const oui = s.connecte === true;
-    h += `<div class="jm-cx-etat${oui ? ' ok' : ''}"><i class="jm-point${oui ? ' ok' : ''}" aria-hidden="true"></i><span>${esc(texteSur(s.etat))}</span>${oui ? '' : bouton('cs-connexion', 'cs:connecter', t('connecter'), 'cadenas', 'discret', ` data-id="${s.id}"`)}</div>`;
+    // (une annonce qui propose déjà « Me connecter » remplace la ligne d'état tant qu'elle est là : une seule carte)
+    const remplace = !oui && texteSur(c.annonce?.texte) && c.annonce.bouton === 'connexion';
+    if (!remplace) h += `<div class="jm-cx-etat${oui ? ' ok' : ''}"><i class="jm-point${oui ? ' ok' : ''}" aria-hidden="true"></i><span>${esc(texteSur(s.etat))}</span>${oui ? '' : bouton('cs-connexion', 'cs:connecter', t('connecter'), 'cadenas', 'discret', ` data-id="${s.id}"`)}</div>`;
     h += basculesHTML(to);
     h += '</div>';
     const l = c.liste && typeof c.liste === 'object' && c.liste.site === s.id ? c.liste : null;
@@ -1302,7 +1304,7 @@
   let rch = null;          // Ce que je cherche, en cours de saisie (une copie des valeurs reçues)
   let styleForm = null;    // le texte en train d'être ajouté : { titre, texte }
   let styleConfirme = null; // le texte dont la suppression est demandée
-  let cleForm = null;      // le service dont la clé se tape : 'adzuna', 'jooble' ou 'claude'
+  let cleForm = null;      // le service dont la clé se tape : 'adzuna' ou 'claude'
   let cleSaisie = {};      // ce qui est tapé dans ce formulaire (vidé dès l'envoi ou l'annulation)
   let cleConfirme = null;  // le service dont l'effacement est demandé
   const objet = (x) => (x && typeof x === 'object' && !Array.isArray(x) ? x : {});
@@ -1450,9 +1452,10 @@
   function rechercheEnregistrer() {
     if (!rch) return;
     const err = hote.querySelector('.jm-err');
-    if (!String(rch.postes || '').trim()) {
+    // (sans poste : tous les métiers du lieu choisi ; ni poste ni lieu : refusé, comme dans Rust)
+    if (!String(rch.postes || '').trim() && rch.lieu === 'partout') {
       hote.querySelector('[data-k="rc:postes"]')?.closest('.jm-champ')?.classList.add('faux');
-      if (err) err.textContent = 'Écris au moins un poste ou un mot, par exemple : agent de quai.';
+      if (err) err.textContent = 'Écris un poste, ou choisis un lieu.';
       hote.querySelector('[data-k="rc:postes"]')?.focus({ preventScroll: false });
       O.son?.retour?.();
       return;
@@ -2584,9 +2587,10 @@
   function enregistrerRecherche() {
     if (!ofForm) return;
     const err = hote.querySelector('.jm-rf .jm-err');
-    if (!String(ofForm.v.mots || '').trim()) {
+    // (sans mots : tous les métiers du lieu ; ni mots ni lieu : refusé, comme dans Rust)
+    if (!String(ofForm.v.mots || '').trim() && ofForm.v.lieu === 'partout') {
       hote.querySelector('[data-k="rf:mots"]')?.closest('.jm-champ')?.classList.add('faux');
-      if (err) err.textContent = 'Écris ce que tu cherches, par exemple : agent de quai.';
+      if (err) err.textContent = 'Écris un poste, ou choisis un lieu.';
       hote.querySelector('[data-k="rf:mots"]')?.focus({ preventScroll: false });
       O.son?.retour?.();
       return;
@@ -2720,6 +2724,8 @@
     // (étape 10, pour les captures) le récapitulatif ouvert, une adresse tapée comme Jordan
     if (o.envoi === 'ouvrir') { const e = enDe(); if (e) { if (onglet !== 'offres') montrer('offres'); O.action('en-ouvrir', { id: e.offre }); } return true; }
     if (typeof o.envoi_a === 'string') { const e = enDe(); if (e) { enSaisieDe(e).a = o.envoi_a.slice(0, 200); if (onglet === 'offres') dessinerTout('en:a'); } return true; }
+    // (essai : une valeur tapée dans le formulaire d'une recherche gardée, comme Jordan : ses mots, son nom, sa ville)
+    if (o.rf_saisie && typeof o.rf_saisie === 'object') { const ch = o.rf_saisie.champ; if (ofForm && ['mots', 'nom', 'ville'].includes(ch) && typeof o.rf_saisie.v === 'string') { ofForm.v[ch] = o.rf_saisie.v.slice(0, 120); dessinerTout(`rf:${ch}`); } return true; }
     // (essai, étape 11 : une valeur tapée dans le récapitulatif de l'envoi sur le site, comme Jordan)
     if (o.po_saisie && typeof o.po_saisie === 'object') { const p = poDe(), i = Number(o.po_saisie.i); if (p && Number.isInteger(i) && typeof o.po_saisie.v === 'string') { poSaisieDe(p).v[i] = o.po_saisie.v.slice(0, 300); dessinerTout(`po:c-${i}`); hote.querySelector(`[data-k="po:c-${i}"]`)?.scrollIntoView({ block: 'center' }); } return true; }
     if (numSur(o.recherche_supprimee)) { ofConfirme = null; if (onglet === 'offres') dessinerTout('og:nouvelle'); return true; }

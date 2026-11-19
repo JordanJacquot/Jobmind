@@ -300,13 +300,19 @@ mod tests {
         }
         let a = Adzuna::nouvelle(&Rien, ADRESSE, "1a2b3c4d", "0123456789abcdef");
         let r = Recherche { mots_cles: " agent de quai ".into(), lieu: "Metz".into(), rayon_km: 30, nombre: 0 };
-        let Demande::Get { url, params } = a.demande(&r) else { panic!() };
+        let Demande::Get { url, params } = a.demande(&r);
         assert_eq!(url, "https://api.adzuna.com/v1/api/jobs/fr/search/1");
         let p = |k: &str| params.iter().find(|(x, _)| x == k).map(|(_, v)| v.as_str());
         assert_eq!((p("what"), p("where"), p("distance")), (Some("agent de quai"), Some("Metz"), Some("30")));
         assert_eq!((p("results_per_page"), p("sort_by"), p("max_days_old")), (Some("50"), Some("date"), Some("30")));
+        // Sans mots (tous les métiers autour d'une ville) : ni « what » ni mot vide, le lieu et la distance seulement
+        let tous = Recherche { mots_cles: "  ".into(), lieu: "Sarrebourg".into(), rayon_km: 20, nombre: 0 };
+        let Demande::Get { params: pt, .. } = a.demande(&tous);
+        assert!(!pt.iter().any(|(k, _)| k == "what"), "{pt:?}");
+        let q = |k: &str| pt.iter().find(|(x, _)| x == k).map(|(_, v)| v.as_str());
+        assert_eq!((q("where"), q("distance")), (Some("Sarrebourg"), Some("20")));
         let r = Recherche { lieu: String::new(), ..r };
-        let Demande::Get { params, .. } = a.demande(&r) else { panic!() };
+        let Demande::Get { params, .. } = a.demande(&r);
         assert!(!params.iter().any(|(k, _)| k == "where" || k == "distance"));
         // L'erreur du réseau ne répète pas la clé
         let e = a.chercher(&r).unwrap_err();

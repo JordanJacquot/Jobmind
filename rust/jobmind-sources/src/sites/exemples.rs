@@ -544,8 +544,26 @@ fn ft_mdp(erreur: bool) -> String {
     )
 }
 
+/// L'espace personnel de France Travail, une fois connecté, imité d'après la vraie page vue le 19/11/2026 (son adresse,
+/// candidat.francetravail.fr/espacepersonnel/, et son titre ; texte inventé) : aucun lien « Se déconnecter » ni repère
+/// connu dans la page, seulement des rubriques. Jobmind la reconnaît à son adresse.
+pub const FT_ESPACE_TITRE: &str = "Accueil - Espace numérique | France Travail";
+
+fn ft_espace() -> String {
+    page(
+        FT_ESPACE_TITRE,
+        "<header><nav><a href=\"/espacepersonnel/\">Accueil</a> <a href=\"/offres/recherche\">Offres d'emploi</a> \
+         <a href=\"/espacepersonnel/mes-demarches\">Mes démarches</a></nav></header>\
+         <main><h1>Mon espace</h1><section><h2>Mes démarches</h2><p>Page d'exemple inventée : aucune démarche.</p></section>\
+         <section><h2>Mes offres</h2><p>Aucune offre sauvegardée.</p></section></main>",
+    )
+}
+
 /// La page d'accueil d'un site, connecté ou non.
 fn accueil(site: &str, dedans: bool) -> String {
+    if site == "francetravail" && dedans {
+        return ft_espace();
+    }
     let (titre, oui, non) = match site {
         "linkedin" => (
             "Fil d'actualité | LinkedIn",

@@ -1,6 +1,6 @@
 //! Les sources d'offres de Jobmind : tout ce qui apporte une offre, derrière un même trait ([`JobSource`]).
 //!
-//! Prévu au plan (18/11/2026) : Adzuna et Jooble par leurs API officielles (étape 4), la page qu'on regarde dans le
+//! Prévu au plan (18/11/2026) : Adzuna par son API officielle (étape 4), la page qu'on regarde dans le
 //! panneau des sites, lue sur un clic « Ajouter à Jobmind » (LinkedIn, Indeed, Welcome to the Jungle,
 //! francetravail.fr : étape 5), les alertes reçues par mail (étape 7). Jamais de recherche automatique sur un site qui
 //! l'interdit.
@@ -8,9 +8,8 @@
 //! Étape 4 :
 //! - [`http`] : le client HTTP ([`http::Http`], le vrai : [`http::HttpUreq`], bloquant, avec ses délais d'attente) ;
 //! - [`adzuna`] : l'API d'Adzuna France (GET, `app_id` et `app_key`), 50 offres au plus par appel ;
-//! - [`jooble`] : l'API de Jooble (POST, la clé dans le chemin), 50 offres au plus par appel ;
 //! - [`texte`] : le texte d'une offre remis au propre (balises HTML retirées, entités lues, espaces) ;
-//! - `faux` (les tests, et l'option « faux » de la construction d'essai) : un faux serveur local qui imite les deux,
+//! - `faux` (les tests, et l'option « faux » de la construction d'essai) : un faux serveur local qui imite Adzuna,
 //!   et (étape 5) sert les pages d'exemple des sites au panneau de l'essai.
 //!
 //! Étape 5 :
@@ -32,12 +31,13 @@
 pub mod adzuna;
 /// Les alertes « nouvelles offres » reçues par mail (étape 7) : reconnues, puis leurs offres lues.
 pub mod alertes;
+/// Les communes de France (nom, codes postaux, code INSEE), pour chercher sur France Travail autour d'une ville.
+pub mod communes;
 #[cfg(any(test, feature = "faux"))]
 pub mod faux;
 pub mod formulaire;
 pub mod html;
 pub mod http;
-pub mod jooble;
 pub mod page;
 pub mod sites;
 pub mod texte;
@@ -79,7 +79,7 @@ pub struct OffreTrouvee {
     pub zones: Vec<String>,
     /// L'adresse de l'offre d'origine (http ou https seulement ; sinon vide)
     pub url: String,
-    /// Le texte de l'offre (archivé sur le PC). Adzuna et Jooble n'en donnent que le début.
+    /// Le texte de l'offre (archivé sur le PC). Adzuna n'en donne que le début.
     pub description: String,
     /// Le contrat tel que la source le dit (« permanent », « contract », « CDI », « Full-time »...)
     pub contrat: String,
@@ -139,7 +139,7 @@ impl ErreurSource {
         }
     }
 
-    /// La même phrase pour plusieurs sources au même souci (« Adzuna et Jooble ne répondent pas... »).
+    /// La même phrase pour plusieurs sources au même souci (« Adzuna et LinkedIn ne répondent pas... »).
     pub fn message_groupe(&self, noms: &str) -> String {
         match self {
             ErreurSource::CleManquante(_) => {
@@ -192,7 +192,7 @@ impl ErreurSource {
     }
 }
 
-/// Une source d'offres (Adzuna, Jooble, une page lue, une alerte mail).
+/// Une source d'offres (Adzuna, une page lue, une alerte mail).
 pub trait JobSource {
     /// L'identifiant de la source dans la base (« adzuna »)
     fn id(&self) -> &str;
@@ -264,11 +264,11 @@ mod tests {
         let toutes = [
             ErreurSource::CleManquante("Adzuna".into()),
             ErreurSource::CleRefusee("Adzuna".into(), "statut 401".into()),
-            ErreurSource::Bloquee("Jooble".into(), "statut 403".into()),
-            ErreurSource::Quota("Jooble".into(), "statut 429".into()),
+            ErreurSource::Bloquee("Adzuna".into(), "statut 403".into()),
+            ErreurSource::Quota("Adzuna".into(), "statut 429".into()),
             ErreurSource::Reseau("Adzuna".into(), "connexion refusée".into()),
             ErreurSource::Serveur("Adzuna".into(), "statut 500".into()),
-            ErreurSource::Illisible("Jooble".into(), "pas du JSON".into()),
+            ErreurSource::Illisible("Adzuna".into(), "pas du JSON".into()),
         ];
         for e in &toutes {
             let m = e.message();

@@ -32,7 +32,7 @@ miniz_oxide = "=0.8.9"
 crc32fast = "=1.5.3"
 
 [dev-dependencies]
-# Les tests : les réponses inventées d'Adzuna et de Jooble (le faux serveur de jobmind-sources)
+# Les tests : les réponses inventées d'Adzuna (le faux serveur de jobmind-sources)
 jobmind-sources = { path = "../jobmind-sources", features = ["faux"] }
 
 [lints]

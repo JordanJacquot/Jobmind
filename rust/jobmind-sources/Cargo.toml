@@ -1,12 +1,12 @@
 [package]
 name = "jobmind-sources"
 version = "0.1.0"
-description = "Les sources d'offres de Jobmind : le trait JobSource, Adzuna et Jooble par leurs API officielles (étape 4), puis la page lue (« Ajouter à Jobmind ») et les alertes mail. Sans écran et sans Windows"
+description = "Les sources d'offres de Jobmind : le trait JobSource, Adzuna par son API officielle (étape 4), puis la page lue (« Ajouter à Jobmind ») et les alertes mail. Sans écran et sans Windows"
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
-# L'option « faux » : le faux serveur local (127.0.0.1) qui imite Adzuna et Jooble, pour la construction d'essai de
+# L'option « faux » : le faux serveur local (127.0.0.1) qui imite Adzuna, pour la construction d'essai de
 # l'appli (jamais livrée). Les tests de ce crate s'en servent aussi, sans l'option.
 [features]
 faux = []
@@ -15,7 +15,7 @@ faux = []
 # Versions figées (« = ») : une nouvelle version n'entre que par un changement relu.
 # Les erreurs d'une source, nommées (la même version que celle déjà tirée par Tauri)
 thiserror = "=2.0.21"
-# Les réponses JSON d'Adzuna et de Jooble (le même serde_json que le reste de l'espace de travail)
+# Les réponses JSON d'Adzuna (le même serde_json que le reste de l'espace de travail)
 serde_json = { version = "=1.0.154", features = ["preserve_order"] }
 # Le client HTTP, bloquant (il tourne sur un fil à part de l'appli), sans ses options par défaut : ni rustls, ni gzip.
 # Le chiffrement passe par native-tls, c'est-à-dire SChannel, celui de Windows (aucun code C à construire, les

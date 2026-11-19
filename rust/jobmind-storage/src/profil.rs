@@ -297,9 +297,13 @@ pub fn lire_recherche(c: &Connection) -> rusqlite::Result<Option<Recherche>> {
         Some(GenreLieu::Partout) => Some(Lieu::Partout),
         _ => None,
     };
-    let (Some(lieu), Some(teletravail), false) = (lieu, Teletravail::depuis_code(&tele), postes.is_empty()) else {
+    // (sans poste : tous les métiers du lieu ; sans poste ni lieu, ce n'est pas une recherche)
+    let (Some(lieu), Some(teletravail)) = (lieu, Teletravail::depuis_code(&tele)) else {
         return Ok(None);
     };
+    if postes.is_empty() && lieu == Lieu::Partout {
+        return Ok(None);
+    }
     let mut contrats: Vec<Contrat> = contrats.split(',').filter_map(|c| Contrat::depuis_code(c.trim())).collect();
     contrats.sort();
     contrats.dedup();

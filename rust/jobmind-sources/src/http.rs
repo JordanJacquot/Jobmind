@@ -12,8 +12,6 @@ use std::time::Duration;
 pub enum Demande {
     /// GET, avec ses paramètres (encodés par le client)
     Get { url: String, params: Vec<(String, String)> },
-    /// POST d'un corps JSON
-    Post { url: String, json: String },
 }
 
 /// Une réponse, quel que soit son statut.
@@ -92,9 +90,6 @@ impl Http for HttpUreq {
                     d = d.query(k, v);
                 }
                 d.call()
-            }
-            Demande::Post { url, json } => {
-                self.agent.post(url).header("Content-Type", "application/json").send(json.as_bytes())
             }
         };
         let mut r = r.map_err(|e| raison(&e))?;

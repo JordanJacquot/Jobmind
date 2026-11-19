@@ -140,7 +140,7 @@ allow = [
     "crossbeam-channel", "crossbeam-utils", "cfg-if", "libc", "log", "tracing", "tracing-core", "anyhow", "thiserror",
     "thiserror-impl", "ctor", "dirs", "dirs-sys", "option-ext", "dunce", "glob", "walkdir", "same-file",
     "winapi-util", "heck", "unicode-segmentation", "byteorder", "web-time",
-    # Étape 4 : le client HTTP des sources d'offres (Adzuna, Jooble) et le chiffrement de Windows (SChannel), MIT ou
+    # Étape 4 : le client HTTP des sources d'offres (Adzuna) et le chiffrement de Windows (SChannel), MIT ou
     # Apache-2.0 ; webpki-root-certs : des données (voir [[licenses.exceptions]])
     "ureq", "ureq-proto", "utf-8", "native-tls", "schannel", "rustls-pki-types", "der", "pem-rfc7468", "base64ct",
     "zeroize", "webpki-root-certs",

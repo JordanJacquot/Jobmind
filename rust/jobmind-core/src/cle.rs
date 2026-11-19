@@ -1,5 +1,5 @@
-//! Les clés (étape 3 du plan) : celles des sources d'offres (Adzuna : deux codes, Jooble : un) et celle de l'IA
-//! Claude. Ici, seulement leur forme : une clé collée est remise au propre et vérifiée ([`verifier_cle`]) avant d'être
+//! Les clés (étape 3 du plan) : celle de la source d'offres (Adzuna : deux codes) et celle de l'IA Claude. Ici,
+//! seulement leur forme : une clé collée est remise au propre et vérifiée ([`verifier_cle`]) avant d'être
 //! chiffrée et gardée (jobmind-storage, `cles`). Aucune clé n'est essayée sur internet à cette étape (étapes 4 et 8).
 //!
 //! Une clé n'est jamais montrée ni écrite au journal : l'écran ne montre que ses 4 derniers caractères ([`apercu`]).
@@ -11,7 +11,6 @@ pub enum Cle {
     AdzunaId,
     /// Adzuna : l'« Application Key »
     AdzunaCle,
-    Jooble,
     Claude,
     /// Étape 7 : l'adresse de la boîte Gmail branchée, et son mot de passe d'application (16 lettres, crate::mails)
     GmailAdresse,
@@ -19,15 +18,13 @@ pub enum Cle {
 }
 
 impl Cle {
-    pub const TOUTES: [Cle; 6] =
-        [Cle::AdzunaId, Cle::AdzunaCle, Cle::Jooble, Cle::Claude, Cle::GmailAdresse, Cle::GmailMdp];
+    pub const TOUTES: [Cle; 5] = [Cle::AdzunaId, Cle::AdzunaCle, Cle::Claude, Cle::GmailAdresse, Cle::GmailMdp];
 
-    /// Le nom gardé dans le fichier des clés.
+    /// Le nom gardé dans le fichier des clés (un autre nom, celui d'une clé d'une ancienne version, n'est pas lu).
     pub fn code(self) -> &'static str {
         match self {
             Cle::AdzunaId => "adzuna_id",
             Cle::AdzunaCle => "adzuna_cle",
-            Cle::Jooble => "jooble",
             Cle::Claude => "claude",
             Cle::GmailAdresse => "gmail_adresse",
             Cle::GmailMdp => "gmail_mdp",
@@ -43,7 +40,6 @@ impl Cle {
         match self {
             Cle::AdzunaId => "Application ID",
             Cle::AdzunaCle => "Application Key",
-            Cle::Jooble => "Clé Jooble",
             Cle::Claude => "Clé Claude",
             Cle::GmailAdresse => "Adresse Gmail",
             Cle::GmailMdp => "Mot de passe d'application",
@@ -54,7 +50,6 @@ impl Cle {
     pub fn service(self) -> Service {
         match self {
             Cle::AdzunaId | Cle::AdzunaCle => Service::Adzuna,
-            Cle::Jooble => Service::Jooble,
             Cle::Claude => Service::Claude,
             Cle::GmailAdresse | Cle::GmailMdp => Service::Gmail,
         }
@@ -67,8 +62,6 @@ impl Cle {
             Cle::AdzunaId => (6, 16, &[]),
             // (32 caractères chez Adzuna aujourd'hui)
             Cle::AdzunaCle => (20, 64, &[]),
-            // (un identifiant de 36 caractères avec ses tirets chez Jooble aujourd'hui)
-            Cle::Jooble => (16, 64, &['-']),
             // (« sk-ant-api03-... », une centaine de caractères)
             Cle::Claude => (40, 256, &['-', '_']),
             // (vérifiées par crate::mails, jamais par verifier_cle)
@@ -82,19 +75,17 @@ impl Cle {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Service {
     Adzuna,
-    Jooble,
     Claude,
     /// Étape 7 : la boîte Gmail (pas dans Mes clés : sa rubrique « Ma boîte mail » à elle)
     Gmail,
 }
 
 impl Service {
-    pub const TOUS: [Service; 3] = [Service::Adzuna, Service::Jooble, Service::Claude];
+    pub const TOUS: [Service; 2] = [Service::Adzuna, Service::Claude];
 
     pub fn code(self) -> &'static str {
         match self {
             Service::Adzuna => "adzuna",
-            Service::Jooble => "jooble",
             Service::Claude => "claude",
             Service::Gmail => "gmail",
         }
@@ -108,7 +99,6 @@ impl Service {
     pub fn parties(self) -> &'static [Cle] {
         match self {
             Service::Adzuna => &[Cle::AdzunaId, Cle::AdzunaCle],
-            Service::Jooble => &[Cle::Jooble],
             Service::Claude => &[Cle::Claude],
             Service::Gmail => &[Cle::GmailAdresse, Cle::GmailMdp],
         }
@@ -153,12 +143,11 @@ pub fn verifier_cle(cle: Cle, colle: &str) -> Result<String, String> {
     Ok(t.to_string())
 }
 
-/// « clé Jooble », « Application ID » (dans une phrase).
+/// « clé Claude », « Application ID » (dans une phrase).
 fn nom_dans_phrase(cle: Cle) -> &'static str {
     match cle {
         Cle::AdzunaId => "Application ID",
         Cle::AdzunaCle => "Application Key",
-        Cle::Jooble => "clé Jooble",
         Cle::Claude => "clé Claude",
         Cle::GmailAdresse => "adresse Gmail",
         Cle::GmailMdp => "mot de passe d'application",
@@ -179,14 +168,12 @@ mod tests {
     // (des clés inventées, de la bonne forme)
     const ID: &str = "1a2b3c4d";
     const CLE_ADZUNA: &str = "0123456789abcdef0123456789abcdef";
-    const JOOBLE: &str = "aaaabbbb-cccc-dddd-eeee-ffff00001111";
     const CLAUDE: &str = "sk-ant-api03-InventeeInventeeInventeeInventeeInventee_0000-AAAA";
 
     #[test]
     fn cles_de_bonne_forme() {
         assert_eq!(verifier_cle(Cle::AdzunaId, ID).unwrap(), ID);
         assert_eq!(verifier_cle(Cle::AdzunaCle, &format!("  \"{CLE_ADZUNA}\"\n")).unwrap(), CLE_ADZUNA);
-        assert_eq!(verifier_cle(Cle::Jooble, JOOBLE).unwrap(), JOOBLE);
         assert_eq!(verifier_cle(Cle::Claude, &format!("« {CLAUDE} »")).unwrap(), CLAUDE);
         assert_eq!(apercu(CLE_ADZUNA), "se termine par cdef");
         assert_eq!(apercu("ab"), "se termine par ab");
@@ -195,21 +182,24 @@ mod tests {
             assert!(c.service().parties().contains(&c));
         }
         assert_eq!(Service::depuis_code("adzuna").unwrap().parties(), [Cle::AdzunaId, Cle::AdzunaCle]);
+        // (la clé d'une source retirée, gardée par une ancienne version : inconnue, jamais une erreur)
+        assert_eq!(Cle::depuis_code("jooble"), None);
+        assert_eq!(Service::depuis_code("jooble"), None);
     }
 
     /// Contre-épreuve : une clé mal collée est refusée, avec une phrase qui ne la répète pas.
     #[test]
     fn cles_mal_collees() {
         for (cle, colle, attendu) in [
-            (Cle::Jooble, "   ", "Colle ici ta clé Jooble"),
-            (Cle::Jooble, "aaaabbbb cccc-dddd-eeee-ffff00001111", "espace"),
+            (Cle::Claude, "   ", "Colle ici ta clé Claude"),
+            (Cle::AdzunaCle, "0123456789abcdef 0123456789abcdef", "espace"),
             (Cle::Claude, "api03-InventeeInventeeInventeeInventeeInventee", "sk-ant-"),
             (Cle::Claude, "sk-ant-court", "incomplète"),
             (Cle::AdzunaId, CLE_ADZUNA, "Application Key à sa place"),
             (Cle::AdzunaId, "1a2", "incomplète"),
             (Cle::AdzunaCle, "0123456789abcdef0123456789abcdef!", "inattendus"),
             (Cle::AdzunaCle, &"a".repeat(65), "trop longue"),
-            (Cle::Jooble, "clé-jooble-avec-accent-é", "inattendus"),
+            (Cle::Claude, "sk-ant-api03-clé-avec-accent-é-InventeeInventeeInventee", "inattendus"),
         ] {
             let e = verifier_cle(cle, colle).unwrap_err();
             assert!(e.contains(attendu), "{e} / {attendu}");

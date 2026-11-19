@@ -42,6 +42,16 @@ pub fn lieu_texte(l: &Lieu) -> String {
     }
 }
 
+/// Ce que cherche une recherche gardée : « agent de quai, autour de Metz (30 km) » ; sans mots, « Tous les métiers,
+/// autour de Sarrebourg (20 km) ».
+pub fn recherche_texte(mots: &str, l: &Lieu) -> String {
+    if mots.trim().is_empty() {
+        format!("Tous les métiers, {}", lieu_texte(l))
+    } else {
+        format!("{mots}, {}", lieu_texte(l))
+    }
+}
+
 /// « aujourd'hui à 14 h 05 », « le 17 nov. à 9 h 30 ».
 fn moment_texte(m: Moment, aujourdhui: Jour) -> String {
     let h = Heure::nouvelle(m.heure, m.minute).map(Heure::texte).unwrap_or_default();
@@ -79,7 +89,7 @@ fn noms(o: &Offre) -> String {
     noms_sources(&o.sources.iter().map(|s| nom_source(s)).collect::<Vec<_>>())
 }
 
-/// La petite ligne d'une offre : « CDI, le 17 nov., sur Adzuna et Jooble ».
+/// La petite ligne d'une offre : « CDI, le 17 nov., sur Adzuna et LinkedIn ».
 fn ligne3(o: &Offre, aujourdhui: Jour) -> String {
     let mut l: Vec<String> = Vec::new();
     if let Some(c) = o.contrat {
@@ -225,12 +235,14 @@ fn fiche(x: &OffreComplete, aujourdhui: Jour, claude: bool) -> Value {
             ),
             _ => "Le site n'a donné aucun texte pour cette offre. Lis-la sur le site.".to_string(),
         },
-        "note": if matches!(x.description_de.as_str(), "adzuna" | "jooble") {
-            format!("{texte_de} ne donne que le début de l'annonce : le texte entier est sur le site.")
-        } else if x.description_de == "site" {
-            "Le texte entier de l'annonce, lu sur la page du site.".to_string()
-        } else {
-            format!("Le texte entier de l'annonce, lu sur la page de {texte_de}.")
+        // (Adzuna, ou une source retirée depuis : seulement le début ; une page lue : le texte entier)
+        "note": match x.description_de.as_str() {
+            "site" => "Le texte entier de l'annonce, lu sur la page du site.".to_string(),
+            "linkedin" | "indeed" | "wttj" | "francetravail" => {
+                format!("Le texte entier de l'annonce, lu sur la page de {texte_de}.")
+            }
+            "adzuna" => format!("{texte_de} ne donne que le début de l'annonce : le texte entier est sur le site."),
+            _ => "La source ne donne que le début de l'annonce : le texte entier est sur le site.".to_string(),
         },
         "gardee": gardee,
         "liens": liens,
@@ -255,14 +267,14 @@ fn fiche(x: &OffreComplete, aujourdhui: Jour, claude: bool) -> Value {
 
 /// Le panneau de droite quand il n'y a pas d'offre à montrer : ce qui manque, et le bouton pour avancer.
 fn vide(v: &VueOffres) -> Value {
-    let (icone, titre, texte, bouton, note): (&str, String, &str, &str, &str) = if !v.cles.0 && !v.cles.1 {
+    let (icone, titre, texte, bouton, note): (&str, String, &str, &str, &str) = if !v.cles {
         (
             "cle",
             "Il manque une clé".into(),
-            "Pour chercher des offres, Jobmind a besoin de ta clé Adzuna ou Jooble : un code gratuit, créé une seule \
-             fois sur leur site.",
+            "Pour chercher des offres, Jobmind a besoin de ta clé Adzuna : un code gratuit, créé une seule fois sur \
+             son site.",
             "cles",
-            "Une seule des deux suffit pour commencer.",
+            "",
         )
     } else if v.recherches.is_empty() {
         (
@@ -276,8 +288,8 @@ fn vide(v: &VueOffres) -> Value {
         (
             "loupe",
             AUCUNE_OFFRE.into(),
-            "Choisis une recherche à gauche, puis « Chercher sur Adzuna et Jooble ». Jobmind leur demande les \
-             offres, et garde chacune sur ce PC.",
+            "Choisis une recherche à gauche, puis « Chercher sur Adzuna ». Jobmind lui demande les offres, et \
+             garde chacune sur ce PC.",
             "chercher",
             "Chaque offre gardée reste lisible ici, même si elle disparaît du site.",
         )
@@ -308,7 +320,7 @@ fn gestion(v: &VueOffres, aujourdhui: Jour) -> Value {
             json!({
                 "id": r.id,
                 "nom": r.nom,
-                "sous": format!("{}, {}", r.mots, lieu_texte(&r.lieu)),
+                "sous": recherche_texte(&r.mots, &r.lieu),
                 "derniere": derniere_fois(r, aujourdhui),
                 "message": r.dernier_message.clone().unwrap_or_default(),
                 "valeurs": { "nom": r.nom, "mots": r.mots, "lieu": genre.code(), "ville": ville, "rayon": rayon,
@@ -319,8 +331,8 @@ fn gestion(v: &VueOffres, aujourdhui: Jour) -> Value {
         .collect();
     json!({
         "titre": "Mes recherches",
-        "intro": "Chaque recherche dit ce que tu cherches et où. « Chercher maintenant » demande ses offres à Adzuna et \
-                  à Jooble.",
+        "intro": "Chaque recherche dit ce que tu cherches et où. « Chercher maintenant » demande ses offres à \
+                  Adzuna.",
         "liste": l,
         "plein": v.recherches.len() >= NOMBRE_MAX,
         "profil": v.profil,
@@ -400,8 +412,8 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
         "dossier": {
             "icone": "loupe",
             "titre": AUCUNE_OFFRE,
-            "texte": "Jobmind rassemble ici les offres d'Adzuna et de Jooble, et celles que tu ajoutes depuis les sites, \
-                      sans doublons.",
+            "texte": "Jobmind rassemble ici les offres d'Adzuna, et celles que tu ajoutes depuis les sites, sans \
+                      doublons.",
             "note": "Chaque offre gardée reste lisible sur ce PC, même si elle disparaît du site.",
         },
         "offres": {
@@ -436,11 +448,11 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
             "vide_liste": vide_liste,
             "recherches": v.recherches.iter().map(|r| json!({ "id": r.id, "nom": r.nom })).collect::<Vec<_>>(),
             "recherche": choisie.map(|r| r.id),
-            "recherche_sous": choisie.map(|r| format!("{}, {}", r.mots, lieu_texte(&r.lieu))),
+            "recherche_sous": choisie.map(|r| recherche_texte(&r.mots, &r.lieu)),
             "recherche_fois": choisie.map(|r| derniere_fois(r, aujourdhui)),
             "en_cours": v.en_cours,
             "annonce": annonce,
-            "cles": v.cles.0 || v.cles.1,
+            "cles": v.cles,
             "lignes": v.liste.iter().map(|o| ligne(o, ouverte, aujourdhui)).collect::<Vec<_>>(),
             "plus": if v.total > LISTE_MAX {
                 format!("Seules les {LISTE_MAX} premières sont montrées : précise les filtres pour voir les autres.")
@@ -463,7 +475,7 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
                 ("mes_recherches", "Ma recherche"),
                 ("gerer", "Gérer mes recherches"),
                 ("chercher", "Chercher maintenant"),
-                ("chercher_aj", "Chercher sur Adzuna et Jooble"),
+                ("chercher_aj", "Chercher sur Adzuna"),
                 ("liste_t", "Les plus récentes en haut"),
                 ("vide_l", "Aucune offre avec ces filtres."),
                 ("sans_recherche", "Crée une recherche pour commencer."),
@@ -491,7 +503,7 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
                 ("i_nom", "Par exemple : Quai autour de Metz"),
                 ("mots", "Ce que je cherche"),
                 ("i_mots", "Par exemple : agent de quai"),
-                ("mots_aide", "Un métier ou quelques mots, comme sur un site d'emploi."),
+                ("mots_aide", "Un métier ou quelques mots, comme sur un site d'emploi. Vide : tous les métiers du lieu."),
                 ("lieu", "Où"),
                 ("rayon", "Jusqu'à"),
                 ("enregistrer", "Enregistrer"),
@@ -545,7 +557,8 @@ mod tests {
             sources: sources.iter().map(|s| s.to_string()).collect(),
             ..Offre::default()
         };
-        let mut a = o(1, "Agent de quai H/F", "Entrepôts du Val de Moselle", "Ennery, Moselle", &["adzuna", "jooble"]);
+        let mut a =
+            o(1, "Agent de quai H/F", "Entrepôts du Val de Moselle", "Ennery, Moselle", &["adzuna", "linkedin"]);
         a.favori = true;
         a.vue = true;
         a.teletravail = Some(TeleOffre::Partiel);
@@ -554,7 +567,7 @@ mod tests {
         a.raison = "Aucun diplôme demandé, à 12 km, débutant accepté".into();
         a.diplome = Some(Diplome::Aucun);
         a.experience = Some(Experience::Debutant);
-        let b = o(2, "Agent de tri", "", "Forbach (57)", &["jooble"]);
+        let b = o(2, "Agent de tri", "", "Forbach (57)", &["indeed"]);
         let r = RechercheGardee {
             id: 4,
             nom: "Agent de quai".into(),
@@ -576,7 +589,7 @@ mod tests {
                 description_de: "adzuna".into(),
                 liens: vec![
                     Lien { source: "adzuna".into(), url: "https://www.adzuna.fr/land/ad/1".into() },
-                    Lien { source: "jooble".into(), url: "https://jooble.org/desc/1".into() },
+                    Lien { source: "linkedin".into(), url: "https://fr.linkedin.com/jobs/view/1".into() },
                 ],
                 retrouvee_le: Some(j(18)),
                 candidats: Some(VueCandidats {
@@ -601,13 +614,9 @@ mod tests {
             }),
             recherches: vec![r],
             recherche: Some(4),
-            annonce: Some(Annonce {
-                texte: "19 offres trouvées sur Adzuna et Jooble.".into(),
-                genre: "ok",
-                cles: false,
-            }),
+            annonce: Some(Annonce { texte: "19 offres trouvées sur Adzuna.".into(), genre: "ok", cles: false }),
             saisie: crate::offres::VIDE.saisie.clone(),
-            cles: (true, true),
+            cles: true,
             profil: true,
             ..VueOffres::default()
         }
@@ -623,15 +632,15 @@ mod tests {
         assert_eq!(o["recherche_sous"], "agent de quai, autour de Metz (30 km)");
         assert_eq!(o["recherche_fois"], "Dernière fois aujourd'hui à 14 h 05, 19 offres trouvées");
         let l = o["lignes"].as_array().unwrap();
-        assert_eq!(l[0]["l3"], "CDI, le 17 nov., sur Adzuna et Jooble");
+        assert_eq!(l[0]["l3"], "CDI, le 17 nov., sur Adzuna et LinkedIn");
         assert_eq!(l[0]["sel"], true);
         assert_eq!(l[1]["sous"], "Forbach (57)");
         assert_eq!(l[1]["nouvelle"], true);
         let f = &o["fiche"];
         assert_eq!(f["sous"], "Entrepôts du Val de Moselle, Ennery");
-        assert_eq!(f["sources"], "Trouvée sur Adzuna et Jooble");
+        assert_eq!(f["sources"], "Trouvée sur Adzuna et LinkedIn");
         assert_eq!((f["double"].as_bool(), f["adzuna"].as_bool()), (Some(true), Some(true)));
-        assert_eq!(f["liens"][1]["nom"], "Voir sur Jooble");
+        assert_eq!(f["liens"][1]["nom"], "Voir sur LinkedIn");
         assert_eq!(f["candidats"], "Plus de 100 candidats sur LinkedIn, vu le 17 nov.");
         assert_eq!(f["infos"][1]["valeur"], "21 800 à 23 500 € par an");
         assert_eq!(f["infos"][2]["valeur"], "Possible");
@@ -654,7 +663,7 @@ mod tests {
             }
         }
         let mut cas = vec![exemple(), crate::offres::VIDE.clone()];
-        cas.push(VueOffres { cles: (true, false), ..crate::offres::VIDE.clone() });
+        cas.push(VueOffres { cles: true, ..crate::offres::VIDE.clone() });
         for v in &cas {
             let e = onglet(v, j(18));
             let mut t = Vec::new();
@@ -720,7 +729,7 @@ mod tests {
     fn les_panneaux_vides() {
         let rien = crate::offres::VIDE.clone();
         assert_eq!(onglet(&rien, j(18))["offres"]["vide"]["bouton"], "cles");
-        let avec_cle = VueOffres { cles: (false, true), profil: true, ..rien.clone() };
+        let avec_cle = VueOffres { cles: true, profil: true, ..rien.clone() };
         assert_eq!(onglet(&avec_cle, j(18))["offres"]["vide"]["bouton"], "profil");
         let mut x = exemple();
         x.liste.clear();

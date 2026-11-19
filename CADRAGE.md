@@ -9,6 +9,7 @@ chaque candidature vite sans qu'elle sonne comme une IA, et savoir à tout momen
 1. **Les offres** : plusieurs sources par leurs API officielles et flux RSS (France Travail, Adzuna...), une liste
    unique sans doublons, des recherches gardées et rafraîchies au clic ou à intervalle régulier. Chaque offre est
    archivée en entier sur le PC.
+   - Sources par API : Adzuna seulement. Jooble retiré le 19/11/2026, décision de Jordan.
    - Tous les métiers, pas seulement l'informatique.
    - Filtres : mots-clés, lieu (région, département, ville et rayon), contrat, télétravail, date, source, et
      **diplôme demandé** (dont « aucun diplôme requis »), expérience demandée.

@@ -17,8 +17,8 @@
 //! `exemples.demande` remplit la base de candidatures et d'un profil inventés ; `import.demande` (le chemin d'un CV
 //! d'essai) l'importe comme « Importer un fichier », sans la boîte « Ouvrir ».
 //!
-//! Étape 4 : les recherches d'offres partent vers un faux serveur local (127.0.0.1) qui imite Adzuna et Jooble avec des
-//! offres inventées (jobmind-sources, option « faux ») ; `reseau.essai` change sa réponse.
+//! Étape 4 : les recherches d'offres partent vers un faux serveur local (127.0.0.1) qui imite Adzuna avec des offres
+//! inventées (jobmind-sources, option « faux ») ; `reseau.essai` change sa réponse.
 //!
 //! Étape 8 : la candidature est demandée au même faux serveur, qui imite aussi Claude (`/v1/messages`,
 //! jobmind-llm, option « faux ») ; `claude.essai` change sa réponse, `cle-claude.demande` donne une clé inventée.
@@ -55,7 +55,7 @@ pub const ORDRE_DEMANDE: &str = "ordre.demande";
 pub const EXEMPLES_DEMANDE: &str = "exemples.demande";
 /// Ce fichier (le chemin d'un CV d'essai) fait importer ce CV comme « Importer un fichier », sans la boîte « Ouvrir ».
 pub const IMPORT_DEMANDE: &str = "import.demande";
-/// Étape 4 : ce fichier change la réponse du faux serveur d'Adzuna et Jooble à la prochaine recherche (« coupe » : le
+/// Étape 4 : ce fichier change la réponse du faux serveur d'Adzuna à la prochaine recherche (« coupe » : le
 /// réseau coupé, « quota », « refuse » : la clé refusée ; autre chose : normale).
 pub const RESEAU: &str = "reseau.essai";
 /// Étape 8 : ce fichier change la réponse du faux Claude local à la prochaine candidature demandée (« refus »,
@@ -220,8 +220,8 @@ const STYLES: [(&str, &str); 3] = [
     ),
 ];
 
-/// Remplit le profil d'exemple : un CV collé, « Ce que je cherche », trois textes pour le style, et deux clés
-/// inventées (Adzuna et Jooble ; celle de Claude reste à donner), chiffrées par le vrai coffre dans le dossier d'essai.
+/// Remplit le profil d'exemple : un CV collé, « Ce que je cherche », trois textes pour le style, et la clé
+/// inventée d'Adzuna (celle de Claude reste à donner), chiffrées par le vrai coffre dans le dossier d'essai.
 fn remplir_profil(
     c: &jobmind_storage::rusqlite::Connection,
     cles: &mut Cles,
@@ -252,11 +252,7 @@ fn remplir_profil(
         let jour = maintenant.jour().plus(-(5 - i as i64 * 2));
         profil::ajouter_style(c, titre, texte, a_ce_jour(jour, 10)).map_err(e)?;
     }
-    cles.garder_plusieurs(&[
-        (Cle::AdzunaId, "1a2b3c4d"),
-        (Cle::AdzunaCle, "0123456789abcdef0123456789ab4f2a"),
-        (Cle::Jooble, "aaaabbbb-cccc-dddd-eeee-ffff00009e71"),
-    ])
+    cles.garder_plusieurs(&[(Cle::AdzunaId, "1a2b3c4d"), (Cle::AdzunaCle, "0123456789abcdef0123456789ab4f2a")])
 }
 
 fn a_ce_jour(j: Jour, h: u32) -> Moment {
@@ -550,7 +546,7 @@ mod tests {
         }
     }
 
-    /// Le profil d'exemple des captures : un CV, ce que je cherche, trois textes, deux clés sur trois (chiffrées par le
+    /// Le profil d'exemple des captures : un CV, ce que je cherche, trois textes, une clé sur deux (chiffrées par le
     /// vrai DPAPI, dans un dossier d'essai).
     #[test]
     fn profil_d_exemple() {
@@ -564,7 +560,7 @@ mod tests {
         assert_eq!((v.cvs.len(), v.style.len()), (1, 3));
         assert_eq!(v.recherche.as_ref().unwrap().postes.len(), 4);
         let e = crate::ecran::etat("0.3.0", &crate::ecran::Vue { profil: &v, ..crate::ecran::Vue::vide(m.jour()) });
-        assert_eq!(e["accueil"]["perso"]["onglets"][2]["rubriques"][3]["sous"], "2 clés sur 3");
+        assert_eq!(e["accueil"]["perso"]["onglets"][2]["rubriques"][3]["sous"], "1 clé sur 2");
         let _ = std::fs::remove_dir_all(&d);
     }
 }

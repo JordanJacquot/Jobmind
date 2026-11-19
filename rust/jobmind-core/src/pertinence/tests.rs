@@ -167,3 +167,39 @@ fn raisons_simples() {
         assert!(n.score <= 100);
     }
 }
+
+/// Sans poste ni mot (« tous les métiers autour de Sarrebourg », demande de Jordan, 19/11/2026) : aucune offre n'est
+/// hors sujet faute de poste ; le lieu, « aucun diplôme requis » et « débutant accepté » font la note.
+#[test]
+fn sans_poste_tous_les_metiers() {
+    let r = verifier_recherche(&SaisieRecherche {
+        postes: String::new(),
+        lieu: "ville".into(),
+        ville: "Sarrebourg".into(),
+        rayon: 20,
+        teletravail: "peu_importe".into(),
+        sans_diplome: true,
+        debutant: true,
+        ..SaisieRecherche::default()
+    })
+    .unwrap();
+    let mut p = Profil::nouveau(&r, "");
+    p.centre = Some((48.7347, 7.0539));
+    let pres = |titre| offre(titre, "Sarrebourg (57)", Some((48.7347, 7.0539)));
+    for titre in ["Développeur web senior", "Vendeur en boulangerie", "Agent de tri", "Aide-soignant de nuit"] {
+        let n = noter(&p, &pres(titre));
+        assert_ne!(n.niveau, Niveau::HorsSujet, "{titre} : {n:?}");
+        assert!(!n.raison.contains("Aucun de tes postes"), "{}", n.raison);
+    }
+    // Aucun diplôme et débutant accepté : mieux notée qu'une offre qui demande un diplôme et de l'expérience
+    let bonne =
+        OffreANoter { diplome: Some(Diplome::Aucun), experience: Some(Experience::Debutant), ..pres("Agent de tri") };
+    let exigeante =
+        OffreANoter { diplome: Some(Diplome::Bac), experience: Some(Experience::Duree(36)), ..pres("Agent de tri") };
+    let (b, e) = (noter(&p, &bonne), noter(&p, &exigeante));
+    assert!(b.score > e.score + 20, "{b:?} / {e:?}");
+    // Loin du lieu : moins bien, mais jamais hors sujet faute de poste
+    let loin = noter(&p, &offre("Cariste", "Strasbourg", Some((48.5734, 7.7521))));
+    assert!(loin.score < noter(&p, &pres("Cariste")).score);
+    assert_ne!(loin.niveau, Niveau::HorsSujet);
+}

@@ -9,8 +9,7 @@
 //! été trouvé. Une recherche a son numéro (`jeton`) : un résultat arrivé trop tard est laissé.
 //!
 //! Jobmind reste très en dessous des limites des sources : une recherche à la fois, pas deux fois la même dans la
-//! minute, et au plus [`LIMITE_ADZUNA`] demandes par jour à Adzuna, [`LIMITE_JOOBLE`] à Jooble (dont la limite gratuite
-//! est de 100 par jour).
+//! minute, et au plus [`LIMITE_ADZUNA`] demandes par jour à Adzuna.
 //!
 //! Le journal ne reçoit jamais une clé ni une adresse entière : seulement ce qui a été fait, et l'hôte d'un lien.
 //!
@@ -92,7 +91,6 @@ pub fn est_geste(id: &str) -> bool {
 
 /// Les demandes par jour que Jobmind s'autorise, par source.
 pub const LIMITE_ADZUNA: u32 = 100;
-pub const LIMITE_JOOBLE: u32 = 50;
 /// La phrase quand les demandes du jour sont toutes faites.
 pub const PLAFOND: &str = "Tu as déjà fait beaucoup de recherches aujourd'hui. Réessaie demain.";
 /// Une même recherche ne repart pas avant ce nombre de secondes.
@@ -181,7 +179,6 @@ pub fn cout_texte(millioniemes: u64) -> String {
 pub fn nom_source(code: &str) -> &'static str {
     match code {
         "adzuna" => "Adzuna",
-        "jooble" => "Jooble",
         // (étape 5 : les sites lus par Jobmind)
         "linkedin" => "LinkedIn",
         "indeed" => "Indeed",
@@ -192,7 +189,7 @@ pub fn nom_source(code: &str) -> &'static str {
 }
 
 fn limite(s: Service) -> u32 {
-    if s == Service::Adzuna { LIMITE_ADZUNA } else { LIMITE_JOOBLE }
+    if s == Service::Adzuna { LIMITE_ADZUNA } else { 0 }
 }
 
 /// La clé de ce service est entière et lisible.
@@ -269,8 +266,8 @@ pub struct VueOffres {
     pub annonce: Option<Annonce>,
     pub saisie: SaisieFiltres,
     pub filtres_actifs: bool,
-    /// Les clés prêtes : Adzuna, Jooble
-    pub cles: (bool, bool),
+    /// La clé Adzuna est prête
+    pub cles: bool,
     /// « Ce que je cherche » est enregistré
     pub profil: bool,
     /// Étape 6 : le nombre d'offres rangées hors sujet, et d'offres floues que Claude pourrait lire
@@ -380,7 +377,7 @@ impl Offres {
             filtres_actifs: self.filtres.actifs(),
             en_cours: self.en_cours.as_ref().map(|e| e.texte.clone()),
             annonce: self.annonce.clone(),
-            cles: (cle_prete(cles, Service::Adzuna), cle_prete(cles, Service::Jooble)),
+            cles: cle_prete(cles, Service::Adzuna),
             claude: cle_prete(cles, Service::Claude),
             ia_en_cours: self
                 .ia
@@ -547,10 +544,10 @@ impl Offres {
         // (étape 12 : refaite toute seule, les sources prêtes au début du tour)
         let prets: Vec<Service> = match (&self.tour, auto) {
             (Some(t), true) => t.services.clone(),
-            _ => [Service::Adzuna, Service::Jooble].into_iter().filter(|s| cle_prete(cles, *s)).collect(),
+            _ => [Service::Adzuna].into_iter().filter(|s| cle_prete(cles, *s)).collect(),
         };
         if prets.is_empty() {
-            let t = "Pour chercher des offres, Jobmind a besoin de ta clé Adzuna ou Jooble. Donne-la dans Mon profil, \
+            let t = "Pour chercher des offres, Jobmind a besoin de ta clé Adzuna. Donne-la dans Mon profil, \
                      rubrique Mes clés.";
             if auto {
                 return Ok(message(t));
@@ -617,7 +614,7 @@ impl Offres {
     /// « Essayer la clé » (Mes clés) : une toute petite recherche, comptée comme les autres.
     fn essayer(&mut self, ctx: &Contexte, v: &Value, maintenant: Moment) -> Fait {
         let service = match Service::depuis_code(&texte(v, "service")) {
-            Some(s @ (Service::Adzuna | Service::Jooble)) => s,
+            Some(s @ Service::Adzuna) => s,
             _ => return Fait::default(),
         };
         let nom = nom_source(service.code());
@@ -776,7 +773,7 @@ impl Offres {
     }
 
     /// Étape 12 : le rafraîchissement automatique (le programme l'appelle quand un tour est dû) : chaque recherche
-    /// gardée refaite chez Adzuna et Jooble seulement, l'une après l'autre, dans les mêmes limites que « Chercher
+    /// gardée refaite chez Adzuna seulement, l'une après l'autre, dans les mêmes limites que « Chercher
     /// maintenant » (une à la fois, pas deux fois la même dans la minute, les demandes du jour comptées) ; jamais un
     /// site (LinkedIn, Indeed, Welcome to the Jungle, France Travail). Rien ne part si une recherche est déjà en cours,
     /// ou sans clé.
@@ -784,15 +781,14 @@ impl Offres {
         if self.en_cours.is_some() || self.tour.is_some() {
             return Fait::default();
         }
-        let services: Vec<Service> =
-            [Service::Adzuna, Service::Jooble].into_iter().filter(|s| cle_prete(cles, *s)).collect();
+        let services: Vec<Service> = [Service::Adzuna].into_iter().filter(|s| cle_prete(cles, *s)).collect();
         let c = base.connexion();
         if let Err(e) = rafraichir::commencer(c, maintenant) {
             return Fait { journal: Some(format!("Offres : rafraîchissement non noté ({e})")), ..Fait::default() };
         }
         if services.is_empty() {
             return Fait {
-                journal: Some("Offres : rafraîchissement automatique laissé (aucune clé Adzuna ni Jooble)".into()),
+                journal: Some("Offres : rafraîchissement automatique laissé (aucune clé Adzuna)".into()),
                 ..Fait::default()
             };
         }
@@ -1340,7 +1336,7 @@ pub fn cles_claires(cles: &Cles, s: Service) -> Option<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jobmind_sources::{adzuna, faux, jooble};
+    use jobmind_sources::{adzuna, faux};
     use jobmind_storage::cles::Coffre;
 
     /// Après la remise d'une sauvegarde : l'écran revient au départ, le compteur des demandes continue (un vieux
@@ -1382,10 +1378,7 @@ mod tests {
     }
 
     fn reponses() -> Vec<(Service, Result<Vec<OffreTrouvee>, ErreurSource>)> {
-        vec![
-            (Service::Adzuna, adzuna::lire(200, &faux::reponse_adzuna(), false)),
-            (Service::Jooble, jooble::lire(200, &faux::reponse_jooble(), false)),
-        ]
+        vec![(Service::Adzuna, adzuna::lire(200, &faux::reponse_adzuna(), false))]
     }
 
     /// Le scénario de l'écran : sans clé, « Chercher maintenant » renvoie vers Mes clés ; les recherches tirées de
@@ -1417,33 +1410,29 @@ mod tests {
         assert!(f.reseau.is_none());
         assert!(f.message.unwrap().contains("Mes clés"));
         assert!(o.annonce.as_ref().unwrap().cles);
-        // Avec les deux clés
+        // Avec la clé Adzuna
         cles.garder_plusieurs(&[(Cle::AdzunaId, "1a2b3c4d"), (Cle::AdzunaCle, "0123456789abcdef0123456789abcdef")])
             .unwrap();
-        cles.garder(Cle::Jooble, "aaaabbbb-cccc-dddd-eeee-ffff00001111").unwrap();
         let ctx = Contexte { base: Some(&b), cles: Some(&cles) };
         let f = o.geste(&ctx, CHERCHER, &json!({}), m(9, 2));
         let Some(Tache::Chercher { jeton, recherche_id, recherche, services }) = f.reseau.clone() else {
             panic!("{f:?}")
         };
-        assert_eq!(services, [Service::Adzuna, Service::Jooble]);
+        assert_eq!(services, [Service::Adzuna]);
         assert_eq!(
             (recherche.mots_cles.as_str(), recherche.lieu.as_str(), recherche.rayon_km),
             ("agent de quai", "Metz", 30)
         );
         // La tâche ne contient aucune clé
         let t = format!("{f:?}");
-        assert!(!t.contains("0123456789abcdef") && !t.contains("aaaabbbb"), "{t}");
+        assert!(!t.contains("0123456789abcdef") && !t.contains("1a2b3c4d"), "{t}");
         let (v, _) = o.vue(Some(&b), Some(&cles));
-        assert_eq!(v.en_cours.as_deref(), Some("Recherche « Agent de quai » en cours sur Adzuna et Jooble..."));
+        assert_eq!(v.en_cours.as_deref(), Some("Recherche « Agent de quai » en cours sur Adzuna..."));
         // Une seconde pendant la première : refusée
         assert!(o.geste(&ctx, CHERCHER, &json!({}), m(9, 2)).reseau.is_none());
-        // Le résultat : 19 offres, 17 gardées (2 en double), l'annonce
+        // Le résultat : 12 offres, 12 gardées, l'annonce
         let f = o.fini(Some(&b), Retour { jeton, resultats: reponses() }, m(9, 3));
-        assert_eq!(
-            f.message.as_deref(),
-            Some("19 offres trouvées sur Adzuna et Jooble, dont 17 nouvelles. Les offres en double sont regroupées.")
-        );
+        assert_eq!(f.message.as_deref(), Some("12 offres trouvées sur Adzuna, dont 12 nouvelles."));
         assert!(f.bravo);
         assert!(
             f.journal
@@ -1453,8 +1442,8 @@ mod tests {
         );
         let (v, _) = o.vue(Some(&b), Some(&cles));
         // (étape 6 : les offres qui ne parlent ni d'agent de quai ni de cariste sont rangées dans « Hors sujet »)
-        assert_eq!((v.gardees, v.total, v.nouvelles, v.liste.len(), v.hors_sujet), (17, 6, 17, 6, 11));
-        assert_eq!(v.recherches[0].dernier_nombre, Some(19));
+        assert_eq!((v.gardees, v.total, v.nouvelles, v.liste.len(), v.hors_sujet), (12, 4, 12, 4, 8));
+        assert_eq!(v.recherches[0].dernier_nombre, Some(12));
         assert!(v.en_cours.is_none());
         // Un résultat qui arrive trop tard : laissé
         assert!(o.fini(Some(&b), Retour { jeton, resultats: reponses() }, m(9, 3)).message.is_none());
@@ -1470,8 +1459,8 @@ mod tests {
         assert_eq!(f.message.as_deref(), Some("Ajoutée aux favoris."));
         let (v, _) = o.vue(Some(&b), Some(&cles));
         let ouv = v.ouverte.as_ref().unwrap();
-        assert_eq!((ouv.offre.id, ouv.offre.favori, ouv.liens.len()), (quai, true, 2));
-        assert_eq!(v.nouvelles, 16);
+        assert_eq!((ouv.offre.id, ouv.offre.favori, ouv.liens.len()), (quai, true, 1));
+        assert_eq!(v.nouvelles, 11);
         // Les filtres : favoris ; puis un texte ; puis un département
         o.geste(&ctx, FILTRES, &json!({ "genre": "partout", "liste": "favoris" }), m(9, 5));
         assert_eq!(o.vue(Some(&b), Some(&cles)).0.total, 1);
@@ -1480,7 +1469,7 @@ mod tests {
         assert_eq!(v.liste.iter().map(|x| x.titre.as_str()).collect::<Vec<_>>(), ["Cariste CACES 3"]);
         assert_eq!(v.ouverte.as_ref().unwrap().offre.titre, "Cariste CACES 3");
         o.geste(&ctx, FILTRES, &json!({ "genre": "departement", "departement": "54" }), m(9, 5));
-        // (Nancy chez Adzuna, Pont-à-Mousson ; « Nancy » seul chez Jooble ne dit pas son département ; étape 6 : les
+        // (Nancy et Pont-à-Mousson chez Adzuna ; étape 6 : les
         // deux sont hors sujet pour « agent de quai, cariste »)
         assert_eq!(o.vue(Some(&b), Some(&cles)).0.total, 0);
         o.geste(&ctx, FILTRES, &json!({ "genre": "departement", "departement": "54", "liste": "hors_sujet" }), m(9, 5));
@@ -1500,99 +1489,95 @@ mod tests {
             (c.entreprise.as_str(), c.poste.as_str(), c.ville.as_str()),
             ("Entrepôts du Val de Moselle", "Agent de quai H/F", "Ennery")
         );
-        assert_eq!(c.source, "Adzuna et Jooble");
+        assert_eq!(c.source, "Adzuna");
         assert!(c.lien.starts_with("https://www.adzuna.fr/"));
         assert_eq!(o.geste(&ctx, POSTULE, &json!({ "id": quai }), m(10, 0)).candidature, Some(k));
         // « Voir sur le site » : l'adresse de la source choisie, jamais dans le journal
-        let f = o.geste(&ctx, VOIR, &json!({ "id": quai, "source": "jooble" }), m(10, 0));
-        assert!(matches!(&f.voir, Some(u) if u.starts_with("https://jooble.org/desc/")));
-        assert_eq!(f.journal.as_deref(), Some(&*format!("Offres : offre {quai} ouverte sur le site (jooble.org)")));
+        let f = o.geste(&ctx, VOIR, &json!({ "id": quai, "source": "adzuna" }), m(10, 0));
+        assert!(matches!(&f.voir, Some(u) if u.starts_with("https://www.adzuna.fr/land/ad/")));
+        assert_eq!(f.journal.as_deref(), Some(&*format!("Offres : offre {quai} ouverte sur le site (www.adzuna.fr)")));
         let _ = std::fs::remove_dir_all(&d);
     }
 
-    /// Les erreurs des sources : une seule source répond, aucune ne répond (réseau, clé refusée) ; la recherche trop
-    /// longue ; l'essai d'une clé.
+    /// Les erreurs de la source : Adzuna ne répond pas, refuse la clé ; la recherche trop longue ; l'essai d'une clé.
     #[test]
     fn erreurs_et_essai_de_cle() {
         let d = essai("offres-erreurs");
         let (b, _) = Base::en_memoire(m(9, 0)).unwrap();
         let (mut cles, _) = Cles::ouvrir(&d, Box::new(Faux));
-        cles.garder(Cle::Jooble, "aaaabbbb-cccc-dddd-eeee-ffff00001111").unwrap();
         let mut o = Offres::default();
         let ctx = Contexte { base: Some(&b), cles: Some(&cles) };
         let f = o.geste(&ctx, RECHERCHE, &json!({ "mots": "cariste", "lieu": "partout" }), m(9, 0));
         assert_eq!(f.message.as_deref(), Some("Recherche ajoutée."));
-        // Seulement Jooble (pas de clé Adzuna) ; il ne répond pas
+        // Essayer la clé : sans clé Adzuna, rien
+        assert_eq!(
+            o.geste(&ctx, ESSAYER, &json!({ "service": "adzuna" }), m(9, 0)).message.as_deref(),
+            Some("Donne d'abord ta clé Adzuna.")
+        );
+        cles.garder_plusieurs(&[(Cle::AdzunaId, "1a2b3c4d"), (Cle::AdzunaCle, "0123456789abcdef0123456789abcdef")])
+            .unwrap();
+        let ctx = Contexte { base: Some(&b), cles: Some(&cles) };
+        // Adzuna ne répond pas
         let f = o.geste(&ctx, CHERCHER, &json!({}), m(9, 1));
         let Some(Tache::Chercher { jeton, services, .. }) = f.reseau else { panic!() };
-        assert_eq!(services, [Service::Jooble]);
+        assert_eq!(services, [Service::Adzuna]);
         let f = o.fini(
             Some(&b),
             Retour {
                 jeton,
                 resultats: vec![(
-                    Service::Jooble,
-                    Err(ErreurSource::Reseau("Jooble".into(), "connexion impossible".into())),
+                    Service::Adzuna,
+                    Err(ErreurSource::Reseau("Adzuna".into(), "connexion impossible".into())),
                 )],
             },
             m(9, 2),
         );
-        assert_eq!(f.message.as_deref(), Some("Jooble ne répond pas. Vérifie ta connexion à internet, puis réessaie."));
+        assert_eq!(f.message.as_deref(), Some("Adzuna ne répond pas. Vérifie ta connexion à internet, puis réessaie."));
         assert_eq!(o.annonce.as_ref().unwrap().genre, "erreur");
         assert!(!o.annonce.as_ref().unwrap().cles);
-        // L'une répond, l'autre refuse la clé
+        // Adzuna refuse la clé : l'annonce renvoie vers Mes clés
         let f = o.geste(&ctx, CHERCHER, &json!({}), m(9, 5));
         let Some(Tache::Chercher { jeton, .. }) = f.reseau else { panic!("{f:?}") };
         let f = o.fini(
             Some(&b),
             Retour {
                 jeton,
-                resultats: vec![
-                    (Service::Adzuna, Err(ErreurSource::CleRefusee("Adzuna".into(), "statut 401".into()))),
-                    (Service::Jooble, jooble::lire(200, &faux::reponse_jooble(), false)),
-                ],
+                resultats: vec![(Service::Adzuna, Err(ErreurSource::CleRefusee("Adzuna".into(), "statut 401".into())))],
             },
             m(9, 6),
         );
-        assert_eq!(
-            f.message.as_deref(),
-            Some(
-                "7 offres trouvées sur Jooble, dont 7 nouvelles. Adzuna refuse ta clé. Vérifie-la dans Mon profil, rubrique Mes clés."
-            )
-        );
+        assert_eq!(f.message.as_deref(), Some("Adzuna refuse ta clé. Vérifie-la dans Mon profil, rubrique Mes clés."));
         let a = o.annonce.clone().unwrap();
-        assert_eq!((a.genre, a.cles), ("attention", true));
+        assert_eq!((a.genre, a.cles), ("erreur", true));
         // Trop longue
         let f = o.geste(&ctx, CHERCHER, &json!({}), m(9, 10));
         assert!(f.reseau.is_some());
         let f = o.trop_long();
         assert!(f.message.unwrap().contains("trop de temps"));
         assert!(o.en_cours.is_none());
-        // Essayer la clé : sans clé Adzuna, rien ; avec Jooble, la tâche ; son résultat
-        assert_eq!(
-            o.geste(&ctx, ESSAYER, &json!({ "service": "adzuna" }), m(9, 11)).message.as_deref(),
-            Some("Donne d'abord ta clé Adzuna.")
-        );
+        // Essayer la clé : ni Claude, ni une source retirée (Jooble, une ancienne page) ; Adzuna : la tâche, son résultat
         assert!(o.geste(&ctx, ESSAYER, &json!({ "service": "claude" }), m(9, 11)).reseau.is_none());
         let f = o.geste(&ctx, ESSAYER, &json!({ "service": "jooble" }), m(9, 11));
+        assert!(f.reseau.is_none() && f.message.is_none() && o.en_cours.is_none());
+        let f = o.geste(&ctx, ESSAYER, &json!({ "service": "adzuna" }), m(9, 11));
         let Some(Tache::Essayer { jeton, service }) = f.reseau else { panic!() };
-        assert_eq!(service, Service::Jooble);
-        let f = o.fini(Some(&b), Retour { jeton, resultats: vec![(Service::Jooble, Ok(Vec::new()))] }, m(9, 12));
-        assert_eq!(f.message.as_deref(), Some("La clé Jooble marche : Jooble a bien répondu."));
-        let f = o.geste(&ctx, ESSAYER, &json!({ "service": "jooble" }), m(9, 13));
+        assert_eq!(service, Service::Adzuna);
+        let f = o.fini(Some(&b), Retour { jeton, resultats: vec![(Service::Adzuna, Ok(Vec::new()))] }, m(9, 12));
+        assert_eq!(f.message.as_deref(), Some("La clé Adzuna marche : Adzuna a bien répondu."));
+        let f = o.geste(&ctx, ESSAYER, &json!({ "service": "adzuna" }), m(9, 13));
         let Some(Tache::Essayer { jeton, .. }) = f.reseau else { panic!() };
         let f = o.fini(
             Some(&b),
             Retour {
                 jeton,
-                resultats: vec![(Service::Jooble, Err(ErreurSource::Bloquee("Jooble".into(), "statut 403".into())))],
+                resultats: vec![(Service::Adzuna, Err(ErreurSource::Bloquee("Adzuna".into(), "statut 403".into())))],
             },
             m(9, 14),
         );
-        assert_eq!(f.message.as_deref(), Some("Jooble a bloqué la demande pour l'instant. Réessaie plus tard."));
+        assert_eq!(f.message.as_deref(), Some("Adzuna a bloqué la demande pour l'instant. Réessaie plus tard."));
         // La limite du jour : au bout, plus rien ne part
-        for _ in 0..LIMITE_JOOBLE {
-            base_offres::compter_appel(b.connexion(), m(9, 0).jour(), "jooble").unwrap();
+        while base_offres::appels(b.connexion(), m(9, 0).jour(), "adzuna").unwrap() < LIMITE_ADZUNA {
+            base_offres::compter_appel(b.connexion(), m(9, 0).jour(), "adzuna").unwrap();
         }
         let f = o.geste(&ctx, CHERCHER, &json!({}), m(11, 0));
         assert!(f.reseau.is_none());
@@ -1600,8 +1585,72 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
-    /// Étape 12 : le rafraîchissement automatique : chaque recherche gardée refaite l'une après l'autre chez Adzuna et
-    /// Jooble seulement (jamais un site), sans bulle de l'écran ; les doublons ne comptent pas ; la bulle de Mindset
+    /// Une recherche sans poste ni mot, autour d'une ville (demande de Jordan, 19/11/2026 : « rien dans poste, autour
+    /// de Sarrebourg, aucun diplôme, débutant accepté ») : acceptée, envoyée à Adzuna sans mots, et ses offres ne sont
+    /// jamais rangées « Hors sujet » faute de poste ; sans lieu non plus, refusée.
+    #[test]
+    fn recherche_sans_poste_autour_d_une_ville() {
+        let d = essai("offres-sans-poste");
+        let (b, _) = Base::en_memoire(m(9, 0)).unwrap();
+        let (mut cles, _) = Cles::ouvrir(&d, Box::new(Faux));
+        cles.garder_plusieurs(&[(Cle::AdzunaId, "1a2b3c4d"), (Cle::AdzunaCle, "0123456789abcdef0123456789abcdef")])
+            .unwrap();
+        let ctx = Contexte { base: Some(&b), cles: Some(&cles) };
+        let mut o = Offres::default();
+        // « Ce que je cherche » sans poste : tous les métiers autour de Sarrebourg
+        let s = jobmind_core::recherche::verifier_recherche(&jobmind_core::recherche::SaisieRecherche {
+            postes: String::new(),
+            lieu: "ville".into(),
+            ville: "Sarrebourg".into(),
+            rayon: 20,
+            teletravail: "peu_importe".into(),
+            sans_diplome: true,
+            debutant: true,
+            ..Default::default()
+        })
+        .unwrap();
+        profil::enregistrer_recherche(b.connexion(), &s, m(9, 0)).unwrap();
+        let f = o.geste(&ctx, DEPUIS_PROFIL, &Value::Null, m(9, 0));
+        assert_eq!(f.message.as_deref(), Some("1 recherche créée à partir de « Ce que je cherche »."));
+        // Sans poste ni lieu : refusée
+        let f = o.geste(&ctx, RECHERCHE, &json!({ "mots": " ", "lieu": "partout" }), m(9, 0));
+        assert_eq!(f.message.as_deref(), Some("Écris un poste, ou choisis un lieu."));
+        // Tapée sans mots, autour d'une ville : acceptée
+        let f = o.geste(
+            &ctx,
+            RECHERCHE,
+            &json!({ "mots": "", "lieu": "ville", "ville": "Phalsbourg", "rayon": 10 }),
+            m(9, 0),
+        );
+        assert_eq!(f.message.as_deref(), Some("Recherche ajoutée."));
+        let (v, _) = o.vue(Some(&b), Some(&cles));
+        let noms: Vec<&str> = v.recherches.iter().map(|r| r.nom.as_str()).collect();
+        assert_eq!(noms, ["Tous les métiers autour de Sarrebourg", "Tous les métiers autour de Phalsbourg"]);
+        assert_eq!(
+            crate::vue_offres::recherche_texte(&v.recherches[1].mots, &v.recherches[1].lieu),
+            "Tous les métiers, autour de Phalsbourg (10 km)"
+        );
+        // Chercher : Adzuna reçoit le lieu, sans mots
+        let f = o.geste(&ctx, CHERCHER, &json!({ "id": v.recherches[0].id }), m(9, 1));
+        let Some(Tache::Chercher { jeton, recherche, .. }) = f.reseau else { panic!("{f:?}") };
+        assert_eq!((recherche.mots_cles.as_str(), recherche.lieu.as_str(), recherche.rayon_km), ("", "Sarrebourg", 20));
+        let jobmind_sources::http::Demande::Get { params, .. } =
+            adzuna::Adzuna::nouvelle(&jobmind_sources::http::HttpUreq::nouveau(true), adzuna::ADRESSE, "a", "b")
+                .demande(&recherche);
+        assert!(!params.iter().any(|(k, _)| k == "what"), "{params:?}");
+        // Le résultat : toutes les offres, aucune hors sujet faute de poste ; les filtres s'appliquent ensuite
+        o.fini(Some(&b), Retour { jeton, resultats: reponses() }, m(9, 2));
+        let (v, _) = o.vue(Some(&b), Some(&cles));
+        assert_eq!((v.gardees, v.hors_sujet), (12, 0));
+        assert_eq!(v.total, 12);
+        o.geste(&ctx, FILTRES, &json!({ "genre": "partout", "sans_diplome": true, "debutant": true }), m(9, 3));
+        let (v, _) = o.vue(Some(&b), Some(&cles));
+        assert!(v.total < 12 && v.total > 0, "{}", v.total);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Étape 12 : le rafraîchissement automatique : chaque recherche gardée refaite l'une après l'autre chez Adzuna
+    /// seulement (jamais un site), sans bulle de l'écran ; les doublons ne comptent pas ; la bulle de Mindset
     /// une seule fois par tour ; le réseau coupé arrête le tour ; le plafond du jour aussi ; sans clé, rien ne part.
     #[test]
     fn rafraichissement_automatique() {
@@ -1619,12 +1668,11 @@ mod tests {
         assert_eq!(rafraichir::dernier(b.connexion()).unwrap(), Some(m(9, 30)));
         cles.garder_plusieurs(&[(Cle::AdzunaId, "1a2b3c4d"), (Cle::AdzunaCle, "0123456789abcdef0123456789abcdef")])
             .unwrap();
-        cles.garder(Cle::Jooble, "aaaabbbb-cccc-dddd-eeee-ffff00001111").unwrap();
         let ctx = Contexte { base: Some(&b), cles: Some(&cles) };
         // Le tour : la première recherche part, sans message à l'écran, sans rien charger des sites
         let f = o.rafraichir(&b, Some(&cles), m(10, 0));
         let Some(Tache::Chercher { jeton, services, recherche_id, .. }) = f.reseau.clone() else { panic!("{f:?}") };
-        assert_eq!(services, [Service::Adzuna, Service::Jooble]);
+        assert_eq!(services, [Service::Adzuna]);
         assert!(f.message.is_none() && f.coulisse.is_empty() && f.voir.is_none(), "{f:?}");
         assert!(o.auto_en_cours() && o.tour_en_cours());
         assert_eq!(o.recherche, choisie, "le choix de Jordan ne bouge pas");
@@ -1635,20 +1683,20 @@ mod tests {
         );
         // Un second tour demandé pendant le premier : rien
         assert!(o.rafraichir(&b, Some(&cles), m(10, 0)).reseau.is_none());
-        // La première revient : 17 nouvelles, puis la seconde part
+        // La première revient : 12 nouvelles, puis la seconde part
         let f = o.fini(Some(&b), Retour { jeton, resultats: reponses() }, m(10, 1));
         assert!(f.message.is_none() && !f.bravo);
         let Some(Tache::Chercher { jeton: j2, recherche_id: r2, .. }) = f.reseau.clone() else { panic!("{f:?}") };
         assert_ne!(r2, recherche_id);
         assert!(f.journal.unwrap().contains("refaite toute seule"));
-        // La seconde ne trouve que les mêmes offres (des doublons) : le tour finit, 17 nouvelles en tout
+        // La seconde ne trouve que les mêmes offres (des doublons) : le tour finit, 12 nouvelles en tout
         let f = o.fini(Some(&b), Retour { jeton: j2, resultats: reponses() }, m(10, 2));
         assert!(f.reseau.is_none() && f.message.is_none());
-        assert!(f.journal.unwrap().contains("fini (17 nouvelle(s) offre(s), bulle mise en attente)"));
+        assert!(f.journal.unwrap().contains("fini (12 nouvelle(s) offre(s), bulle mise en attente)"));
         assert!(!o.tour_en_cours() && o.en_cours.is_none());
-        assert_eq!(rafraichir::nouvelles(b.connexion()).unwrap(), 17);
+        assert_eq!(rafraichir::nouvelles(b.connexion()).unwrap(), 12);
         let t = rafraichir::dernier_tour(b.connexion()).unwrap().unwrap();
-        assert_eq!((t.le, t.nouvelles, t.erreurs, t.plafond), (m(10, 0), 17, 0, false));
+        assert_eq!((t.le, t.nouvelles, t.erreurs, t.plafond), (m(10, 0), 12, 0, false));
         let bulles: Vec<String> = b
             .connexion()
             .prepare("SELECT titre FROM bulles WHERE onglet = 'offres'")
@@ -1657,17 +1705,13 @@ mod tests {
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap();
-        assert_eq!(bulles, ["17 nouvelles offres"]);
+        assert_eq!(bulles, ["12 nouvelles offres"]);
         assert_eq!(base_offres::appels(b.connexion(), m(10, 0).jour(), "adzuna").unwrap(), 2);
         // Le réseau coupé : le tour s'arrête à la première, rien de plus n'est demandé, aucune bulle
         let f = o.rafraichir(&b, Some(&cles), m(16, 0));
         let Some(Tache::Chercher { jeton, .. }) = f.reseau else { panic!() };
         let coupe = |s: &str| Err(ErreurSource::Reseau(s.into(), "connexion impossible".into()));
-        let f = o.fini(
-            Some(&b),
-            Retour { jeton, resultats: vec![(Service::Adzuna, coupe("Adzuna")), (Service::Jooble, coupe("Jooble"))] },
-            m(16, 1),
-        );
+        let f = o.fini(Some(&b), Retour { jeton, resultats: vec![(Service::Adzuna, coupe("Adzuna"))] }, m(16, 1));
         assert!(f.reseau.is_none() && f.message.is_none());
         let t = rafraichir::dernier_tour(b.connexion()).unwrap().unwrap();
         assert_eq!((t.nouvelles, t.erreurs), (0, 1));
@@ -1680,12 +1724,8 @@ mod tests {
         let f = o.trop_long();
         assert!(f.message.is_none() && !o.tour_en_cours() && o.en_cours.is_none());
         // Le plafond du jour atteint : rien ne part
-        for s in ["adzuna", "jooble"] {
-            while base_offres::appels(b.connexion(), m(9, 0).jour(), s).unwrap()
-                < limite(Service::depuis_code(s).unwrap())
-            {
-                base_offres::compter_appel(b.connexion(), m(9, 0).jour(), s).unwrap();
-            }
+        while base_offres::appels(b.connexion(), m(9, 0).jour(), "adzuna").unwrap() < limite(Service::Adzuna) {
+            base_offres::compter_appel(b.connexion(), m(9, 0).jour(), "adzuna").unwrap();
         }
         let f = o.rafraichir(&b, Some(&cles), m(22, 0));
         assert!(f.reseau.is_none() && f.message.is_none());
@@ -1694,7 +1734,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
-    /// Le même souci chez les deux sources : une seule phrase, au pluriel.
+    /// Le même souci chez plusieurs sources (ici une seconde imaginée, LinkedIn) : une seule phrase, au pluriel.
     #[test]
     fn meme_souci_une_phrase() {
         let (b, _) = Base::en_memoire(m(9, 0)).unwrap();
@@ -1711,13 +1751,13 @@ mod tests {
             Some(&b),
             Retour {
                 jeton: 7,
-                resultats: vec![(Service::Adzuna, reseau("Adzuna")), (Service::Jooble, reseau("Jooble"))],
+                resultats: vec![(Service::Adzuna, reseau("Adzuna")), (Service::Adzuna, reseau("LinkedIn"))],
             },
             m(9, 1),
         );
         assert_eq!(
             f.message.as_deref(),
-            Some("Adzuna et Jooble ne répondent pas. Vérifie ta connexion à internet, puis réessaie.")
+            Some("Adzuna et LinkedIn ne répondent pas. Vérifie ta connexion à internet, puis réessaie.")
         );
     }
 

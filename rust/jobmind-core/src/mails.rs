@@ -184,7 +184,6 @@ const DOMAINES_OUTILS: &[&str] = &[
     "cadremploi",
     "regionsjob",
     "adzuna",
-    "jooble",
 ];
 
 /// Les mots retirés d'un nom d'entreprise pour le reconnaître (formes de société, mots de liaison).

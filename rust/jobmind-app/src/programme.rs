@@ -182,7 +182,7 @@ struct Etat {
     place_sites: Option<(f64, f64, f64, f64)>,
     /// Le dossier de données de Jobmind (la session des sites y est gardée)
     donnees_appli: PathBuf,
-    /// Construction d'essai : le faux serveur local qui imite Adzuna, Jooble et les quatre sites, et ses modes
+    /// Construction d'essai : le faux serveur local qui imite Adzuna et les quatre sites, et ses modes
     #[cfg(feature = "essai")]
     faux: Option<(jobmind_sources::faux::FauxServeur, FauxMode, ModeSites)>,
     /// Construction d'essai : les connexions déjà vues (pour vérifier une fois ce que le faux serveur a reçu)
@@ -440,7 +440,7 @@ pub fn lancer() -> ! {
         },
     };
     // L'état de départ : le suivi et le profil d'après la base
-    // (construction d'essai : le faux serveur local d'Adzuna et Jooble ; aucune demande de l'essai ne sort du PC)
+    // (construction d'essai : le faux serveur local d'Adzuna ; aucune demande de l'essai ne sort du PC)
     #[cfg(feature = "essai")]
     let faux_claude: Arc<Mutex<jobmind_llm::faux::ModeFaux>> = Arc::new(Mutex::new(Default::default()));
     #[cfg(feature = "essai")]
@@ -463,7 +463,7 @@ pub fn lancer() -> ! {
         };
         match jobmind_sources::faux::FauxServeur::demarrer(repondeur) {
             Ok(s) => {
-                journal.ecrire("Essai : faux serveur d'Adzuna, de Jooble et des quatre sites prêt (127.0.0.1)");
+                journal.ecrire("Essai : faux serveur d'Adzuna et des quatre sites prêt (127.0.0.1)");
                 Some((s, mode, sites))
             }
             Err(e) => {
@@ -1863,7 +1863,7 @@ impl Etat {
                 vec![service],
             ),
         };
-        let (adzuna, jooble, https) = self.adresses();
+        let (adzuna, https) = self.adresses();
         let demandes: Vec<(Service, Option<Vec<String>>)> =
             services.iter().map(|s| (*s, offres::cles_claires(&self.cles, *s))).collect();
         let a = app.clone();
@@ -1874,9 +1874,6 @@ impl Etat {
                 let r = match (s, cles.as_deref()) {
                     (Service::Adzuna, Some([id, cle])) => {
                         jobmind_sources::adzuna::Adzuna::nouvelle(&http, &adzuna, id, cle).chercher(&recherche)
-                    }
-                    (Service::Jooble, Some([cle])) => {
-                        jobmind_sources::jooble::Jooble::nouvelle(&http, &jooble, cle).chercher(&recherche)
                     }
                     _ => Err(ErreurSource::CleManquante(offres::nom_source(s.code()).into())),
                 };
@@ -1894,17 +1891,17 @@ impl Etat {
         }
     }
 
-    /// Les adresses d'Adzuna et de Jooble, et « https seulement » : les vraies.
+    /// L'adresse d'Adzuna, et « https seulement » : la vraie.
     #[cfg(not(feature = "essai"))]
-    fn adresses(&self) -> (String, String, bool) {
-        (jobmind_sources::adzuna::ADRESSE.into(), jobmind_sources::jooble::ADRESSE.into(), true)
+    fn adresses(&self) -> (String, bool) {
+        (jobmind_sources::adzuna::ADRESSE.into(), true)
     }
 
     /// Construction d'essai : le faux serveur local, jamais internet. `reseau.essai` dans le dossier de données change
     /// sa réponse : « coupe » (personne n'écoute : le réseau coupé), « quota », « refuse » (clé refusée), autre chose :
     /// normale.
     #[cfg(feature = "essai")]
-    fn adresses(&self) -> (String, String, bool) {
+    fn adresses(&self) -> (String, bool) {
         use jobmind_sources::faux::Mode;
         let voulu = std::fs::read_to_string(self.dossier.join(crate::essai::RESEAU)).unwrap_or_default();
         let voulu = voulu.trim_start_matches('\u{feff}').trim().to_string();
@@ -1927,7 +1924,7 @@ impl Etat {
             "Essai : recherche envoyée au faux serveur ({})",
             if voulu.is_empty() { "normal" } else { &voulu }
         ));
-        (format!("{base}/v1/api/jobs/fr/search"), format!("{base}/api/"), false)
+        (format!("{base}/v1/api/jobs/fr/search"), false)
     }
 
     /// Le résultat du fil des recherches.
@@ -2817,7 +2814,7 @@ impl Etat {
     }
 
     /// Le rafraîchissement automatique, regardé toutes les minutes : il part seulement si son rythme est passé, que rien
-    /// d'autre ne cherche, et qu'une clé Adzuna ou Jooble est prête. Jamais un site.
+    /// d'autre ne cherche, et que la clé Adzuna est prête. Jamais un site.
     fn rafraichir_du(&mut self, app: &AppHandle) {
         let ici = Instant::now();
         if ici < self.prochain_rafraichi {
@@ -3045,7 +3042,7 @@ fn import_demande(etat: &mut Etat, app: &AppHandle) {
 }
 
 /// Construction d'essai (étape 12) : un fichier `rafraichir.demande` fait partir tout de suite le rafraîchissement
-/// automatique (la dernière fois oubliée), contre le faux serveur local d'Adzuna et Jooble.
+/// automatique (la dernière fois oubliée), contre le faux serveur local d'Adzuna.
 #[cfg(feature = "essai")]
 fn rafraichir_demande(etat: &mut Etat) {
     let demande = etat.dossier.join(crate::essai::RAFRAICHIR_DEMANDE);

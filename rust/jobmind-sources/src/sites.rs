@@ -178,23 +178,27 @@ pub fn adresse_recherche(site: Site, mots: &str, lieu: &LieuSite, page: u32) -> 
             u
         }
         Site::FranceTravail => {
-            // (France Travail cherche le lieu par son code : un département « 57D », une région « 44R » ; une ville
-            // sans son code va avec les mots)
+            // (France Travail cherche le lieu par son code : une commune par son code INSEE, « lieux=57630 » pour
+            // Sarrebourg, vu en vrai le 19/11/2026 ; un département « 57D », une région « 44R ». Une ville absente de
+            // la table des communes, ou portée par plusieurs communes sans département pour les départager, va
+            // avec les mots, comme avant. Sans mots, pas de « motsCles » : toutes les offres du lieu.)
             let (mots, lieux, rayon) = match lieu {
-                LieuSite::Ville { nom, rayon_km } => {
-                    (propre_recherche(&format!("{mots} {}", ou(nom)), MOTS_MAX), None, Some(*rayon_km))
-                }
+                LieuSite::Ville { nom, rayon_km } => match crate::communes::trouver(nom) {
+                    Some(c) => (mots, Some(c.insee.to_string()), Some(*rayon_km)),
+                    None => (propre_recherche(&format!("{mots} {}", ou(nom)), MOTS_MAX), None, Some(*rayon_km)),
+                },
                 LieuSite::Departement { code, .. } => (mots, Some(format!("{}D", ou(code))), None),
                 LieuSite::Region { code, .. } => (mots, insee_region(code).map(|c| format!("{c}R")), None),
                 LieuSite::Partout => (mots, None, None),
             };
-            let mut u = format!(
-                "https://candidat.francetravail.fr/offres/recherche?motsCles={}&offresPartenaires=true",
-                encoder(&mots)
-            );
-            if let Some(l) = lieux {
-                u.push_str(&format!("&lieux={}", encoder(&l)));
+            let mut u = "https://candidat.francetravail.fr/offres/recherche?".to_string();
+            if !mots.is_empty() {
+                u.push_str(&format!("motsCles={}&", encoder(&mots)));
             }
+            if let Some(l) = lieux {
+                u.push_str(&format!("lieux={}&", encoder(&l)));
+            }
+            u.push_str("offresPartenaires=true");
             if let Some(r) = rayon {
                 u.push_str(&format!("&rayon={}", r.min(100)));
             }
@@ -727,6 +731,32 @@ fn verification(d: &Document, a: &Adresse, texte_page: &str) -> bool {
     .any(|m| texte_page.contains(m))
 }
 
+/// Une page que le site ne montre qu'une fois connecté, reconnue à son adresse (et, pour France Travail, à son titre) :
+/// l'espace personnel de France Travail (candidat.francetravail.fr/espacepersonnel, vu le 19/11/2026 après une vraie
+/// connexion, titre « Accueil - Espace numérique | France Travail » ; sans connexion, le site renvoie vers
+/// authentification-candidat.francetravail.fr), le fil de LinkedIn (/feed : sans connexion, la page de connexion),
+/// l'espace candidat de Welcome to the Jungle (/fr/me), les pages « Mes emplois » et le profil d'Indeed. Jamais une
+/// page de connexion (vérifiée avant) ; aucune donnée personnelle n'est lue.
+fn espace_connecte(site: Site, a: &Adresse, titre: &str) -> bool {
+    let h = a.hote.as_str();
+    let c = a.chemin.to_ascii_lowercase();
+    let sous = |d: &str| h == d || h.ends_with(&format!(".{d}"));
+    let commence = |p: &str| c == p || c.starts_with(&format!("{p}/"));
+    match site {
+        Site::FranceTravail => {
+            h == "candidat.francetravail.fr"
+                && (commence("/espacepersonnel")
+                    || (simple(titre).contains("espace numerique") && !c.contains("connexion")))
+        }
+        Site::LinkedIn => sous("linkedin.com") && (commence("/feed") || commence("/mynetwork")),
+        Site::Wttj => sous("welcometothejungle.com") && (commence("/fr/me") || commence("/en/me")),
+        Site::Indeed => {
+            h == "myjobs.indeed.com" || h == "profile.indeed.com" || (sous("indeed.com") && commence("/myjobs"))
+        }
+        Site::Autre => false,
+    }
+}
+
 /// Jordan est-il connecté au site, d'après la page ?
 fn connecte(d: &Document, site: Site) -> Option<bool> {
     let (oui, non) = signes_connexion(site);
@@ -816,7 +846,11 @@ pub fn comprendre(adresse: &str, html: &str) -> Comprise {
     };
     let connecte = match ecran {
         Ecran::Connexion(_) => Some(false),
-        _ => connecte(&d, site),
+        // (une page que le site ne montre qu'une fois connecté : son espace personnel, jamais un « écran inconnu »)
+        // (France Travail : l'adresse prime, sa page n'a aucun repère sûr ; les autres : seulement si la page ne dit rien)
+        Ecran::Normale if site == Site::FranceTravail && espace_connecte(site, &a, &titre) => Some(true),
+        _ => connecte(&d, site)
+            .or_else(|| (ecran == Ecran::Normale && espace_connecte(site, &a, &titre)).then_some(true)),
     };
     let aucun = liste.resultats.is_empty() && aucun_resultat(&texte_page);
     let trace = format!(

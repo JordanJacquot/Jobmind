@@ -225,7 +225,7 @@ fn rubrique_recherche(v: &VueProfil) -> Value {
             "textes": textes(&[
                 ("postes", "Les postes ou les mots que je cherche"),
                 ("i_postes", "Par exemple : agent de quai, cariste, vendeur"),
-                ("postes_aide", "N'importe quel métier. Sépare-les par des virgules."),
+                ("postes_aide", "N'importe quel métier. Sépare-les par des virgules. Vide : tous les métiers du lieu."),
                 ("lieu", "Où"),
                 ("ville", "Ville"),
                 ("i_ville", "Par exemple : Metz"),
@@ -325,13 +325,6 @@ fn service_json(s: Service, v: &VueProfil) -> Value {
              deux codes : l'« Application ID » et l'« Application Key ». Copie-les ici.",
             "https://developer.adzuna.com/signup",
         ),
-        Service::Jooble => (
-            "Jooble",
-            "Des offres d'emploi de nombreux sites. Gratuite.",
-            "Remplis le petit formulaire de la page de Jooble pour les développeurs : la clé arrive par mail. \
-             Copie-la ici.",
-            "https://jooble.org/api/about",
-        ),
         Service::Claude => (
             "Claude",
             "L'IA qui prépare tes candidatures. Payante : quelques centimes par lettre.",
@@ -360,7 +353,6 @@ fn service_json(s: Service, v: &VueProfil) -> Value {
                 "indice": match c {
                     Cle::AdzunaId => "8 lettres et chiffres",
                     Cle::AdzunaCle => "32 lettres et chiffres",
-                    Cle::Jooble => "Colle ta clé Jooble",
                     Cle::Claude => "Commence par sk-ant-",
                     Cle::GmailAdresse | Cle::GmailMdp => "",
                 },
@@ -386,7 +378,7 @@ fn service_json(s: Service, v: &VueProfil) -> Value {
         "etat": etat,
         "etat_nom": etat_nom,
         "parties": parties,
-        // (étape 4 : une clé d'Adzuna ou de Jooble s'essaie par une toute petite recherche)
+        // (étape 4 : la clé d'Adzuna s'essaie par une toute petite recherche)
         "essai": s != Service::Claude,
         "question": format!("Effacer la clé {nom} ? Jobmind ne pourra plus s'en servir."),
     })
@@ -458,7 +450,7 @@ pub(crate) mod tests {
     }
 
     /// Un profil rempli de tout : trois CV (PDF principal, Word sans texte, collé), deux textes (l'un ouvert), ce que
-    /// je cherche, une clé gardée, une illisible, une partielle.
+    /// je cherche, une clé illisible, une partielle.
     pub(crate) fn exemple() -> VueProfil {
         let cv = |id, nom: &str, genre, texte: &str, principal| Cv {
             id,
@@ -510,7 +502,6 @@ pub(crate) mod tests {
             cles: vec![
                 (Cle::AdzunaId, Some(EtatCle::Gardee("se termine par 3c4d".into()))),
                 (Cle::AdzunaCle, None),
-                (Cle::Jooble, Some(EtatCle::Gardee("se termine par 1111".into()))),
                 (Cle::Claude, Some(EtatCle::Illisible)),
             ],
         }
@@ -523,7 +514,12 @@ pub(crate) mod tests {
         let sous: Vec<&str> = r.iter().map(|x| x["sous"].as_str().unwrap()).collect();
         assert_eq!(
             sous,
-            ["3 CV, le principal : « CV 2026 »", "Agent de quai, cariste et 1 autre", "2 textes", "1 clé sur 3"]
+            [
+                "3 CV, le principal : « CV 2026 »",
+                "Agent de quai, cariste et 1 autre",
+                "2 textes",
+                "Aucune clé pour l'instant"
+            ]
         );
         let cv = &r[0]["dossier"];
         assert_eq!(cv["ouvert"]["id"], 2);
@@ -541,8 +537,12 @@ pub(crate) mod tests {
         assert_eq!(r[2]["dossier"]["ouvert"]["texte"], "Bonjour, je reviens vers vous.");
         let s = &r[3]["dossier"]["services"];
         let etats: Vec<&str> = s.as_array().unwrap().iter().map(|x| x["etat"].as_str().unwrap()).collect();
-        assert_eq!(etats, ["partielle", "gardee", "illisible"]);
+        assert_eq!(etats, ["partielle", "illisible"]);
         assert_eq!(s[0]["parties"][0]["apercu"], "se termine par 3c4d");
+        // Adzuna entière : 1 clé sur 2 (Adzuna et Claude)
+        let mut une = v.clone();
+        une.cles[1].1 = Some(EtatCle::Gardee("se termine par cdef".into()));
+        assert_eq!(rubriques(&une, j(11, 18))[3]["sous"], "1 clé sur 2");
         // Un seul CV, collé : sa ligne dit quand
         let un = VueProfil { cvs: vec![Cv { principal: true, ..v.cvs[2].clone() }], ..VueProfil::default() };
         assert_eq!(rubriques(&un, j(11, 18))[0]["sous"], "« CV vente », collé le 3 nov.");

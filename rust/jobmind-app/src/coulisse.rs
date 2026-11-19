@@ -561,7 +561,7 @@ impl Coulisse {
         };
         let lieu = lieu_site(&r.lieu);
         let Some(adresse) = sites::adresse_recherche(s, &r.mots, &lieu, 1) else {
-            self.dire(s, annonce("Cette recherche est vide : écris au moins un mot ou un lieu.", "attention", None));
+            self.dire(s, annonce("Cette recherche est vide : écris un poste, ou choisis un lieu.", "attention", None));
             return Fait { change: true, ..Fait::default() };
         };
         self.source = Some(s);
@@ -569,7 +569,11 @@ impl Coulisse {
         self.listes.retain(|l| l.site != s);
         self.listes.push(ListeSite {
             site: s,
-            recherche: format!("« {} », {}", r.mots, crate::vue_offres::lieu_texte(&r.lieu)),
+            recherche: if r.mots.trim().is_empty() {
+                crate::vue_offres::recherche_texte(&r.mots, &r.lieu)
+            } else {
+                format!("« {} », {}", r.mots, crate::vue_offres::lieu_texte(&r.lieu))
+            },
             mots: r.mots.clone(),
             lieu,
             page: 1,
@@ -748,6 +752,7 @@ impl Coulisse {
             return self.po_verification_fermee();
         }
         let Some(p) = self.petite.take() else { return Fait::default() };
+        let mut o = vec![Ordre::Cacher];
         if p.attend_personne() {
             self.attente = None;
             self.attendue = None;
@@ -760,6 +765,9 @@ impl Coulisse {
                         Some("connexion"),
                     ),
                 );
+                // (Jordan a pu finir de se connecter avant de fermer : la page est relue une fois en coulisse ; si
+                // elle montre qu'il est connecté, l'annonce s'en va et « Connecté » s'affiche)
+                o.push(self.lire(0));
             } else {
                 self.dire(
                     p.site,
@@ -767,7 +775,7 @@ impl Coulisse {
                 );
             }
         }
-        Fait { journal: Some("Sites : petite fenêtre fermée".into()), ..ordres(vec![Ordre::Cacher], true) }
+        Fait { journal: Some("Sites : petite fenêtre fermée".into()), ..ordres(o, true) }
     }
 
     /// « Ajouter à Jobmind » dans la petite fenêtre : la page affichée est lue.
@@ -871,6 +879,11 @@ impl Coulisse {
             self.connecte[i] = Some(x);
             if x {
                 self.po_connecte(c.site);
+                // (« La connexion n'est pas finie » et les autres annonces de connexion s'en vont dès qu'elle est vue)
+                if self.annonces[i].as_ref().is_some_and(|a| matches!(a.bouton, Some("connexion" | "page_site"))) {
+                    self.annonces[i] = None;
+                    journal.push(format!("Sites : annonce de connexion à {} retirée", c.site.code()));
+                }
             }
         }
         // « Ajouter à Jobmind » dans la petite fenêtre
@@ -1356,7 +1369,7 @@ impl Coulisse {
             "connexion": connexion,
             "petite": petite,
             "textes": {
-                "mes_offres": "Adzuna et Jooble",
+                "mes_offres": "Adzuna",
                 "mes_offres_note": "Avec mes offres gardées",
                 "ou_t": "Où chercher",
                 "connecte": "Connecté",

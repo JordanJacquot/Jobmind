@@ -102,6 +102,14 @@ fn ce_que_je_cherche_garde_et_relu() {
     let r = verifier_recherche(&s).unwrap();
     profil::enregistrer_recherche(c, &r, m(11)).unwrap();
     assert_eq!(profil::lire_recherche(c).unwrap(), Some(r));
+    // Sans poste, autour d'une ville : tous les métiers du coin (gardé et relu tel quel)
+    s.postes = String::new();
+    s.lieu = "ville".into();
+    s.ville = "Sarrebourg".into();
+    let r = verifier_recherche(&s).unwrap();
+    assert!(r.postes.is_empty());
+    profil::enregistrer_recherche(c, &r, m(11)).unwrap();
+    assert_eq!(profil::lire_recherche(c).unwrap(), Some(r));
     let n: i64 = c.query_row("SELECT COUNT(*) FROM profil", [], |x| x.get(0)).unwrap();
     assert_eq!(n, 1);
     // La base refuse un lieu ou un salaire hors des valeurs du cœur

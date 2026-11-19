@@ -1,7 +1,7 @@
 //! Le rafraîchissement automatique des recherches gardées (étape 12) : son rythme (réglage de Mon profil, Réglages ;
 //! coupé ou toutes les 3, 6, 12 ou 24 heures), la dernière fois qu'il a tourné, chaque recherche refaite notée (table
 //! `rafraichissements`, migration 12) et les nouvelles offres qu'il a trouvées et que Jordan n'a pas encore vues (la
-//! carte de Mindset les compte ; ouvrir l'onglet Offres les remet à zéro). Seulement Adzuna et Jooble : les sites
+//! carte de Mindset les compte ; ouvrir l'onglet Offres les remet à zéro). Seulement Adzuna : les sites
 //! (LinkedIn, Indeed, Welcome to the Jungle, France Travail) ne sont jamais chargés tout seuls.
 
 use rusqlite::{Connection, OptionalExtension, params};

@@ -360,7 +360,7 @@ pub struct AjoutPage {
 }
 
 /// Garde l'offre lue sur une page (« Ajouter à Jobmind ») dans l'archive, dans une transaction : la même table que
-/// les offres d'Adzuna et de Jooble (`source` : le code du site), la même fusion des doublons. Une offre déjà gardée de
+/// les offres d'Adzuna (`source` : le code du site), la même fusion des doublons. Une offre déjà gardée de
 /// ce site (le même numéro) est mise à jour : son texte s'il est plus long aujourd'hui, ce qui lui manquait, le jour où
 /// elle a été revue. Chaque clic note ce que la page montrait (le nombre de candidats, s'il y en a un) dans
 /// `offres_vues`.

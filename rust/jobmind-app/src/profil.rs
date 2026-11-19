@@ -466,7 +466,6 @@ impl Profil {
         };
         let nom = match service {
             Service::Adzuna => "Adzuna",
-            Service::Jooble => "Jooble",
             Service::Claude => "Claude",
             // (la boîte Gmail a sa rubrique à elle : crate::mail)
             Service::Gmail => return Fait::default(),
@@ -808,6 +807,7 @@ mod tests {
             (CLE_GARDER, json!({ "service": "google", "valeurs": {} })),
             (
                 CLE_GARDER,
+                // (une source retirée : Jooble, depuis une ancienne page ; rien n'est gardé)
                 json!({ "service": "jooble", "valeurs": { "jooble": "aaaabbbb-cccc-dddd-eeee-ffff00001111" } }),
             ),
         ] {

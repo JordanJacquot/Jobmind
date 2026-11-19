@@ -70,7 +70,7 @@ fn creation_avec_toutes_les_tables() {
     for nom in TABLES {
         assert!(t.iter().any(|x| x == nom), "table {nom} absente : {t:?}");
     }
-    // Toutes vides, sauf les sources d'offres : Adzuna et Jooble (étape 4), les quatre sites et « un autre site » (étape 5)
+    // Toutes vides, sauf les sources d'offres : les deux de la migration 4, les quatre sites et « un autre site » (étape 5)
     for nom in TABLES {
         let n: i64 = b.connexion().query_row(&format!("SELECT COUNT(*) FROM {nom}"), [], |r| r.get(0)).unwrap();
         assert_eq!(n, if nom == "sources" { 7 } else { 0 }, "{nom}");
