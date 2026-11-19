@@ -8,6 +8,7 @@
 //! moment de s'en servir). Jamais une clé au journal : seulement son nom.
 
 use std::collections::BTreeMap;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use jobmind_core::cle::{Cle, apercu};
@@ -47,6 +48,34 @@ fn hex(o: &[u8]) -> String {
     o.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+fn existe(p: &Path) -> bool {
+    std::fs::symlink_metadata(p).is_ok()
+}
+
+/// Les clés chiffrées d'un fichier. Un fichier absent : aucune clé. Une erreur : le fichier est abîmé (la raison).
+fn lire_chemin(fichier: &Path) -> Result<BTreeMap<Cle, Vec<u8>>, String> {
+    let mut l = BTreeMap::new();
+    let m = match std::fs::metadata(fichier) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(l),
+        Err(e) => return Err(e.to_string()),
+    };
+    if m.len() > TAILLE_MAX {
+        return Err("trop gros".into());
+    }
+    let t = std::fs::read_to_string(fichier).map_err(|e| e.to_string())?;
+    let v: Value = serde_json::from_str(t.trim_start_matches('\u{feff}')).map_err(|e| e.to_string())?;
+    let cles = v.get("cles").and_then(Value::as_object).ok_or("pas de liste de clés")?;
+    for (code, x) in cles {
+        // (une clé inconnue de cette version est laissée de côté)
+        let (Some(cle), Some(chiffree)) = (Cle::depuis_code(code), x.as_str().and_then(depuis_hex)) else {
+            continue;
+        };
+        l.insert(cle, chiffree);
+    }
+    Ok(l)
+}
+
 fn depuis_hex(t: &str) -> Option<Vec<u8>> {
     if !t.len().is_multiple_of(2) || !t.is_ascii() {
         return None;
@@ -65,12 +94,23 @@ impl Cles {
     pub fn ouvrir(dossier_donnees: &Path, coffre: Box<dyn Coffre>) -> (Cles, Option<String>) {
         let fichier = Cles::chemin_dans(dossier_donnees);
         let mut c = Cles { fichier, coffre, chiffrees: BTreeMap::new(), etats: BTreeMap::new() };
-        let journal = match c.lire_fichier() {
-            Ok(()) => None,
+        let journal = match lire_chemin(&c.fichier) {
+            Ok(l) => {
+                c.chiffrees = l;
+                None
+            }
             Err(r) => {
                 let abime = c.fichier.with_extension("json.abime");
                 let _ = std::fs::rename(&c.fichier, &abime);
-                Some(format!("Clés : fichier abîmé mis de côté ({r})"))
+                // (Jobmind arrêtée pendant une écriture : la nouvelle liste, complète et lisible, est reprise)
+                let nouveau = c.fichier.with_extension("json.nouveau");
+                match lire_chemin(&nouveau) {
+                    Ok(l) if existe(&nouveau) && std::fs::rename(&nouveau, &c.fichier).is_ok() => {
+                        c.chiffrees = l;
+                        Some(format!("Clés : fichier abîmé mis de côté ({r}), la dernière liste écrite reprise"))
+                    }
+                    _ => Some(format!("Clés : fichier abîmé mis de côté ({r})")),
+                }
             }
         };
         c.relire_etats();
@@ -82,28 +122,6 @@ impl Cles {
             (None, true) => None,
         };
         (c, journal)
-    }
-
-    fn lire_fichier(&mut self) -> Result<(), String> {
-        let m = match std::fs::metadata(&self.fichier) {
-            Ok(m) => m,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(e) => return Err(e.to_string()),
-        };
-        if m.len() > TAILLE_MAX {
-            return Err("trop gros".into());
-        }
-        let t = std::fs::read_to_string(&self.fichier).map_err(|e| e.to_string())?;
-        let v: Value = serde_json::from_str(t.trim_start_matches('\u{feff}')).map_err(|e| e.to_string())?;
-        let cles = v.get("cles").and_then(Value::as_object).ok_or("pas de liste de clés")?;
-        for (code, x) in cles {
-            // (une clé inconnue de cette version est laissée de côté)
-            let (Some(cle), Some(chiffree)) = (Cle::depuis_code(code), x.as_str().and_then(depuis_hex)) else {
-                continue;
-            };
-            self.chiffrees.insert(cle, chiffree);
-        }
-        Ok(())
     }
 
     fn relire_etats(&mut self) {
@@ -130,9 +148,17 @@ impl Cles {
         if let Some(d) = self.fichier.parent() {
             std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
         }
+        // (écrit en entier et poussé sur le disque AVANT de remplacer l'ancien : un arrêt brutal laisse l'ancien
+        // fichier, ou le nouveau complet, jamais un fichier à moitié écrit)
         let a_cote = self.fichier.with_extension("json.nouveau");
-        std::fs::write(&a_cote, texte).map_err(|e| e.to_string())?;
-        std::fs::rename(&a_cote, &self.fichier).map_err(|e| {
+        let ecrit = (|| -> std::io::Result<()> {
+            let mut f = std::fs::File::create(&a_cote)?;
+            f.write_all(texte.as_bytes())?;
+            f.sync_all()?;
+            drop(f);
+            std::fs::rename(&a_cote, &self.fichier)
+        })();
+        ecrit.map_err(|e| {
             let _ = std::fs::remove_file(&a_cote);
             e.to_string()
         })
@@ -278,6 +304,32 @@ mod tests {
         assert_eq!(depuis_hex("0aFf"), Some(vec![10, 255]));
         assert_eq!(depuis_hex("abc"), None);
         assert_eq!(depuis_hex("éé"), None);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Jobmind arrêtée pendant une écriture : cles.json abîmé, mais cles.json.nouveau complet et lisible. Au lancement,
+    /// la nouvelle liste est reprise (avant : toutes les clés perdues) ; une liste nouvelle abîmée elle aussi ne l'est
+    /// pas.
+    #[test]
+    fn ecriture_interrompue_reprise() {
+        let d = dossier("reprise");
+        let (mut c, _) = Cles::ouvrir(&d, Box::new(Faux(7)));
+        c.garder(Cle::Jooble, JOOBLE).unwrap();
+        let f = Cles::chemin_dans(&d);
+        let nouveau = f.with_extension("json.nouveau");
+        assert!(!nouveau.exists(), "rien ne reste à côté après une écriture");
+        std::fs::copy(&f, &nouveau).unwrap();
+        std::fs::write(&f, b"{\"version\":1,\"cles\":{\"joo").unwrap();
+        let (c2, j) = Cles::ouvrir(&d, Box::new(Faux(7)));
+        assert_eq!(c2.lire(Cle::Jooble).as_deref(), Some(JOOBLE));
+        assert!(j.unwrap().contains("reprise"));
+        assert!(!nouveau.exists() && f.is_file());
+        // Les deux abîmés : aucune clé, rien de faux repris
+        std::fs::write(&f, b"{ abime").unwrap();
+        std::fs::write(&nouveau, b"{ abime aussi").unwrap();
+        let (c3, j) = Cles::ouvrir(&d, Box::new(Faux(7)));
+        assert!(c3.etat(Cle::Jooble).is_none());
+        assert!(!j.unwrap().contains("reprise"));
         let _ = std::fs::remove_dir_all(&d);
     }
 }

@@ -226,6 +226,12 @@ pub fn partir(
         Some(k) => {
             let avant: Option<String> =
                 tr.query_row("SELECT statut FROM candidatures WHERE id = ?1", [k], |r| r.get(0)).optional()?;
+            if crate::candidatures::statut_garde_au_renvoi(avant.as_deref()) {
+                // (déjà en entretien ou avec une réponse : le statut et le jour d'envoi restent, la frise note le
+                // renvoi)
+                crate::candidatures::noter_renvoi(&tr, k, "Renvoyée sur le site", envoye_le, maintenant)?;
+                return finir_partir(tr, id, k, x, offre, envoye_le, par_jordan, preuve, maintenant);
+            }
             tr.execute(
                 "UPDATE candidatures SET moyen = 'site', envoye = ?2, cv = ?3, envoyee_le = ?4, change_le = ?5, \
                  statut = 'envoyee', statut_le = CASE WHEN statut = 'envoyee' THEN statut_le ELSE ?4 END WHERE id = ?1",
@@ -266,6 +272,23 @@ pub fn partir(
             k
         }
     };
+    finir_partir(tr, id, k, x, offre, envoye_le, par_jordan, preuve, maintenant)
+}
+
+/// La fin commune de [`partir`] : la préparation liée, le contenu exact dans `envois`, l'envoi tenté fini, et la
+/// transaction validée.
+#[allow(clippy::too_many_arguments)]
+fn finir_partir(
+    tr: rusqlite::Transaction<'_>,
+    id: i64,
+    k: i64,
+    x: &TentativeSite,
+    offre: i64,
+    envoye_le: Moment,
+    par_jordan: bool,
+    preuve: &str,
+    maintenant: Moment,
+) -> rusqlite::Result<Option<i64>> {
     crate::preparations::lier_candidature(&tr, offre, k)?;
     tr.execute(
         "INSERT INTO envois (candidature_id, moyen, destinataire, contenu, cv_id, recapitulatif, envoye_le, \

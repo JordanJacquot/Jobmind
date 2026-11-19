@@ -968,6 +968,19 @@ fn fin_balise(b: &[u8], i: usize) -> Option<usize> {
     None
 }
 
+/// Le texte finit-il par un retour à la ligne (suivi d'espaces) ? Seuls les 64 derniers caractères sont regardés :
+/// des espaces sans fin ne sont pas relus à chaque balise (au pire, un retour à la ligne de trop, enlevé ensuite).
+fn finit_par_saut(out: &str) -> bool {
+    for c in out.bytes().rev().take(64) {
+        match c {
+            b' ' => {}
+            b'\n' => return true,
+            _ => return false,
+        }
+    }
+    false
+}
+
 /// Le texte d'une page HTML (sans scripts, styles ni balises ; entités lues), avec ses retours à la ligne.
 fn html_en_texte(html: &str) -> String {
     let limite = TEXTE_MAX * 8;
@@ -975,6 +988,9 @@ fn html_en_texte(html: &str) -> String {
     let mut out = String::new();
     let mut i = 0;
     let mut texte_debut = 0;
+    // (les balises dont la fermeture n'est plus dans la suite : la chercher encore à chaque ouverture referait tout le
+    // reste du texte à chaque fois, des milliers de « <title> » sans « </title> » ne finiraient jamais)
+    let mut sans_fermeture: Vec<String> = Vec::new();
     while i < b.len() && out.len() < limite {
         if b[i] != b'<' {
             i += 1;
@@ -1008,15 +1024,20 @@ fn html_en_texte(html: &str) -> String {
             };
             let auto_fermee = fin > 0 && b[fin - 1] == b'/';
             i = fin + 1;
-            if !fermante && !auto_fermee && (CACHEES.contains(&nom.as_str()) || ENTETES_HTML.contains(&nom.as_str())) {
+            if !fermante
+                && !auto_fermee
+                && (CACHEES.contains(&nom.as_str()) || ENTETES_HTML.contains(&nom.as_str()))
+                && !sans_fermeture.contains(&nom)
+            {
                 let mut fermeture = b"</".to_vec();
                 fermeture.extend_from_slice(nom.as_bytes());
                 match chercher_ci(b, i, &fermeture) {
                     Some(p) => i = fin_balise(b, p).map(|f| f + 1).unwrap_or(b.len()),
                     None if CACHEES.contains(&nom.as_str()) => i = b.len(),
-                    None => {}
+                    // (un en-tête jamais fermé reste lu comme du texte ; sa fermeture n'est plus cherchée)
+                    None => sans_fermeture.push(nom),
                 }
-            } else if nom == "br" || (BLOCS.contains(&nom.as_str()) && !out.trim_end_matches(' ').ends_with('\n')) {
+            } else if nom == "br" || (BLOCS.contains(&nom.as_str()) && !finit_par_saut(&out)) {
                 // (un bloc ouvert puis fermé ne fait qu'un retour à la ligne ; chaque <br> en fait un)
                 out.push('\n');
             } else if nom == "td" || nom == "th" {
@@ -1400,6 +1421,26 @@ Le mer. 19 nov. 2026 \u{e0} 08:30, Jordan a \u{e9}crit :\r\n\
         {
             assert!(!m.texte.contains(interdit), "{interdit} dans {}", m.texte);
         }
+    }
+
+    /// Des « <title> » (ou « <head> ») jamais fermés, répétés sur 2 Mo : la fermeture n'est cherchée qu'une fois
+    /// (avant : tout le reste relu à chaque balise, des minutes) ; le texte autour reste lu. Pareil pour des espaces
+    /// sans fin entre des blocs.
+    #[test]
+    fn entetes_jamais_fermes_rapides() {
+        for motif in ["<title>", "<TITLE>x", "<head>", "<td><div> "] {
+            let mut html = String::from("<p>Offre de cariste</p>");
+            while html.len() < 2_000_000 {
+                html.push_str(motif);
+            }
+            html.push_str("<p>Fin</p>");
+            let debut = std::time::Instant::now();
+            let t = html_en_texte(&html);
+            assert!(debut.elapsed() < std::time::Duration::from_secs(1), "{motif} : {:?}", debut.elapsed());
+            assert!(t.contains("Offre de cariste"), "{motif}");
+        }
+        // (fermé : toujours retiré avec son contenu)
+        assert_eq!(html_en_texte("<title>Titre</title><p>Corps</p>").trim(), "Corps");
     }
 
     #[test]

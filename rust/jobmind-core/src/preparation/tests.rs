@@ -188,3 +188,15 @@ fn la_lettre_modifiee_et_la_consigne() {
         assert!(!r.texte().contains(['\u{2013}', '\u{2014}']) && !r.code().is_empty());
     }
 }
+
+/// Les tirets longs de Claude (cadratin, demi-cadratin) ne restent jamais : entre deux espaces une virgule, collés un
+/// trait d'union, comme le plancher du style (avant : gardés tels quels).
+#[test]
+fn propre_retire_les_tirets_longs() {
+    assert_eq!(propre("J'aime ce poste \u{2014} vraiment.", 200), "J'aime ce poste, vraiment.");
+    assert_eq!(propre("De 2021\u{2013}2022 en  intérim.", 200), "De 2021-2022 en intérim.");
+    assert_eq!(propre("Motivé \u{2013} \u{2014} et fiable.", 200), "Motivé, et fiable.");
+    assert_eq!(propre("\u{2014} Disponible.", 200), "- Disponible.");
+    let p = verifier_phrase(&ph("Cariste en intérim \u{2014} à Woippy.", true, &["cariste en intérim"]), s()).unwrap();
+    assert!(!p.texte.contains(['\u{2013}', '\u{2014}']), "{}", p.texte);
+}

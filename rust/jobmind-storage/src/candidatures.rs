@@ -133,11 +133,18 @@ pub fn modifier(c: &Connection, id: i64, f: &Fiche, maintenant: Moment) -> rusql
     Ok(true)
 }
 
-/// Supprime une candidature et sa frise. Ses mails rangés (étape 7) reviennent dans « Mails à ranger ». Rend faux si
-/// elle n'existait pas.
+/// Supprime une candidature et sa frise. Ses mails rangés (étape 7) reviennent dans « Mails à ranger ». Ses envois
+/// (table `envois`, où la candidature est obligatoire) sont effacés avec elle : la trace de chaque envoi tenté reste
+/// dans `envois_tentes` et `envois_site` (leur lien vers l'envoi passe à vide tout seul). Les préparations, les
+/// bulles et les contenus générés qui la citaient sont détachés. Rend faux si elle n'existait pas.
 pub fn supprimer(c: &Connection, id: i64) -> rusqlite::Result<bool> {
     let t = c.unchecked_transaction()?;
     t.execute("DELETE FROM evenements WHERE candidature_id = ?1", [id])?;
+    t.execute("DELETE FROM envois WHERE candidature_id = ?1", [id])?;
+    t.execute("UPDATE contenus_generes SET candidature_id = NULL WHERE candidature_id = ?1", [id])?;
+    t.execute("UPDATE preparations SET candidature_id = NULL WHERE candidature_id = ?1", [id])?;
+    t.execute("UPDATE bulles SET candidature_id = NULL WHERE candidature_id = ?1", [id])?;
+    t.execute("UPDATE mails SET suggestion_id = NULL WHERE suggestion_id = ?1", [id])?;
     t.execute(
         "UPDATE mails SET etat = CASE WHEN etat = 'rangee' THEN 'a_ranger' ELSE etat END, candidature_id = NULL, \
          proposition = CASE WHEN proposition = 'attente' THEN NULL ELSE proposition END WHERE candidature_id = ?1",
@@ -146,6 +153,31 @@ pub fn supprimer(c: &Connection, id: i64) -> rusqlite::Result<bool> {
     let n = t.execute("DELETE FROM candidatures WHERE id = ?1", [id])?;
     t.commit()?;
     Ok(n > 0)
+}
+
+/// Une candidature renvoyée (par mail ou sur le site) garde-t-elle son statut ? Oui si elle est déjà en entretien ou
+/// a une réponse (positive ou négative) : un renvoi ne la remet pas à « Envoyée ». Les autres (envoyée, relancée,
+/// sans réponse, abandonnée, ou un statut vide) repassent à « Envoyée ».
+pub(crate) fn statut_garde_au_renvoi(statut: Option<&str>) -> bool {
+    matches!(statut.and_then(Statut::depuis_code), Some(Statut::Entretien | Statut::Positive | Statut::Negative))
+}
+
+/// Note un renvoi dans la frise d'une candidature qui garde son statut : un point au statut actuel, avec `texte`
+/// (« Renvoyée par mail », « Renvoyée sur le site »). Le jour d'envoi et le statut ne changent pas.
+pub(crate) fn noter_renvoi(
+    c: &Connection,
+    id: i64,
+    texte: &str,
+    quand: Moment,
+    maintenant: Moment,
+) -> rusqlite::Result<()> {
+    c.execute(
+        "INSERT INTO evenements (candidature_id, quand, type, statut, texte) \
+         SELECT id, ?2, 'statut', statut, ?3 FROM candidatures WHERE id = ?1",
+        params![id, quand.iso(), texte],
+    )?;
+    c.execute("UPDATE candidatures SET change_le = ?2 WHERE id = ?1", params![id, maintenant.iso()])?;
+    Ok(())
 }
 
 /// Ce qu'a donné un changement de statut.

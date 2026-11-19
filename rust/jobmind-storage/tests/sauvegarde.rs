@@ -549,3 +549,168 @@ fn phrases_simples() {
         "Cette sauvegarde vient d'une version plus récente de Jobmind. Mets Jobmind à jour, puis réessaie."
     );
 }
+
+// --- Audit : schéma, confirmation, restes, base abîmée ---
+
+/// Une base avec un déclencheur, une vue ou une table de plus que les migrations est refusée (un déclencheur
+/// s'exécuterait à chaque écriture de Jobmind).
+#[test]
+fn base_avec_objets_inconnus_refusee() {
+    let e = Essai::nouveau("schema");
+    for (i, sql) in [
+        "CREATE TRIGGER piege AFTER INSERT ON candidatures BEGIN DELETE FROM offres; END",
+        "CREATE VIEW espion AS SELECT * FROM profil",
+        "CREATE TABLE intruse (x)",
+        "CREATE INDEX intrus ON offres (titre)",
+        // (un déclencheur connu, mais changé)
+        "DROP TRIGGER offres_fts_ajout; CREATE TRIGGER offres_fts_ajout AFTER INSERT ON offres BEGIN DELETE FROM cv; END",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let d = e.0.join(format!("b{i}"));
+        let (b, _) = Base::ouvrir(&d, moment()).unwrap();
+        b.connexion().execute_batch(sql).unwrap();
+        drop(b);
+        let octets = std::fs::read(Base::chemin_dans(&d)).unwrap();
+        assert!(matches!(refus(&zip_avec(&octets, &[])), ErreurSauvegarde::Piegee(_)), "{sql}");
+    }
+    // (la base telle que les migrations la font reste acceptée)
+    let base = octets_base(&e, false);
+    let d = e.donnees();
+    assert!(sauvegarde::lire(&zip_avec(&base, &[]), &d).is_ok());
+}
+
+/// Jobmind s'arrête pendant la confirmation, après la marque effacée et avant les restes : au démarrage, la
+/// restauration n'est PAS défaite (avant : les restes .avant la faisaient annuler), et les restes sont effacés.
+#[test]
+fn confirmation_interrompue_pas_defaite() {
+    let source = Essai::nouveau("conf-source");
+    let ds = source.donnees();
+    let b = remplir(&ds, "a");
+    let (zip, _) = sauvegarde::faire(&b, &ds, moment()).unwrap();
+    let cible = Essai::nouveau("conf-cible");
+    let dc = cible.donnees();
+    drop(remplir(&dc, "b"));
+    sauvegarde::remplacer(&dc, &sauvegarde::lire(&zip, &dc).unwrap()).unwrap();
+    // (l'arrêt : seule la marque est partie)
+    std::fs::remove_file(dc.join("restauration-en-cours.txt")).unwrap();
+    assert!(dc.join("data").join("jobmind.db.avant").is_file());
+    assert!(!sauvegarde::en_attente(&dc));
+    sauvegarde::annuler(&dc).unwrap();
+    let (b2, _) = Base::ouvrir(&dc, moment()).unwrap();
+    assert_eq!(vidage(&b2), vidage(&b), "la restauration est gardée");
+    drop(b2);
+    let effaces = sauvegarde::nettoyer_restes(&dc);
+    assert_eq!(effaces.len(), 2, "{effaces:?}");
+    assert_eq!(noms(&dc.join("data")), ["jobmind.db"]);
+    assert!(!dc.join("cv.avant").exists());
+    // Une confirmation normale : propre, sans rien à dire au journal
+    let cible2 = Essai::nouveau("conf-cible2");
+    let d2 = cible2.donnees();
+    drop(remplir(&d2, "c"));
+    sauvegarde::remplacer(&d2, &sauvegarde::lire(&zip, &d2).unwrap()).unwrap();
+    assert_eq!(sauvegarde::confirmer_bilan(&d2).unwrap(), None);
+    assert!(!sauvegarde::en_attente(&d2));
+    assert_eq!(noms(&d2.join("data")), ["jobmind.db"]);
+}
+
+/// Les restes d'un arrêt brutal sont effacés au démarrage ; jamais la base, cles.json ni une vraie sauvegarde.
+#[test]
+fn restes_d_un_arret_brutal_effaces() {
+    let e = Essai::nouveau("restes");
+    let d = e.donnees();
+    let data = d.join("data");
+    let sauv = d.join("sauvegardes");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::create_dir_all(&sauv).unwrap();
+    std::fs::create_dir_all(d.join("cv.nouveau")).unwrap();
+    std::fs::write(d.join("cv.nouveau").join("cv-1.pdf"), b"x").unwrap();
+    let restes = [
+        data.join("sauvegarde-123-456789-0.db"),
+        data.join("sauvegarde-123-456789-0.db-journal"),
+        data.join("verification-9-8-7.db"),
+        data.join("verification-9-8-7.db.ecriture-9-8-8"),
+        data.join("jobmind.db.nouvelle"),
+        sauv.join("auto-2026-11-19.zip.ecriture-12-34-5"),
+        d.join("restauration-en-cours.txt.ecriture-1-2-3"),
+    ];
+    let gardes = [
+        data.join("jobmind.db"),
+        data.join("jobmind.db-wal"),
+        data.join("sauvegarde-notes.db"),
+        data.join("verification.db"),
+        data.join("cles.json"),
+        data.join("cles.json.nouveau"),
+        data.join("cles.json.ecriture-1-2-3"),
+        d.join("cles.json"),
+        d.join("cles.json.nouveau"),
+        d.join("journal.txt"),
+        sauv.join("auto-2026-11-19.zip"),
+        sauv.join("avant-restauration-2026-11-19-140507.zip"),
+        sauv.join("Jobmind sauvegarde 2026-11-19.zip"),
+        sauv.join("base-abimee-2026-11-19-140507.db"),
+        sauv.join("photo.ecriture-pas-un-reste"),
+        sauv.join("photo.ecriture-"),
+    ];
+    for f in restes.iter().chain(&gardes) {
+        std::fs::write(f, b"x").unwrap();
+    }
+    let effaces = sauvegarde::nettoyer_restes(&d);
+    for f in &restes {
+        assert!(!f.exists(), "{f:?}");
+        assert!(effaces.contains(f), "{f:?}");
+    }
+    assert!(!d.join("cv.nouveau").exists());
+    for f in &gardes {
+        assert!(f.is_file(), "{f:?}");
+    }
+    // Une restauration en cours : sa base préparée n'est pas touchée (annuler s'en occupe)
+    std::fs::write(d.join("restauration-en-cours.txt"), b"base=1\ncv=1\n").unwrap();
+    std::fs::write(data.join("jobmind.db.nouvelle"), b"x").unwrap();
+    std::fs::write(data.join("jobmind.db.avant"), b"x").unwrap();
+    assert!(sauvegarde::nettoyer_restes(&d).is_empty());
+    assert!(data.join("jobmind.db.nouvelle").is_file() && data.join("jobmind.db.avant").is_file());
+}
+
+/// Une sauvegarde remise quand la base est abîmée (ou absente) : sans base ouverte, la base abîmée copiée telle
+/// quelle dans sauvegardes\, puis la remise ordinaire (annulable, puis confirmée).
+#[test]
+fn remise_avec_une_base_abimee() {
+    let source = Essai::nouveau("abimee-source");
+    let ds = source.donnees();
+    let b = remplir(&ds, "a");
+    let (zip, _) = sauvegarde::faire(&b, &ds, moment()).unwrap();
+    let cible = Essai::nouveau("abimee-cible");
+    let dc = cible.donnees();
+    std::fs::create_dir_all(dc.join("data")).unwrap();
+    std::fs::write(dc.join("data").join("jobmind.db"), b"SQLite format 3\0 tout abime").unwrap();
+    assert!(Base::ouvrir(&dc, moment()).is_err());
+    std::fs::write(dc.join("data").join("jobmind.db-wal"), b"wal").unwrap();
+    // (SQLite a pu effacer un -wal en échouant : le compagnon est écrit ensuite)
+    let contenu = sauvegarde::lire(&zip, &dc).unwrap();
+    // Annulée : la base abîmée revient telle quelle
+    let copie = sauvegarde::remplacer_base_abimee(&dc, &contenu, moment()).unwrap().unwrap();
+    assert_eq!(copie, dc.join("sauvegardes").join("base-abimee-2026-11-19-140507.db"));
+    assert_eq!(std::fs::read(&copie).unwrap(), b"SQLite format 3\0 tout abime");
+    assert_eq!(std::fs::read(dc.join("sauvegardes").join("base-abimee-2026-11-19-140507.db-wal")).unwrap(), b"wal");
+    assert!(sauvegarde::en_attente(&dc));
+    assert!(matches!(sauvegarde::remplacer_base_abimee(&dc, &contenu, moment()), Err(ErreurSauvegarde::EnCours)));
+    sauvegarde::annuler(&dc).unwrap();
+    assert_eq!(std::fs::read(dc.join("data").join("jobmind.db")).unwrap(), b"SQLite format 3\0 tout abime");
+    // Gardée : la base de la sauvegarde s'ouvre, la copie de la base abîmée reste
+    let m2 = Moment::nouveau(2026, 11, 19, 15, 0, 0).unwrap();
+    sauvegarde::remplacer_base_abimee(&dc, &contenu, m2).unwrap().unwrap();
+    let (b2, _) = Base::ouvrir(&dc, m2).unwrap();
+    assert_eq!(vidage(&b2), vidage(&b));
+    drop(b2);
+    sauvegarde::confirmer(&dc).unwrap();
+    assert_eq!(noms(&dc.join("data")), ["jobmind.db"]);
+    assert!(copie.is_file());
+    // Sans base du tout : pas de copie, la remise se fait
+    let vide = Essai::nouveau("abimee-vide");
+    let dv = vide.donnees();
+    assert_eq!(sauvegarde::remplacer_base_abimee(&dv, &contenu, moment()).unwrap(), None);
+    sauvegarde::confirmer(&dv).unwrap();
+    assert!(Base::ouvrir(&dv, moment()).is_ok());
+}

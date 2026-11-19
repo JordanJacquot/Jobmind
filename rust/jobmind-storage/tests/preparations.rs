@@ -168,3 +168,49 @@ fn rattachee_a_la_candidature_et_demandes_du_jour() {
         c.query_row("SELECT reponse FROM appels_preparation WHERE id = ?1", [a2], |r| r.get(0)).unwrap();
     assert_eq!(r.as_deref(), Some("{\"objet"));
 }
+
+/// « Retirer » une phrase : elle part de la lettre de Jordan ET de celle dans son style, sans changer la lettre qu'il
+/// garde ; la lettre de Claude reste intacte, et l'appli sait que la phrase y est encore.
+#[test]
+fn retirer_une_phrase_de_toutes_les_versions() {
+    use preparations::Choix;
+    let (b, _) = Base::en_memoire(m(9)).unwrap();
+    let c = b.connexion();
+    offres::ajouter_trouvees(c, "adzuna", &[trouvee("1", "Cariste")], None, m(9)).unwrap();
+    let o = offres::lister(c).unwrap()[0].id;
+    let brute = "Madame, Monsieur,\n\nJe suis cariste. J'ai encadré six personnes. Je suis motivé.\n\nJordan";
+    let id = preparations::ajouter(c, &nouvelle(o, brute), m(10)).unwrap();
+    let g = preparations::StyleGarde {
+        lettre: "Bonjour,\n\nCariste depuis 5 ans. J'ai encadré six personnes. Motivé.\n\nJordan".into(),
+        a_verifier: vec![PhraseAVerifier {
+            texte: "J'ai encadré six personnes.".into(),
+            raison: "x".into(),
+            code: "extrait_absent".into(),
+            vue: false,
+        }],
+        intensite: "moyenne".into(),
+        score: 80,
+        ..preparations::StyleGarde::default()
+    };
+    preparations::garder_style(c, id, &g, m(10)).unwrap();
+    assert!(preparations::choisir(c, id, Choix::Style).unwrap());
+    // Le texte de la lettre de Jordan changé sans changer son choix (avant : forcé à « moi »)
+    assert!(preparations::modifier_texte_lettre(c, id, brute, m(11)).unwrap());
+    assert_eq!(preparations::lire(c, id).unwrap().unwrap().choix(), Choix::Style);
+    let r = preparations::retirer_phrase_partout(c, id, "J'ai encadré six personnes.", m(12)).unwrap();
+    assert!(r.trouvee && r.retiree_lettre && r.retiree_style);
+    assert_eq!(r.encore_dans, vec![Choix::Brute]);
+    assert!(!r.encore_dans_la_gardee);
+    let p = preparations::lire(c, id).unwrap().unwrap();
+    assert_eq!(p.choix(), Choix::Style, "le choix de Jordan ne change pas");
+    assert_eq!(p.lettre_brute, brute, "la lettre de Claude reste intacte");
+    assert!(!p.lettre.contains("encadré") && !p.lettre_style.as_deref().unwrap().contains("encadré"));
+    assert!(p.a_verifier.is_empty() && p.style_a_verifier.is_empty());
+    assert_eq!(preparations::phrases_retirees(c, id).unwrap(), vec!["J'ai encadré six personnes.".to_string()]);
+    assert!(preparations::retirees_dans_la_gardee(c, id).unwrap().is_empty());
+    // Jordan choisit ensuite la lettre de Claude : la phrase retirée y est encore, l'appli le sait
+    assert!(preparations::choisir(c, id, Choix::Brute).unwrap());
+    assert_eq!(preparations::retirees_dans_la_gardee(c, id).unwrap(), vec!["J'ai encadré six personnes.".to_string()]);
+    // Une version qui n'existe pas
+    assert!(!preparations::retirer_phrase_partout(c, 999, "x", m(12)).unwrap().trouvee);
+}

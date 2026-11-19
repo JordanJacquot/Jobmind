@@ -55,8 +55,12 @@ pub fn commencer(c: &Connection, maintenant: Moment) -> rusqlite::Result<()> {
     ecrire(c, DERNIER, &maintenant.iso())
 }
 
+/// Le recul de l'heure toléré (en secondes) avant de dire l'heure du PC changée : le passage à l'heure d'hiver.
+const RECUL_TOLERE: i64 = 2 * 3600;
+
 /// Un tour est dû : le rythme n'est pas coupé, et le dernier tour date d'au moins ce rythme (jamais fait, ou daté
-/// dans le futur après un changement d'heure du PC : dû aussi).
+/// dans le futur de plus de 2 h après un changement d'heure du PC : dû aussi). Un recul de moins de 2 h (le passage à
+/// l'heure d'hiver, les moments étant en heure locale) n'est pas dû : on attend que le rythme soit passé.
 pub fn est_du(rythme: u32, dernier: Option<Moment>, maintenant: Moment) -> bool {
     if rythme == 0 {
         return false;
@@ -65,7 +69,7 @@ pub fn est_du(rythme: u32, dernier: Option<Moment>, maintenant: Moment) -> bool 
         None => true,
         Some(d) => {
             let ecart = maintenant.secondes() - d.secondes();
-            ecart < 0 || ecart >= i64::from(rythme) * 3600
+            ecart < -RECUL_TOLERE || ecart >= i64::from(rythme) * 3600
         }
     }
 }
@@ -184,6 +188,10 @@ mod tests {
         assert!(!est_du(24, Some(m(18, 8, 1)), m(19, 8, 0)));
         // (l'heure du PC reculée : dû tout de suite plutôt que jamais)
         assert!(est_du(6, Some(m(20, 8, 0)), m(19, 8, 0)));
+        // (le passage à l'heure d'hiver : une heure de recul, pas dû ; plus de 2 h de recul : dû)
+        assert!(!est_du(6, Some(m(19, 3, 0)), m(19, 2, 0)));
+        assert!(!est_du(6, Some(m(19, 3, 0)), m(19, 1, 1)));
+        assert!(est_du(6, Some(m(19, 3, 0)), m(19, 0, 59)));
     }
 
     #[test]

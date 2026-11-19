@@ -185,3 +185,71 @@ fn adresse_tapee_gardee() {
     assert!(envois::garder_adresse(c, offre, "rh@logi-est-exemple.fr").unwrap());
     assert_eq!(envois::adresse_gardee(c, offre).unwrap().as_deref(), Some("rh@logi-est-exemple.fr"));
 }
+
+/// Une candidature qui a des envois se supprime (avant : refusé par la clé étrangère de `envois`) ; la trace de
+/// l'envoi tenté reste, détachée.
+#[test]
+fn supprimer_une_candidature_avec_envois() {
+    let (b, offre) = base_avec_offre();
+    let c = b.connexion();
+    let t = envois::commencer(c, &tentative(offre, "s1"), m(10, 0)).unwrap();
+    let k = envois::partir(c, t, &fiche(), false, m(10, 0)).unwrap().unwrap();
+    assert_eq!(envois::du_dossier(c, k).unwrap().len(), 1);
+    assert!(candidatures::supprimer(c, k).unwrap());
+    assert!(candidatures::lire(c, k).unwrap().is_none());
+    assert!(envois::du_dossier(c, k).unwrap().is_empty());
+    let x = envois::lire_tente(c, t).unwrap().unwrap();
+    assert_eq!(x.etat, EtatTente::Envoye);
+    let lien: Option<i64> = c.query_row("SELECT envoi_id FROM envois_tentes WHERE id = ?1", [t], |r| r.get(0)).unwrap();
+    assert_eq!(lien, None);
+    let ok: String = c.query_row("PRAGMA foreign_key_check", [], |r| r.get(0)).unwrap_or_else(|_| "aucun".into());
+    assert_eq!(ok, "aucun");
+}
+
+/// Un CV joint à un mail parti se supprime (avant : refusé par `envois.cv_id`) ; le nom et la taille de la pièce
+/// jointe restent dans l'envoi.
+#[test]
+fn supprimer_un_cv_joint_a_un_envoi() {
+    use jobmind_storage::profil::{self, GenreCv, NouveauCv};
+    let (b, offre) = base_avec_offre();
+    let c = b.connexion();
+    let n = NouveauCv { nom: "CV Jordan", fichier: None, genre: GenreCv::Texte, texte: "Jordan", taille: None };
+    let cv = profil::ajouter_cv(c, &n, m(9, 0)).unwrap();
+    let mut x = tentative(offre, "s2");
+    x.cv_id = Some(cv);
+    let t = envois::commencer(c, &x, m(10, 0)).unwrap();
+    let k = envois::partir(c, t, &fiche(), false, m(10, 0)).unwrap().unwrap();
+    assert!(profil::supprimer_cv(c, cv).unwrap().is_some());
+    let e = &envois::du_dossier(c, k).unwrap()[0];
+    assert_eq!((e.piece_jointe.as_deref(), e.piece_taille), (Some("CV Jordan.pdf"), Some(182_000)));
+    let lien: Option<i64> = c.query_row("SELECT cv_id FROM envois WHERE id = ?1", [e.id], |r| r.get(0)).unwrap();
+    assert_eq!(lien, None);
+}
+
+/// Renvoyée par mail alors qu'elle est déjà en entretien (ou avec une réponse) : le statut et le jour d'envoi
+/// restent, la frise note « Renvoyée par mail ».
+#[test]
+fn renvoi_garde_l_entretien_et_les_reponses() {
+    for statut in [Statut::Entretien, Statut::Positive, Statut::Negative] {
+        let (b, offre) = base_avec_offre();
+        let c = b.connexion();
+        let mut f = fiche();
+        f.envoyee_le = Jour::nouveau(2026, 11, 2).unwrap();
+        let k = candidatures::ajouter(c, &f, m(9, 0)).unwrap();
+        offres::lier_candidature(c, offre, k).unwrap();
+        candidatures::changer_statut(c, k, statut, None, m(9, 30)).unwrap();
+        let avant = candidatures::lire(c, k).unwrap().unwrap();
+        let t = envois::commencer(c, &tentative(offre, &format!("r{}", statut.code())), m(10, 0)).unwrap();
+        assert_eq!(envois::partir(c, t, &fiche(), false, m(10, 0)).unwrap(), Some(k));
+        let x = candidatures::lire(c, k).unwrap().unwrap();
+        assert_eq!(x.statut, statut);
+        assert_eq!(x.envoyee_le, avant.envoyee_le);
+        assert_eq!(x.statut_le, avant.statut_le);
+        let fr = candidatures::evenements(c, k).unwrap();
+        let der = fr.last().unwrap();
+        assert_eq!((der.statut, der.texte.as_str()), (statut, "Renvoyée par mail"));
+        // (le mail parti est bien gardé)
+        assert_eq!(envois::du_dossier(c, k).unwrap().len(), 1);
+        assert_eq!(envois::lire_tente(c, t).unwrap().unwrap().etat, EtatTente::Envoye);
+    }
+}

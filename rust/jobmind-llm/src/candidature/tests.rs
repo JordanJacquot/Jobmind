@@ -186,6 +186,8 @@ fn ce_qui_est_invente_est_laisse_ou_signale() {
 #[test]
 fn les_consignes_et_le_schema() {
     assert!(!CONSIGNES.contains(['\u{2013}', '\u{2014}']));
+    // (le tiret long est interdit à Claude, pas seulement absent des consignes)
+    assert!(CONSIGNES.contains("aucun tiret long"));
     let s = schema();
     assert_eq!(s["additionalProperties"], false);
     assert_eq!(s["required"].as_array().unwrap().len(), 7);

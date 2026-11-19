@@ -104,6 +104,7 @@
   let vueC = 'dossier';   // 'dossier' ou 'formulaire' (à droite)
   let form = null;        // le formulaire ouvert : { id (rien : nouvelle), v: { champs } }
   let brouillon = null;   // une nouvelle candidature commencée puis fermée par Retour
+  const modifs = {};      // les changements d'une candidature existante fermés par Retour, par candidature
   let ficheVue = null;    // le dossier dessiné en dernier (un autre : ses petites choses se referment)
   let pilule = 'envoye';  // la pilule montrée dans le dossier
   let menu = false;       // le menu des statuts ouvert
@@ -160,7 +161,7 @@
     const groupes = Array.isArray(s.groupes) ? s.groupes : [];
     const ouverte = vueC === 'dossier' ? (choisie ?? s.ouverte) : null;
     let h = `<div class="jm-liste-tete"><span class="jm-liste-t">${esc(texteSur(o.liste))}</span>
-      <span class="jm-liste-bts">${bilanDe().titre ? `<button type="button" class="jm-rond f${vueC === 'bilan' ? ' on' : ''}" data-perso="bilan" data-k="c:bilanh" title="${esc(texteSur(bilanDe().titre))}" aria-label="${esc(texteSur(bilanDe().titre))}">${icone('cible')}</button>` : ''}<button type="button" class="jm-ajout f" data-perso="ajouter" data-k="c:ajouter" title="${esc(T('ajouter'))}">${icone('plus')}<span>${esc(T('ajouter_court'))}</span></button></span></div>`;
+      <span class="jm-liste-bts">${bilanDe().titre ? `<button type="button" class="jm-bilan-bt f${vueC === 'bilan' ? ' on' : ''}" data-perso="bilan" data-k="c:bilanh" title="${esc(texteSur(bilanDe().titre))}" aria-label="${esc(texteSur(bilanDe().titre))}">${icone('cible')}<span>Bilan</span></button>` : ''}<button type="button" class="jm-ajout f" data-perso="ajouter" data-k="c:ajouter" title="${esc(T('ajouter'))}">${icone('plus')}<span>${esc(T('ajouter_court'))}</span></button></span></div>`;
     // (étape 7 : les mails que Jobmind n'a pas su ranger, en tête)
     const mx = mailsDe(), tm = tx(mx), ar = liste(mx.a_ranger).filter((x) => numSur(x?.id));
     if (ar.length) {
@@ -990,7 +991,8 @@
     const t = textesC();
     if (f) {
       const c = f.champs && typeof f.champs === 'object' ? f.champs : {};
-      form = { id: f.id, v: Object.fromEntries([...CHAMPS, 'moyen'].map((k) => [k, texteSur(c[k])])) };
+      const base = Object.fromEntries([...CHAMPS, 'moyen'].map((k) => [k, texteSur(c[k])]));
+      form = { id: f.id, base, v: modifs[f.id] ? { ...modifs[f.id] } : { ...base } };
     } else {
       form = { id: null, v: brouillon ? { ...brouillon } : { ...Object.fromEntries(CHAMPS.map((k) => [k, ''])), date: texteSur(t.aujourdhui), moyen: 'mail' } };
     }
@@ -999,9 +1001,14 @@
     dessinerTout('f:entreprise');
   }
 
-  // Ferme le formulaire ; une nouvelle candidature commencée est gardée en brouillon (sauf après l'enregistrement)
+  // Ferme le formulaire ; une nouvelle candidature commencée est gardée en brouillon (sauf après l'enregistrement).
+  // Une candidature existante changée puis fermée par Retour garde aussi ses changements : « Modifier » les retrouve.
   function fermerFormulaire(garder) {
     if (form && !form.id) brouillon = garder && CHAMPS.some((k) => k !== 'date' && String(form.v[k] || '').trim()) ? { ...form.v } : null;
+    if (form?.id) {
+      const change = [...CHAMPS, 'moyen'].some((k) => String(form.v[k] || '') !== String(form.base?.[k] || ''));
+      if (garder && change) { modifs[form.id] = { ...form.v }; window.kit?.message?.('Tes changements sont gardés : « Modifier » les retrouve.'); } else delete modifs[form.id];
+    }
     form = null; vueC = 'dossier'; cal = null;
     const f = fiche();
     dessinerTout(f ? `c:${f.id}` : 'c:ajouter');
@@ -1208,24 +1215,63 @@
     }
   }
 
-  // Dans une zone de texte, les flèches, Entrée et Retour arrière restent à la zone (le kit les prendrait pour la
-  // manette) ; Échap garde son sens (Retour). Pendant qu'on tape, la souris ne déplace pas le choix.
+  // Dans une zone de texte, Entrée (retour à la ligne), Retour arrière, gauche, droite, début et fin restent à la zone
+  // (le kit les prendrait pour la manette). Haut et bas aussi, sauf au bord : le haut au début du texte (ou sur la
+  // première ligne quand le curseur ne peut plus monter) et le bas à la fin (ou sur la dernière ligne) passent à
+  // l'élément d'au-dessus ou d'en dessous. Échap sort d'abord de la zone (« zone libre » : elle reste choisie, les
+  // flèches et la croix de la manette passent à côté, Entrée ou une lettre y fait retaper) ; un second Échap fait
+  // l'action habituelle (Retour). Pendant qu'on tape, la souris ne déplace pas le choix.
+  const sorties = new WeakSet();   // les touches renvoyées au kit pour sortir d'une zone (à laisser passer)
+  function libre(z, oui) {
+    z.classList.toggle('jm-libre', oui);
+    if (oui) { try { z.setSelectionRange(z.selectionEnd, z.selectionEnd); } catch (_) { /* (rien) */ } }
+  }
+  function sortirZone(z, cle) {
+    if (document.activeElement !== z) return;
+    const e = new KeyboardEvent('keydown', { key: cle, bubbles: true, cancelable: true });
+    sorties.add(e); z.dispatchEvent(e);
+  }
+  function toucheZone(e) {
+    const z = e.target;
+    if (z.classList.contains('jm-libre')) {
+      // (zone libre : Entrée y fait retaper, les flèches et Échap vont au kit, ce qui s'écrit fait retaper)
+      if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); libre(z, false); return; }
+      if (e.key.startsWith('Arrow') || e.key === 'Escape' || e.key === 'Tab' || e.ctrlKey || e.altKey || e.metaKey) return;
+      if (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete') { libre(z, false); e.stopPropagation(); }
+      return;
+    }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); libre(z, true); O.son?.tic?.(); return; }
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.stopPropagation();
+      if (e.shiftKey || z.selectionStart !== z.selectionEnd) return;
+      const haut = e.key === 'ArrowUp', pos = z.selectionStart, v = z.value;
+      if (haut ? pos === 0 : pos >= v.length) { e.preventDefault(); sortirZone(z, e.key); return; }
+      // (sur la première ou la dernière ligne : si le curseur ne bouge pas, c'est le bord de la zone)
+      if (haut ? v.lastIndexOf('\n', pos - 1) < 0 : v.indexOf('\n', pos) < 0) setTimeout(() => { if (z.selectionStart === pos && z.selectionEnd === pos) sortirZone(z, e.key); });
+      return;
+    }
+    if (['ArrowLeft', 'ArrowRight', 'Enter', 'Backspace', 'Home', 'End'].includes(e.key)) e.stopPropagation();
+  }
   function surTouche(e) {
+    if (sorties.has(e)) return;
     toucheSources(e);
-    if (e.target.tagName === 'TEXTAREA' && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'Backspace', 'Home', 'End'].includes(e.key)) e.stopPropagation();
+    if (e.target.tagName === 'TEXTAREA') toucheZone(e);
     // (une liste à choisir : ses flèches choisissent dans la liste)
     if (e.target.tagName === 'SELECT' && ['ArrowUp', 'ArrowDown', 'Home', 'End', 'Enter', 'Backspace'].includes(e.key)) e.stopPropagation();
   }
   function surSurvol(e) {
-    if (document.activeElement?.tagName === 'TEXTAREA' && document.activeElement !== e.target) e.stopPropagation();
+    const a = document.activeElement;
+    if (a?.tagName === 'TEXTAREA' && !a.classList.contains('jm-libre') && a !== e.target) e.stopPropagation();
   }
   function surSortie(e) {
     const el = e.target;
+    if (el.tagName === 'TEXTAREA') libre(el, false);
     if (el.dataset?.perso === 'notes') garderNotes(el);
   }
   // Un clic dans le champ d'une date ouvre aussi son calendrier (le curseur reste dans le champ)
   function surClic(e) {
     const el = e.target, d = el.dataset || {};
+    if (el.tagName === 'TEXTAREA' && el.classList.contains('jm-libre')) libre(el, false);
     if (el.tagName !== 'INPUT' || d.champ !== 'date' || (d.perso !== 'champ' && d.perso !== 'rdv')) return;
     const ou = d.perso === 'rdv' ? 'e' : 'f';
     if ((ou === 'e' ? rdv : form) && !calOuvert(ou)) ouvrirCal(ou, d.k);
@@ -2762,7 +2808,7 @@
         return;
       }
       if (numSur(o.enregistre)) {
-        brouillon = null; form = null; vueC = 'dossier'; choisie = null;
+        brouillon = null; delete modifs[o.enregistre]; form = null; vueC = 'dossier'; choisie = null;
         if (onglet === 'candidatures') dessinerTout(`c:${o.enregistre}`);
         return;
       }

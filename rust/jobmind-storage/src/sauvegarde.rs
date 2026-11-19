@@ -455,10 +455,48 @@ fn verifier_base(octets: &[u8], dossier_donnees: &Path, attendue: u32) -> Result
     if version != attendue {
         return Err(ErreurSauvegarde::Abimee("base : version différente du manifeste".into()));
     }
+    schema_connu(&c, version)?;
     let (candidatures, offres) = compter(&c).map_err(abime)?;
     drop(c);
     drop(copie);
     Ok((version, candidatures, offres))
+}
+
+/// Chaque objet de la base (table, index, déclencheur, vue) doit être un de ceux que les migrations de cette version
+/// créent : rien en plus. Un déclencheur ou une vue doit avoir exactement le SQL des migrations (un déclencheur ajouté
+/// ou changé s'exécuterait à chaque écriture de Jobmind). Les objets internes de SQLite (`sqlite_*`) sont permis s'ils
+/// sont des tables ou des index.
+fn schema_connu(c: &Connection, version: u32) -> Result<(), ErreurSauvegarde> {
+    type Objet = (String, String, String, Option<String>);
+    let objets = |c: &Connection| -> rusqlite::Result<Vec<Objet>> {
+        let mut r = c.prepare("SELECT type, name, tbl_name, sql FROM sqlite_master")?;
+        let l = r.query_map([], |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?, x.get(3)?)))?;
+        l.collect()
+    };
+    let abime = |e: rusqlite::Error| ErreurSauvegarde::Abimee(format!("base : {e}"));
+    let reference_abimee = |e: String| ErreurSauvegarde::Abimee(format!("base : schéma de référence ({e})"));
+    let m = Moment::nouveau(2026, 1, 1, 0, 0, 0).ok_or_else(|| reference_abimee("moment".into()))?;
+    let reference = Base::en_memoire_jusqua(version, m).map_err(|e| reference_abimee(e.to_string()))?;
+    let connus = objets(reference.connexion()).map_err(abime)?;
+    for (genre, nom, table, sql) in objets(c).map_err(abime)? {
+        let interne = nom.starts_with("sqlite_") && matches!(genre.as_str(), "table" | "index");
+        if interne {
+            continue;
+        }
+        let pareil = connus.iter().any(|(g, n, t, s)| {
+            *g == genre && *n == nom && *t == table && (!matches!(genre.as_str(), "trigger" | "view") || *s == sql)
+        });
+        if !pareil {
+            let quoi = match genre.as_str() {
+                "trigger" => "déclencheur",
+                "view" => "vue",
+                "index" => "index",
+                _ => "table",
+            };
+            return Err(piegee(&format!("{quoi} inconnu dans la base : {nom}")));
+        }
+    }
+    Ok(())
 }
 
 /// Vérifie tout : zip, noms (zip slip : `..`, chemin absolu, `C:`, `\\`, nom vide, doublon, entrée inconnue refusés),
@@ -565,10 +603,26 @@ fn existe(p: &Path) -> bool {
     std::fs::symlink_metadata(p).is_ok()
 }
 
-/// Une restauration attend d'être confirmée ou annulée (l'appli peut le demander au démarrage).
+/// Une restauration attend d'être confirmée ou annulée (l'appli peut le demander au démarrage). Seule la marque le
+/// dit : elle est écrite avant que rien ne soit mis de côté, et effacée en premier par [`confirmer`] ; des fichiers
+/// `.avant` sans marque sont les restes d'une restauration confirmée ([`nettoyer_restes`] les efface).
 pub fn en_attente(dossier_donnees: &Path) -> bool {
-    let c = Chemins::de(dossier_donnees);
-    existe(&c.marque) || existe(&plus(&c.base, AVANT)) || existe(&plus(&c.cv, AVANT))
+    existe(&Chemins::de(dossier_donnees).marque)
+}
+
+/// Les fichiers mis de côté par une restauration (la base, ses compagnons, le dossier cv), qu'ils existent ou non.
+fn chemins_avant(c: &Chemins) -> Vec<PathBuf> {
+    let mut l: Vec<PathBuf> = c.fichiers_base().iter().map(|f| plus(f, AVANT)).collect();
+    l.push(plus(&c.cv, AVANT));
+    l
+}
+
+/// Efface les restes `.avant` d'une restauration confirmée (sans marque). Rend ceux qui n'ont pas pu être effacés.
+fn effacer_restes_avant(c: &Chemins) -> Vec<PathBuf> {
+    if existe(&c.marque) {
+        return Vec::new();
+    }
+    chemins_avant(c).into_iter().filter(|p| existe(p) && effacer(p).is_err()).collect()
 }
 
 /// Remplace la base et le dossier cv par ceux de la sauvegarde. La base DOIT être fermée par l'appelant avant.
@@ -581,6 +635,13 @@ pub fn remplacer(dossier_donnees: &Path, contenu: &Contenu) -> Result<(), Erreur
     }
     let c = Chemins::de(dossier_donnees);
     std::fs::create_dir_all(dossier_base(dossier_donnees))?;
+    // (des restes d'une restauration confirmée gêneraient la mise de côté : effacés d'abord, sinon rien n'est fait)
+    if let Some(p) = effacer_restes_avant(&c).first() {
+        return Err(ErreurSauvegarde::Disque(std::io::Error::other(format!(
+            "reste d'une restauration d'avant pas effacé : {}",
+            p.display()
+        ))));
+    }
     // Le nouveau, préparé à côté (rien d'ancien n'est encore touché)
     let base_nouvelle = plus(&c.base, ".nouvelle");
     let cv_nouveau = plus(&c.cv, ".nouveau");
@@ -634,20 +695,35 @@ pub fn remplacer(dossier_donnees: &Path, contenu: &Contenu) -> Result<(), Erreur
     Ok(())
 }
 
-/// Efface ce qui a été mis de côté par [`remplacer`] (la restauration est gardée).
+/// Garde la restauration : comme [`confirmer_bilan`], sans le bilan.
 pub fn confirmer(dossier_donnees: &Path) -> std::io::Result<()> {
+    confirmer_bilan(dossier_donnees).map(|_| ())
+}
+
+/// Garde la restauration. La marque est effacée EN PREMIER (dès lors, la restauration est gardée, même si Jobmind
+/// s'arrête juste après : rien ne sera défait au démarrage) ; puis ce qui a été mis de côté par [`remplacer`] est
+/// effacé, les erreurs ignorées (un reste sera effacé par [`nettoyer_restes`] ou la prochaine restauration). Rend une
+/// ligne pour le journal si des restes n'ont pas pu être effacés (rien : tout est propre). Une erreur : la marque n'a
+/// pas pu être effacée (rien d'autre n'a été touché).
+pub fn confirmer_bilan(dossier_donnees: &Path) -> std::io::Result<Option<String>> {
     let c = Chemins::de(dossier_donnees);
-    for f in c.fichiers_base() {
-        effacer(&plus(&f, AVANT))?;
-    }
-    effacer(&plus(&c.cv, AVANT))?;
-    effacer(&c.marque)
+    effacer(&c.marque)?;
+    let restes = effacer_restes_avant(&c);
+    Ok((!restes.is_empty()).then(|| {
+        let noms: Vec<String> =
+            restes.iter().filter_map(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).collect();
+        format!("Sauvegarde : restauration gardée, restes pas encore effacés ({})", noms.join(", "))
+    }))
 }
 
 /// Remet ce qui a été mis de côté par [`remplacer`] (la restauration est défaite). Ce qui est en place n'est effacé que
-/// si l'état d'avant est là pour le remplacer, ou si la marque dit qu'il n'y avait rien avant.
+/// si l'état d'avant est là pour le remplacer, ou si la marque dit qu'il n'y avait rien avant. Sans marque, il n'y a
+/// pas de restauration en cours (elle a été confirmée) : rien n'est défait.
 pub fn annuler(dossier_donnees: &Path) -> std::io::Result<()> {
     let c = Chemins::de(dossier_donnees);
+    if !existe(&c.marque) {
+        return Ok(());
+    }
     let marque = std::fs::read_to_string(&c.marque).ok();
     let absent = |cle: &str| marque.as_deref().is_some_and(|m| m.lines().any(|l| l == format!("{cle}=0")));
     // La base et ses compagnons
@@ -671,6 +747,149 @@ pub fn annuler(dossier_donnees: &Path) -> std::io::Result<()> {
         effacer(&c.cv)?;
     }
     effacer(&c.marque)
+}
+
+/// Le préfixe des copies d'une base abîmée gardées par [`remplacer_base_abimee`], dans le dossier des sauvegardes.
+const PREFIXE_ABIMEE: &str = "base-abimee-";
+/// Les copies d'une base abîmée gardées (les plus récentes).
+pub const ABIMEES_GARDEES: usize = 2;
+
+/// Remet une sauvegarde quand la base est abîmée ou ne s'ouvre pas : pas de copie d'avant par `VACUUM INTO` (elle
+/// demande une base ouverte et saine). Le contenu a été entièrement vérifié par [`lire`] ou [`lire_fichier`] (seule
+/// façon d'en avoir un). La base DOIT être fermée (ou n'avoir jamais été ouverte) par l'appelant.
+///
+/// Les fichiers de la base actuelle (jobmind.db et ses compagnons) sont d'abord copiés tels quels dans
+/// sauvegardes\base-abimee-AAAA-MM-JJ-HHMMSS.db (les [`ABIMEES_GARDEES`] plus récentes gardées) ; puis [`remplacer`]
+/// les met de côté par renommage (jobmind.db.avant...) jusqu'à [`confirmer`] ou [`annuler`], comme une remise
+/// ordinaire. Rend le chemin de la copie de la base abîmée (rien : il n'y avait pas de base). Si la copie ne peut pas
+/// être faite, rien n'est changé.
+pub fn remplacer_base_abimee(
+    dossier_donnees: &Path,
+    contenu: &Contenu,
+    maintenant: Moment,
+) -> Result<Option<PathBuf>, ErreurSauvegarde> {
+    if en_attente(dossier_donnees) {
+        return Err(ErreurSauvegarde::EnCours);
+    }
+    let c = Chemins::de(dossier_donnees);
+    let mut copie = None;
+    if existe(&c.base) {
+        let dossier = dossier_donnees.join(DOSSIER);
+        std::fs::create_dir_all(&dossier)?;
+        let m = maintenant;
+        let nom = format!("{PREFIXE_ABIMEE}{}-{:02}{:02}{:02}.db", m.jour().iso(), m.heure, m.minute, m.seconde);
+        let cible = dossier.join(&nom);
+        let copier = || -> std::io::Result<()> {
+            for (f, suffixe) in
+                std::iter::once((c.base.clone(), "")).chain(COMPAGNONS.iter().map(|s| (plus(&c.base, s), *s)))
+            {
+                if existe(&f) {
+                    std::fs::copy(&f, plus(&cible, suffixe))?;
+                }
+            }
+            Ok(())
+        };
+        if let Err(e) = copier() {
+            let _ = effacer(&cible);
+            for s in COMPAGNONS {
+                let _ = effacer(&plus(&cible, s));
+            }
+            return Err(e.into());
+        }
+        // Les plus vieilles copies effacées (jamais un autre fichier)
+        let mut l: Vec<String> = fichiers_sauvegardes(dossier_donnees)
+            .into_iter()
+            .filter(|n| n.starts_with(PREFIXE_ABIMEE) && n.ends_with(".db"))
+            .collect();
+        l.sort_by(|a, b| b.cmp(a));
+        for vieux in l.into_iter().skip(ABIMEES_GARDEES) {
+            let _ = std::fs::remove_file(dossier.join(&vieux));
+            for s in COMPAGNONS {
+                let _ = std::fs::remove_file(dossier.join(format!("{vieux}{s}")));
+            }
+        }
+        copie = Some(cible);
+    }
+    remplacer(dossier_donnees, contenu)?;
+    Ok(copie)
+}
+
+/// « sauvegarde-<processus>-<instant>-<compteur> » ou « verification-... » (les noms de [`unique`]) : seulement des
+/// chiffres et des tirets après le préfixe.
+fn nom_unique(nom: &str, prefixe: &str) -> bool {
+    nom.strip_prefix(prefixe)
+        .and_then(|r| r.strip_prefix('-'))
+        .is_some_and(|r| !r.is_empty() && r.chars().all(|c| c.is_ascii_digit() || c == '-'))
+}
+
+/// Un fichier écrit à côté par [`ecrire`] et resté là : « <nom>.ecriture-<processus>-<instant>-<compteur> ». Rend le
+/// nom d'origine.
+fn reste_ecriture(nom: &str) -> Option<&str> {
+    let i = nom.rfind(".ecriture-")?;
+    nom_unique(&nom[i + 1..], "ecriture").then_some(&nom[..i])
+}
+
+/// Au démarrage (après [`annuler`] si [`en_attente`]) : efface les restes d'un arrêt brutal de Jobmind pendant une
+/// sauvegarde ou une restauration :
+///
+/// - data\sauvegarde-*.db et data\verification-*.db (les copies temporaires, avec leurs compagnons et leurs
+///   écritures à côté) ;
+/// - les écritures à côté (`*.ecriture-*`) dans sauvegardes\ et de la marque ;
+/// - data\jobmind.db.nouvelle et cv.nouveau, et les restes `.avant` d'une restauration confirmée, s'il n'y a pas de
+///   restauration en cours.
+///
+/// Jamais jobmind.db, cles.json, ni une vraie sauvegarde : seuls les noms exactement de ces formes sont effacés. Rend
+/// les chemins effacés (pour le journal) ; une erreur est ignorée (le reste sera effacé une autre fois).
+pub fn nettoyer_restes(dossier_donnees: &Path) -> Vec<PathBuf> {
+    let mut effaces = Vec::new();
+    let mut tenter = |p: PathBuf| {
+        if existe(&p) && effacer(&p).is_ok() {
+            effaces.push(p);
+        }
+    };
+    let noms = |d: &Path| -> Vec<String> {
+        std::fs::read_dir(d)
+            .map(|e| {
+                e.flatten()
+                    .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+                    .filter_map(|e| e.file_name().to_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    // data\ : les copies temporaires
+    let data = dossier_base(dossier_donnees);
+    for nom in noms(&data) {
+        let sans_ecriture = reste_ecriture(&nom).unwrap_or(&nom);
+        let sans_compagnon = COMPAGNONS.iter().find_map(|s| sans_ecriture.strip_suffix(s)).unwrap_or(sans_ecriture);
+        let Some(racine) = sans_compagnon.strip_suffix(".db") else { continue };
+        if nom_unique(racine, "sauvegarde") || nom_unique(racine, "verification") {
+            tenter(data.join(&nom));
+        }
+    }
+    // sauvegardes\ : les écritures à côté
+    let dossier = dossier_donnees.join(DOSSIER);
+    for nom in noms(&dossier) {
+        if reste_ecriture(&nom).is_some() {
+            tenter(dossier.join(&nom));
+        }
+    }
+    // La marque écrite à côté
+    for nom in noms(dossier_donnees) {
+        if reste_ecriture(&nom) == Some(MARQUE) {
+            tenter(dossier_donnees.join(&nom));
+        }
+    }
+    // La remise préparée à côté, et les restes d'une restauration confirmée
+    let c = Chemins::de(dossier_donnees);
+    if !existe(&c.marque) {
+        tenter(plus(&c.base, ".nouvelle"));
+        tenter(plus(&c.cv, ".nouveau"));
+        for p in chemins_avant(&c) {
+            tenter(p);
+        }
+    }
+    effaces
 }
 
 // --- Automatiques ---

@@ -123,3 +123,24 @@ fn coordonnees_de_jordan() {
     let (p, n, _, t) = envois_site::coordonnees(c).unwrap();
     assert_eq!((p.as_str(), n.as_str(), t.as_str()), ("Jordan", "", "06 12 34 56 78"));
 }
+
+/// Renvoyée sur le site alors qu'elle est déjà en entretien : le statut reste, la frise note « Renvoyée sur le
+/// site ».
+#[test]
+fn renvoi_sur_le_site_garde_l_entretien() {
+    let (b, offre) = base_avec_offre();
+    let c = b.connexion();
+    let k = candidatures::ajouter(c, &fiche(), m(9, 0)).unwrap();
+    offres::lier_candidature(c, offre, k).unwrap();
+    candidatures::changer_statut(c, k, Statut::Entretien, None, m(9, 30)).unwrap();
+    let t = envois_site::commencer(c, &tentative(offre), m(10, 0)).unwrap();
+    assert_eq!(envois_site::partir(c, t, &fiche(), false, "Merci", m(10, 0)).unwrap(), Some(k));
+    let x = candidatures::lire(c, k).unwrap().unwrap();
+    assert_eq!(x.statut, Statut::Entretien);
+    let fr = candidatures::evenements(c, k).unwrap();
+    let der = fr.last().unwrap();
+    assert_eq!((der.statut, der.texte.as_str()), (Statut::Entretien, "Renvoyée sur le site"));
+    assert_eq!(envois_site::du_dossier(c, k).unwrap().len(), 1);
+    // Et la candidature se supprime malgré son envoi
+    assert!(candidatures::supprimer(c, k).unwrap());
+}

@@ -77,6 +77,27 @@ fn relancee_le(c: &Candidature) -> Jour {
     c.relance_le.unwrap_or(c.statut_le)
 }
 
+/// La phrase d'une candidature dont une réponse est arrivée et attend Jordan (un statut proposé pas encore confirmé) :
+/// à montrer à la place de « Relancer ».
+pub const REPONSE_ARRIVEE: &str = "Une réponse est arrivée, regarde-la.";
+
+/// Une réponse arrivée attend-elle Jordan pour cette candidature ? Seulement si elle attend encore une réponse
+/// (envoyée ou relancée) et figure dans `reponses` (les candidatures dont un mail rangé a un statut proposé pas encore
+/// confirmé : jobmind-storage, `mails::candidatures_a_voir`).
+pub fn reponse_a_voir(c: &Candidature, reponses: &[i64]) -> bool {
+    matches!(c.statut, Statut::Envoyee | Statut::Relancee) && reponses.contains(&c.id)
+}
+
+/// Comme [`situation`], en tenant compte des réponses arrivées qui attendent Jordan (`reponses`, voir
+/// [`reponse_a_voir`]) : pour elles, ni « Relancer » ni « Classer sans réponse », mais « À faire maintenant » sans
+/// action (l'appli montre [`REPONSE_ARRIVEE`]), et rien de prévu ensuite.
+pub fn situation_avec_reponses(c: &Candidature, aujourdhui: Jour, delai: u32, reponses: &[i64]) -> Situation {
+    if reponse_a_voir(c, reponses) {
+        return Situation { groupe: Groupe::AFaire, action: None, prochaine: None };
+    }
+    situation(c, aujourdhui, delai)
+}
+
 /// Où en est une candidature aujourd'hui, avec ce délai de relance (en jours).
 pub fn situation(c: &Candidature, aujourdhui: Jour, delai: u32) -> Situation {
     let delai = i64::from(delai);
@@ -352,10 +373,21 @@ pub fn bilan(liste: &[Candidature], aujourdhui: Jour) -> Bilan {
 /// La liste rangée : chaque groupe avec ses candidatures, dans l'ordre de l'écran (« À faire » : les entretiens
 /// d'abord, puis les relances les plus anciennes ; « En attente » et « Terminées » : les plus récentes d'abord).
 pub fn ranger(liste: &[Candidature], aujourdhui: Jour, delai: u32) -> Vec<(Groupe, Vec<(&Candidature, Situation)>)> {
+    ranger_avec_reponses(liste, aujourdhui, delai, &[])
+}
+
+/// Comme [`ranger`], avec [`situation_avec_reponses`] : une candidature dont une réponse attend Jordan est dans « À
+/// faire maintenant », juste après les entretiens.
+pub fn ranger_avec_reponses<'a>(
+    liste: &'a [Candidature],
+    aujourdhui: Jour,
+    delai: u32,
+    reponses: &[i64],
+) -> Vec<(Groupe, Vec<(&'a Candidature, Situation)>)> {
     let mut groupes: Vec<(Groupe, Vec<(&Candidature, Situation)>)> =
         Groupe::TOUS.iter().map(|g| (*g, Vec::new())).collect();
     for c in liste {
-        let s = situation(c, aujourdhui, delai);
+        let s = situation_avec_reponses(c, aujourdhui, delai, reponses);
         if let Some(g) = groupes.iter_mut().find(|(g, _)| *g == s.groupe) {
             g.1.push((c, s));
         }
@@ -364,9 +396,10 @@ pub fn ranger(liste: &[Candidature], aujourdhui: Jour, delai: u32) -> Vec<(Group
         match g {
             Groupe::AFaire => l.sort_by_key(|(c, s)| match &s.action {
                 Some(Action::Entretien { dans, .. }) => (0, *dans, c.id),
-                Some(Action::Relancer { jours }) => (1, -jours, c.id),
-                Some(Action::ClasserSansReponse { jours }) => (2, -jours, c.id),
-                None => (3, 0, c.id),
+                // (une réponse arrivée qui attend Jordan)
+                None => (1, 0, c.id),
+                Some(Action::Relancer { jours }) => (2, -jours, c.id),
+                Some(Action::ClasserSansReponse { jours }) => (3, -jours, c.id),
             }),
             Groupe::EnAttente => l.sort_by_key(|(c, _)| (std::cmp::Reverse(c.envoyee_le), std::cmp::Reverse(c.id))),
             Groupe::Terminee => l.sort_by_key(|(c, _)| (std::cmp::Reverse(c.statut_le), std::cmp::Reverse(c.id))),
@@ -390,9 +423,19 @@ pub struct ResumeCarte {
 }
 
 pub fn resume_carte(liste: &[Candidature], aujourdhui: Jour, delai: u32) -> ResumeCarte {
+    resume_carte_avec_reponses(liste, aujourdhui, delai, &[])
+}
+
+/// Comme [`resume_carte`], avec [`situation_avec_reponses`] : une réponse arrivée n'est pas comptée en relance.
+pub fn resume_carte_avec_reponses(
+    liste: &[Candidature],
+    aujourdhui: Jour,
+    delai: u32,
+    reponses: &[i64],
+) -> ResumeCarte {
     let b = bilan(liste, aujourdhui);
     let situations: Vec<(&Candidature, Situation)> =
-        liste.iter().map(|c| (c, situation(c, aujourdhui, delai))).collect();
+        liste.iter().map(|c| (c, situation_avec_reponses(c, aujourdhui, delai, reponses))).collect();
     let en_attente =
         liste.iter().filter(|c| matches!(c.statut, Statut::Envoyee | Statut::Relancee | Statut::Entretien)).count();
     let relances = situations
@@ -439,9 +482,21 @@ pub enum GenreBulle {
 /// Les bulles dues aujourd'hui : une relance à faire (clé : la candidature et son jour d'envoi : changer la date en
 /// refait une), un entretien demain ou aujourd'hui (clé : la candidature et le moment de l'entretien).
 pub fn bulles_dues(liste: &[Candidature], aujourdhui: Jour, delai: u32) -> Vec<BulleDue> {
+    bulles_dues_avec_reponses(liste, aujourdhui, delai, &[])
+}
+
+/// Comme [`bulles_dues`], avec [`situation_avec_reponses`] : pas de bulle de relance pour une candidature dont une
+/// réponse arrivée attend Jordan (sa clé n'est pas notée : si Jordan refuse le statut proposé et que la relance est
+/// toujours due, la bulle viendra alors).
+pub fn bulles_dues_avec_reponses(
+    liste: &[Candidature],
+    aujourdhui: Jour,
+    delai: u32,
+    reponses: &[i64],
+) -> Vec<BulleDue> {
     let mut dues = Vec::new();
     for c in liste {
-        match situation(c, aujourdhui, delai).action {
+        match situation_avec_reponses(c, aujourdhui, delai, reponses).action {
             Some(Action::Relancer { jours }) => dues.push(BulleDue {
                 cle: format!("relance:{}:{}", c.id, c.envoyee_le.iso()),
                 candidature: c.id,
@@ -764,5 +819,46 @@ mod tests {
         assert_eq!(delai_borne(500), DELAI_MAX);
         assert_eq!(couper("abc", 3), "abc");
         assert_eq!(couper("abcdef", 5), "ab...");
+    }
+
+    /// Une réponse arrivée attend Jordan (statut proposé pas encore confirmé) : ni « Relancer » ni « Classer », ni
+    /// bulle de relance, mais « À faire maintenant » (avant : « Relancer » et une bulle alors que la réponse est là).
+    #[test]
+    fn une_reponse_arrivee_remplace_la_relance() {
+        let mut relancee = cand(2, "Relancée", Statut::Relancee, j(2026, 10, 1));
+        relancee.relance_le = Some(j(2026, 10, 15));
+        let liste = vec![
+            cand(1, "Envoyée", Statut::Envoyee, j(2026, 10, 1)),
+            relancee,
+            cand(3, "Sans réponse", Statut::Envoyee, j(2026, 10, 1)),
+            cand(4, "Récente", Statut::Envoyee, j(2026, 11, 17)),
+        ];
+        let reponses = [1, 2, 4, 99];
+        // Les anciennes fonctions ne changent pas
+        assert_eq!(situation(&liste[0], auj(), 14).action, Some(Action::Relancer { jours: 48 }));
+        assert_eq!(bulles_dues(&liste, auj(), 14).len(), 2);
+        // Avec les réponses
+        for c in &liste[..2] {
+            let s = situation_avec_reponses(c, auj(), 14, &reponses);
+            assert_eq!(s, Situation { groupe: Groupe::AFaire, action: None, prochaine: None }, "{}", c.entreprise);
+            assert!(reponse_a_voir(c, &reponses));
+        }
+        assert_eq!(
+            situation_avec_reponses(&liste[2], auj(), 14, &reponses).action,
+            Some(Action::Relancer { jours: 48 })
+        );
+        assert_eq!(situation_avec_reponses(&liste[3], auj(), 14, &reponses).groupe, Groupe::AFaire);
+        let dues = bulles_dues_avec_reponses(&liste, auj(), 14, &reponses);
+        assert_eq!(dues.iter().map(|d| d.candidature).collect::<Vec<_>>(), vec![3]);
+        assert_eq!(resume_carte_avec_reponses(&liste, auj(), 14, &reponses).relances, 1);
+        assert_eq!(resume_carte(&liste, auj(), 14).relances, 3);
+        let r = ranger_avec_reponses(&liste, auj(), 14, &reponses);
+        let afaire: Vec<i64> = r[0].1.iter().map(|(c, _)| c.id).collect();
+        assert_eq!((r[0].0, afaire), (Groupe::AFaire, vec![1, 2, 4, 3]));
+        // Une candidature terminée ou en entretien n'est pas concernée
+        let finie = cand(5, "Finie", Statut::Positive, j(2026, 10, 1));
+        assert!(!reponse_a_voir(&finie, &[5]));
+        assert_eq!(situation_avec_reponses(&finie, auj(), 14, &[5]).groupe, Groupe::Terminee);
+        assert!(!REPONSE_ARRIVEE.contains(['\u{2013}', '\u{2014}']));
     }
 }

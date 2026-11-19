@@ -131,6 +131,65 @@ impl DateMail {
             self.annee, self.mois, self.jour, self.heure, self.minute, self.seconde
         )
     }
+
+    /// L'instant du mail en secondes depuis le 1er janvier 1970 en heure universelle (le décalage retiré : « 08:30
+    /// +0100 » est 07:30 en heure universelle). Rien : une date impossible (mois 13, 31 avril, 25 h...).
+    pub fn secondes_utc(&self) -> Option<i64> {
+        let bissextile = |a: i64| (a % 4 == 0 && a % 100 != 0) || a % 400 == 0;
+        let a = i64::from(self.annee);
+        let jours_du_mois = match self.mois {
+            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+            4 | 6 | 9 | 11 => 30,
+            2 if bissextile(a) => 29,
+            2 => 28,
+            _ => return None,
+        };
+        let valide = (1..=jours_du_mois).contains(&self.jour)
+            && self.heure <= 23
+            && self.minute <= 59
+            && self.seconde <= 60
+            && self.decalage_minutes.abs() <= 24 * 60;
+        if !valide {
+            return None;
+        }
+        // (les jours depuis le 1er janvier 1970, d'après l'algorithme « days from civil »)
+        let (m, j) = (i64::from(self.mois), i64::from(self.jour));
+        let y = if m <= 2 { a - 1 } else { a };
+        let ere = y.div_euclid(400);
+        let ya = y - ere * 400;
+        let jour_annee = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + j - 1;
+        let jour_ere = ya * 365 + ya / 4 - ya / 100 + jour_annee;
+        let jours = ere * 146_097 + jour_ere - 719_468;
+        let local =
+            jours * 86_400 + i64::from(self.heure) * 3600 + i64::from(self.minute) * 60 + i64::from(self.seconde);
+        Some(local - i64::from(self.decalage_minutes) * 60)
+    }
+
+    /// La même date en heure universelle (décalage 0), à convertir en heure locale par l'appli. Rien : une date
+    /// impossible. `iso()` reste l'heure telle qu'écrite dans le mail.
+    pub fn en_utc(&self) -> Option<DateMail> {
+        let s = self.secondes_utc()?;
+        let (jours, reste) = (s.div_euclid(86_400), s.rem_euclid(86_400));
+        // (« civil from days », l'inverse)
+        let z = jours + 719_468;
+        let ere = z.div_euclid(146_097);
+        let je = z - ere * 146_097;
+        let ae = (je - je / 1460 + je / 36_524 - je / 146_096) / 365;
+        let ja = je - (365 * ae + ae / 4 - ae / 100);
+        let mp = (5 * ja + 2) / 153;
+        let jour = ja - (153 * mp + 2) / 5 + 1;
+        let mois = if mp < 10 { mp + 3 } else { mp - 9 };
+        let annee = ae + ere * 400 + i64::from(mois <= 2);
+        Some(DateMail {
+            annee: i32::try_from(annee).ok()?,
+            mois: mois as u32,
+            jour: jour as u32,
+            heure: (reste / 3600) as u32,
+            minute: (reste % 3600 / 60) as u32,
+            seconde: (reste % 60) as u32,
+            decalage_minutes: 0,
+        })
+    }
 }
 
 /// Un mail lu.
@@ -372,16 +431,27 @@ pub fn relever(acces: &Acces, reperes: &Reperes) -> Result<Releve, ErreurMail> {
         };
         uids.sort_unstable();
         uids.dedup();
-        let restants = uids.len().saturating_sub(max);
+        let mut restants = uids.len().saturating_sub(max);
         uids.truncate(max);
         let mut mails = Vec::new();
         let mut illisibles = 0;
+        // (au plus OCTETS_PAR_RELEVE lus : une relève finit toujours et dernier_uid avance ; le reste au tour suivant)
+        let mut octets: u64 = 0;
+        let mut lus = 0;
         for &uid in &uids {
-            match lire_un(c, uid)? {
+            if lus > 0 && octets >= OCTETS_PAR_RELEVE {
+                break;
+            }
+            let (m, n) = lire_un_compte(c, uid)?;
+            octets += n;
+            lus += 1;
+            match m {
                 Some(m) => mails.push(m),
                 None => illisibles += 1,
             }
         }
+        restants += uids.len() - lus;
+        uids.truncate(lus);
         let dernier_uid = match (uids.last(), suite) {
             (Some(&u), _) => u,
             (None, Some(d)) => d,
@@ -392,20 +462,40 @@ pub fn relever(acces: &Acces, reperes: &Reperes) -> Result<Releve, ErreurMail> {
     })
 }
 
+/// Une relève s'arrête après avoir lu environ autant d'octets (le mail en cours est fini) : avec des mails de 3 Mo, une
+/// relève de 200 mails ferait 600 Mo et pourrait ne jamais finir avant une coupure.
+pub const OCTETS_PAR_RELEVE: u64 = 20 * 1024 * 1024;
+
+/// Lit les octets d'un mail en texte, sans jamais arrêter la relève : un mail qui ferait paniquer la lecture est passé
+/// (rien : compté parmi les illisibles).
+fn lire_protege(uid: u32, octets: &[u8]) -> Option<Mail> {
+    lire_protege_avec(uid, octets, mime::lire)
+}
+
+fn lire_protege_avec(uid: u32, octets: &[u8], lire: impl FnOnce(u32, &[u8]) -> Mail) -> Option<Mail> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| lire(uid, octets))).ok()
+}
+
 /// Lit un mail : sa taille, puis tout (3 Mo au plus) ou son en-tête et le début de son corps. Rien : il n'a pas pu
-/// être lu (disparu, ou refusé par le serveur).
-fn lire_un<S: Read + Write>(c: &mut imap::Client<S>, uid: u32) -> Result<Option<Mail>, ErreurMail> {
-    let Some(taille) = c.taille(uid)? else { return Ok(None) };
+/// être lu (disparu, refusé par le serveur, ou sa lecture a échoué). Rend aussi les octets reçus.
+fn lire_un_compte<S: Read + Write>(c: &mut imap::Client<S>, uid: u32) -> Result<(Option<Mail>, u64), ErreurMail> {
+    let Some(taille) = c.taille(uid)? else { return Ok((None, 0)) };
     if taille <= TAILLE_ENTIERE {
-        return Ok(c.corps(uid)?.map(|o| mime::lire(uid, &o)));
+        return Ok(match c.corps(uid)? {
+            Some(o) => (lire_protege(uid, &o), o.len() as u64),
+            None => (None, 0),
+        });
     }
-    let Some(mut octets) = c.en_tete(uid)? else { return Ok(None) };
+    let Some(mut octets) = c.en_tete(uid)? else { return Ok((None, 0)) };
     if let Some(debut) = c.debut(uid, DEBUT_LU)? {
         octets.extend_from_slice(&debut);
     }
-    let mut m = mime::lire(uid, &octets);
-    m.coupe = true;
-    Ok(Some(m))
+    let n = octets.len() as u64;
+    let m = lire_protege(uid, &octets).map(|mut m| {
+        m.coupe = true;
+        m
+    });
+    Ok((m, n))
 }
 
 #[cfg(test)]
@@ -638,6 +728,72 @@ mod tests {
         assert!(c.iter().any(|l| l.contains("BODY.PEEK[HEADER]")));
         assert!(c.iter().any(|l| l.contains("BODY.PEEK[TEXT]<0.300000>")));
         verifier_lecture_seule(&f, &[]);
+    }
+
+    /// Des mails de près de 3 Mo : une relève s'arrête vers 20 Mo (avant : jusqu'à `max` mails, des centaines de Mo),
+    /// dernier_uid avance, et la suite vient au tour suivant sans rien perdre.
+    #[test]
+    fn la_releve_est_plafonnee_en_octets() {
+        let gros = |n: u32| {
+            let mut m = mail(n, "Wed, 19 Nov 2026 08:00:00 +0100");
+            while m.len() < 3_050_000 {
+                m.extend_from_slice(b"Une ligne de remplissage pour un gros mail.\r\n");
+            }
+            m
+        };
+        let f = serveur((1..=10).map(gros).collect());
+        let a = f.acces(ADRESSE, MDP);
+        let r = relever(&a, &reperes((2026, 11, 19), 50)).expect("relève");
+        assert_eq!(r.mails.len(), 7);
+        assert_eq!((r.dernier_uid, r.restants, r.illisibles), (7, 3, 0));
+        let rep = Reperes { uidvalidity: Some(1), dernier_uid: Some(r.dernier_uid), depuis: (2026, 11, 19), max: 50 };
+        let r = relever(&a, &rep).expect("relève");
+        assert_eq!(r.mails.iter().map(|m| m.uid).collect::<Vec<_>>(), vec![8, 9, 10]);
+        assert_eq!((r.dernier_uid, r.restants), (10, 0));
+        verifier_lecture_seule(&f, &[]);
+    }
+
+    /// L'instant d'un mail en heure universelle : le décalage est retiré (avant : seule l'heure écrite, décalage
+    /// ignoré), jour, mois et année changés au besoin ; une date impossible ne donne rien.
+    #[test]
+    fn la_date_en_heure_universelle() {
+        let d = |annee, mois, jour, heure, minute, decalage_minutes| DateMail {
+            annee,
+            mois,
+            jour,
+            heure,
+            minute,
+            seconde: 5,
+            decalage_minutes,
+        };
+        let iso = |x: DateMail| x.en_utc().map(|u| u.iso());
+        assert_eq!(iso(d(2026, 11, 19, 8, 30, 60)).as_deref(), Some("2026-11-19T07:30:05"));
+        assert_eq!(iso(d(2026, 11, 19, 8, 30, -300)).as_deref(), Some("2026-11-19T13:30:05"));
+        // (passage au jour, au mois et à l'année d'avant ou d'après, années bissextiles)
+        assert_eq!(iso(d(2027, 1, 1, 0, 15, 60)).as_deref(), Some("2026-12-31T23:15:05"));
+        assert_eq!(iso(d(2028, 2, 28, 23, 0, -120)).as_deref(), Some("2028-02-29T01:00:05"));
+        assert_eq!(iso(d(2026, 2, 28, 23, 0, -120)).as_deref(), Some("2026-03-01T01:00:05"));
+        assert_eq!(iso(d(2026, 3, 29, 1, 0, 0)).as_deref(), Some("2026-03-29T01:00:05"));
+        assert_eq!(d(1970, 1, 1, 1, 0, 60).secondes_utc(), Some(5));
+        assert_eq!(d(2026, 11, 19, 8, 30, 60).secondes_utc(), Some(1_795_073_405));
+        // (l'heure écrite reste la même)
+        assert_eq!(d(2026, 11, 19, 8, 30, 60).iso(), "2026-11-19T08:30:05");
+        for faux in [d(2026, 13, 1, 0, 0, 0), d(2026, 4, 31, 0, 0, 0), d(2026, 2, 29, 0, 0, 0), d(2026, 1, 1, 24, 0, 0)]
+        {
+            assert_eq!(faux.en_utc(), None, "{faux:?}");
+        }
+        // Depuis un vrai en-tête Date
+        let m = mime::lire(1, &mail(1, "Wed, 19 Nov 2026 08:30:05 +0100"));
+        assert_eq!(m.date.and_then(|x| x.en_utc()).map(|u| u.iso()).as_deref(), Some("2026-11-19T07:30:05"));
+    }
+
+    /// Un mail dont la lecture ferait paniquer est passé (compté illisible) : la relève continue.
+    #[test]
+    fn un_mail_qui_fait_paniquer_est_passe() {
+        let r = lire_protege_avec(3, b"x", |_, _| panic!("lecture impossible"));
+        assert!(r.is_none());
+        let r = lire_protege_avec(4, &mail(4, "Wed, 19 Nov 2026 08:00:00 +0100"), mime::lire);
+        assert_eq!(r.map(|m| m.uid), Some(4));
     }
 
     #[test]

@@ -17,6 +17,11 @@ body { --jm: #FFC93C; --jm-anim: cubic-bezier(.2, .9, .3, 1); }
 .jm-onglet.actif::after { transform: scaleX(1); }
 .jm-onglet .nb { min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 99px; background: color-mix(in srgb, var(--jm) 16%, transparent); color: var(--jm); font-size: 12.5px; font-weight: 700; display: grid; place-items: center; }
 .jm-onglet.f:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--jm) 55%, transparent); }
+/* Le message du haut (la bulle du kit) : sous la barre des onglets de Jobmind (64 px d'en-tête, 54 px d'onglets), jamais dessus */
+#bulle { top: 128px; }
+
+/* Une zone de texte quittée par Échap (« zone libre ») : elle reste choisie, sans curseur ; Entrée y fait retaper */
+textarea.jm-libre { caret-color: transparent; outline: 2px solid color-mix(in srgb, var(--jm) 70%, transparent); outline-offset: 2px; }
 
 /* ---------------------------------------------------------------- la liste et le dossier */
 .jm-corps { flex: 1; min-height: 0; display: grid; grid-template-columns: 330px minmax(0, 1fr); }
@@ -871,4 +876,15 @@ button.jm-bilan.f:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(-
 }.jm-bb-p { flex: 1; width: 100%; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; }
 .jm-liste-bts { display: inline-flex; align-items: center; gap: 8px; }
 .jm-liste-bts .jm-rond { width: 34px; height: 34px; }
-.jm-rond.on { color: var(--jm); background: color-mix(in srgb, var(--jm) 12%, transparent); }.jm-liste-tete .jm-liste-t { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jm-rond.on { color: var(--jm); background: color-mix(in srgb, var(--jm) 12%, transparent); }
+/* Le titre de la liste et ses boutons : le titre passe seul sur sa ligne quand la place manque (jamais coupé) */
+.jm-liste-tete { flex-wrap: wrap; row-gap: 6px; }
+.jm-liste-tete .jm-liste-t { flex: 1 1 auto; min-width: 0; }
+.jm-liste-bts { margin-left: auto; }
+/* « Bilan » : son icône et le mot, à côté d'« Ajouter » */
+.jm-bilan-bt { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 11px 0 9px; border-radius: 10px; font-size: 13.5px; font-weight: 650; color: var(--doux); background: rgba(255, 255, 255, 0.05); transition: background 180ms ease, color 180ms ease; }
+.jm-bilan-bt svg { width: 16px; height: 16px; }
+.jm-bilan-bt:hover, .jm-bilan-bt:focus { background: rgba(255, 255, 255, 0.1); color: var(--texte); }
+.jm-bilan-bt.on { color: var(--jm); background: color-mix(in srgb, var(--jm) 12%, transparent); }
+.jm-bilan-bt.on svg { fill: color-mix(in srgb, var(--jm) 35%, transparent); }
+.jm-bilan-bt.f:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--jm) 55%, transparent); }

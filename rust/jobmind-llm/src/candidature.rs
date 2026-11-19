@@ -40,7 +40,8 @@ pour mot et sans rien changer, le ou les passages du CV ou de « Ce que je cherc
 chacun). Une phrase sur l'offre, sur l'entreprise ou de politesse : sur_moi vaut false et extraits est vide.\n\
 \n\
 1. La lettre : courte (150 à 230 mots), simple et professionnelle. Orthographe juste, phrases courtes, ton sobre, \
-aucune familiarité, aucune formule creuse (« fort d'une solide expérience », « je suis convaincu que mon profil », \
+aucune familiarité, aucun tiret long (ni cadratin ni demi-cadratin : une virgule ou un point à la place), aucune \
+formule creuse (« fort d'une solide expérience », « je suis convaincu que mon profil », \
 « dynamique et motivé »). Plan : le poste visé et ce qui attire dans l'offre ; ce que la personne a fait qui y répond, \
 avec des faits concrets du CV ; la demande d'entretien. appel : « Madame, Monsieur, » sauf si l'offre donne le nom du \
 recruteur. paragraphes : 2 à 4 paragraphes, chacun une liste de phrases. politesse : une formule complète. \

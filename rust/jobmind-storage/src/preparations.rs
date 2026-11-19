@@ -266,6 +266,112 @@ pub fn modifier_lettre(c: &Connection, id: i64, lettre: &str, maintenant: Moment
     )? == 1)
 }
 
+/// Le texte de la lettre de Jordan changé SANS changer la lettre qu'il garde (`lettre_choisie` reste ce qu'elle
+/// était). Pour « Retirer » une phrase : [`retirer_phrase_partout`] s'en sert. Faux : la version n'existe plus.
+pub fn modifier_texte_lettre(c: &Connection, id: i64, lettre: &str, maintenant: Moment) -> rusqlite::Result<bool> {
+    Ok(c.execute(
+        "UPDATE preparations SET lettre = ?2, lettre_modifiee_le = ?3 WHERE id = ?1",
+        params![id, lettre, maintenant.iso()],
+    )? == 1)
+}
+
+/// Ce qu'a donné « Retirer » une phrase dans toutes les lettres modifiables d'une version.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Retrait {
+    /// La version existe
+    pub trouvee: bool,
+    /// La phrase est partie de la lettre de Jordan
+    pub retiree_lettre: bool,
+    /// La phrase est partie de la lettre dans son style
+    pub retiree_style: bool,
+    /// Les lettres qui la contiennent encore, telle quelle : la lettre de Claude (« brute », jamais changée) si elle y
+    /// était, et celle dans son style si la phrase n'a pas pu y être retirée
+    pub encore_dans: Vec<Choix>,
+    /// La lettre que Jordan garde la contient encore : l'appli doit le lui dire
+    pub encore_dans_la_gardee: bool,
+}
+
+/// La clé (table `parametres`) des phrases retirées d'une version.
+fn cle_retirees(id: i64) -> String {
+    format!("preparation_retirees_{id}")
+}
+
+/// Les phrases que Jordan a retirées de cette version (« Retirer »), de la plus ancienne à la plus récente.
+pub fn phrases_retirees(c: &Connection, id: i64) -> rusqlite::Result<Vec<String>> {
+    let v: Option<String> =
+        c.query_row("SELECT valeur FROM parametres WHERE cle = ?1", [cle_retirees(id)], |r| r.get(0)).optional()?;
+    Ok(v.and_then(|v| serde_json::from_str::<Vec<String>>(&v).ok()).unwrap_or_default())
+}
+
+/// Les lettres de cette version qui contiennent encore la phrase, telle quelle.
+pub fn lettres_avec_phrase(p: &Preparation, phrase: &str) -> Vec<Choix> {
+    if phrase.is_empty() {
+        return Vec::new();
+    }
+    let mut l = Vec::new();
+    if p.lettre_brute.contains(phrase) {
+        l.push(Choix::Brute);
+    }
+    if p.lettre_style.as_deref().is_some_and(|s| s.contains(phrase)) {
+        l.push(Choix::Style);
+    }
+    if p.lettre.contains(phrase) {
+        l.push(Choix::Moi);
+    }
+    l
+}
+
+/// Les phrases retirées par Jordan que la lettre qu'il garde contient encore (il garde la lettre de Claude, ou celle
+/// dans son style où la phrase n'a pas pu être retirée) : à lui montrer avant l'envoi. Vide : rien à dire.
+pub fn retirees_dans_la_gardee(c: &Connection, id: i64) -> rusqlite::Result<Vec<String>> {
+    let Some(p) = lire(c, id)? else { return Ok(Vec::new()) };
+    let gardee = p.lettre_gardee();
+    Ok(phrases_retirees(c, id)?.into_iter().filter(|x| !x.is_empty() && gardee.contains(x.as_str())).collect())
+}
+
+/// « Retirer » une phrase de TOUTES les lettres modifiables de la version, en une transaction : la lettre de Jordan et
+/// celle dans son style (si elle existe) ; la phrase quitte aussi les deux listes de phrases à vérifier. La lettre de
+/// Claude (`lettre_brute`) reste intacte, et la lettre que Jordan garde (`lettre_choisie`) ne change pas. La phrase est
+/// notée comme retirée ([`phrases_retirees`], [`retirees_dans_la_gardee`]).
+pub fn retirer_phrase_partout(c: &Connection, id: i64, phrase: &str, maintenant: Moment) -> rusqlite::Result<Retrait> {
+    let t = c.unchecked_transaction()?;
+    let Some(p) = lire(&t, id)? else { return Ok(Retrait::default()) };
+    let mut r = Retrait { trouvee: true, ..Retrait::default() };
+    if let Some(x) = jobmind_core::preparation::retirer_phrase(&p.lettre, phrase).filter(|x| !x.trim().is_empty()) {
+        modifier_texte_lettre(&t, id, &x, maintenant)?;
+        r.retiree_lettre = true;
+    }
+    let a_verifier: Vec<PhraseAVerifier> = p.a_verifier.iter().filter(|x| x.texte != phrase).cloned().collect();
+    if a_verifier.len() != p.a_verifier.len() {
+        changer_a_verifier(&t, id, &a_verifier)?;
+    }
+    if let Some(s) = &p.lettre_style {
+        let nouvelle = jobmind_core::preparation::retirer_phrase(s, phrase).filter(|x| !x.trim().is_empty());
+        r.retiree_style = nouvelle.is_some();
+        let style_av: Vec<PhraseAVerifier> = p.style_a_verifier.iter().filter(|x| x.texte != phrase).cloned().collect();
+        if nouvelle.is_some() || style_av.len() != p.style_a_verifier.len() {
+            changer_style(&t, id, nouvelle.as_deref().unwrap_or(s), &style_av)?;
+        }
+    }
+    if !phrase.is_empty() {
+        let mut retirees = phrases_retirees(&t, id)?;
+        if !retirees.iter().any(|x| x == phrase) {
+            retirees.push(phrase.to_string());
+            let v = serde_json::to_string(&retirees).unwrap_or_else(|_| "[]".into());
+            t.execute(
+                "INSERT INTO parametres (cle, valeur) VALUES (?1, ?2) \
+                 ON CONFLICT (cle) DO UPDATE SET valeur = excluded.valeur",
+                params![cle_retirees(id), v],
+            )?;
+        }
+    }
+    let apres = lire(&t, id)?.unwrap_or(p);
+    r.encore_dans = lettres_avec_phrase(&apres, phrase);
+    r.encore_dans_la_gardee = !phrase.is_empty() && apres.lettre_gardee().contains(phrase);
+    t.commit()?;
+    Ok(r)
+}
+
 /// Étape 9 : garde la version dans le style de Jordan (elle remplace la précédente ; la lettre de Claude et celle de
 /// Jordan ne changent pas). Faux : la version n'existe plus.
 pub fn garder_style(c: &Connection, id: i64, s: &StyleGarde, maintenant: Moment) -> rusqlite::Result<bool> {

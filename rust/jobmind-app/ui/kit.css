@@ -7,7 +7,7 @@
 :root { color-scheme: dark; --police: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; }
 body {
   --fond: #06050F; --fond2: #0C0920; --carte: rgba(16, 13, 38, 0.82); --carte2: rgba(28, 23, 62, 0.9); --ligne: #2A2450;
-  --texte: #ECEAF7; --doux: #A9A3C9; --pale: #6F6894; --P: #00E5FF; --S: #B04BFF; --T: #FF2EB5; --vert: #3DDC84; --orange: #FFB020; --rouge: #FF5C7A;
+  --texte: #ECEAF7; --doux: #A9A3C9; --pale: #948EB8; --P: #00E5FF; --S: #B04BFF; --T: #FF2EB5; --vert: #3DDC84; --orange: #FFB020; --rouge: #FF5C7A;
   --police-app: var(--police); --r: 20px;
   /* La partie vide d'une jauge, d'un anneau (plasma.js fait le même mélange) ou d'un interrupteur : mélangée aux
      couleurs du thème, pour ne jamais rester bleu-violet en Crépuscule ou en Terminal */
@@ -32,7 +32,8 @@ button:focus, input:focus { outline: none; }
 #decor::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0.6), rgba(0,0,0,0.67)); }
 .haut, #ecran, .bas { position: relative; z-index: 1; }
 #plasma { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
-#bulle { position: fixed; z-index: 6; top: 76px; left: 50%; transform: translateX(-50%); padding: 10px 18px; border-radius: 20px; background: var(--carte2); border: 1px solid var(--ligne); font-size: 14px; opacity: 0; transition: opacity 180ms ease; pointer-events: none; white-space: nowrap; }
+#bulle { position: fixed; z-index: 6; top: 76px; left: 50%; transform: translateX(-50%); padding: 10px 18px; border-radius: 20px; background: var(--carte2); border: 1px solid var(--ligne); font-size: 14px; opacity: 0; transition: opacity 180ms ease; pointer-events: none;
+  width: max-content; max-width: 90vw; box-sizing: border-box; white-space: normal; overflow-wrap: anywhere; text-align: center; }
 #bulle.vu { opacity: 1; }
 
 /* ---------------------------------------------------------------- le bord de plasma (CSS) : il tourne, s'allume au survol */

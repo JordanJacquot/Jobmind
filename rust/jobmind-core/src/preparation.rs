@@ -395,11 +395,37 @@ fn mot_absent(texte: &str, s: Sources) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Remet une phrase de Claude au propre : sans caractères de contrôle, les espaces resserrées, coupée à [`PHRASE_MAX`].
+/// Remet une phrase de Claude au propre : sans caractères de contrôle, les espaces resserrées, sans tiret long, coupée
+/// à [`PHRASE_MAX`].
 pub fn propre(t: &str, max: usize) -> String {
     let t: String = t.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
-    let t = espaces(&t);
+    let t = sans_tiret_long(&espaces(&t));
     if t.chars().count() <= max { t } else { t.chars().take(max).collect::<String>().trim().to_string() }
+}
+
+/// Les tirets longs (cadratin et demi-cadratin) remplacés comme le fait le plancher du style (jobmind-humanizer,
+/// `plancher::corriger`) : entre deux espaces, une virgule ; collé, un trait d'union.
+fn sans_tiret_long(t: &str) -> String {
+    if !t.contains(['\u{2014}', '\u{2013}']) {
+        return t.to_string();
+    }
+    let c: Vec<char> = t.chars().collect();
+    let mut s = String::with_capacity(t.len());
+    for (i, &x) in c.iter().enumerate() {
+        if x == '\u{2014}' || x == '\u{2013}' {
+            if s.ends_with(' ') && c.get(i + 1) == Some(&' ') {
+                s.pop();
+                s.push(',');
+            } else {
+                s.push('-');
+            }
+        } else {
+            s.push(x);
+        }
+    }
+    // (« , , » laissé par deux tirets, ou une virgule en tête)
+    let s = s.replace(" ,", ",").replace(",,", ",");
+    espaces(s.trim_start_matches([',', ' ']))
 }
 
 /// Vérifie une phrase rendue par Claude (rien : la phrase est vide).

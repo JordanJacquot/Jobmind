@@ -148,6 +148,8 @@ pub fn rendre_principal(c: &Connection, id: i64) -> rusqlite::Result<bool> {
 pub fn supprimer_cv(c: &Connection, id: i64) -> rusqlite::Result<Option<Cv>> {
     let t = c.unchecked_transaction()?;
     let Some(x) = cv(&t, id)? else { return Ok(None) };
+    // Les envois partis gardent le nom et la taille de la pièce jointe (piece_jointe) : seul le lien est retiré
+    t.execute("UPDATE envois SET cv_id = NULL WHERE cv_id = ?1", [id])?;
     t.execute("DELETE FROM cv WHERE id = ?1", [id])?;
     if x.principal {
         t.execute("UPDATE cv SET principal = 1 WHERE id = (SELECT MAX(id) FROM cv)", [])?;
