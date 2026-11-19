@@ -242,7 +242,7 @@ mod tests {
         assert_eq!(propre("3 < 5 et R&D & co", 500), "3 < 5 et R&D & co");
         assert_eq!(propre("a &inconnu; b", 500), "a &inconnu; b");
         assert_eq!(propre("  \u{0}trop   d'espaces\t\r\n\r\n\r\n fin  ", 500), "trop d'espaces\n\nfin");
-        assert_eq!(propre("Préparateur – équipe — nuit", 500), "Préparateur - équipe - nuit");
+        assert_eq!(propre("Préparateur \u{2013} équipe \u{2014} nuit", 500), "Préparateur - équipe - nuit");
         assert_eq!(propre(&"é".repeat(30), 10).chars().count(), 10);
         assert_eq!(ligne("Agent\nde <i>quai</i>"), "Agent de quai");
         assert_eq!(ligne(&"x".repeat(500)).len(), LIGNE_MAX);
