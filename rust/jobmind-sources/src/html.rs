@@ -267,17 +267,32 @@ impl Document {
     pub fn tous(&self, selecteur: &str, combien: usize) -> Vec<usize> {
         let mut l = Vec::new();
         let Some(chaine) = Selecteur::lire(selecteur) else { return l };
-        let mut i = 0;
-        while i < self.jetons.len() && l.len() < combien {
-            match self.chercher(&chaine, i, self.jetons.len()) {
-                Some(x) => {
-                    l.push(x);
-                    i = x + 1;
-                }
-                None => break,
-            }
-        }
+        self.chercher_tous(&chaine, 0, self.jetons.len(), combien, &mut l);
+        l.sort_unstable();
+        l.dedup();
         l
+    }
+
+    /// Tous les éléments de la chaîne entre `debut` et `fin` (étape 5 bis : « ul.liste li » rend chaque `li` de la
+    /// liste, pas seulement le premier). Un ancêtre fouillé n'est pas refouillé par ses propres descendants.
+    fn chercher_tous(&self, chaine: &[Simple], debut: usize, fin: usize, combien: usize, l: &mut Vec<usize>) {
+        let Some((premier, reste)) = chaine.split_first() else { return };
+        let mut i = debut;
+        while i < fin && l.len() < combien {
+            if let Some(Jeton::Ouvre { nom, attrs }) = self.jetons.get(i)
+                && premier.accepte(nom, attrs)
+            {
+                if reste.is_empty() {
+                    l.push(i);
+                } else {
+                    let f = self.fin(i).min(fin);
+                    self.chercher_tous(reste, i + 1, f, combien, l);
+                    i = f.max(i + 1);
+                    continue;
+                }
+            }
+            i += 1;
+        }
     }
 
     /// Le texte de l'élément `i` sur une ligne (titre, entreprise, lieu) : sans balise, coupé à `texte::LIGNE_MAX`.

@@ -1,4 +1,4 @@
-//! La vue des sites (étape 5), du côté de WebView2 : ce que Tauri ne transmet pas.
+//! La vue des sites (étape 5, en coulisse depuis l'étape 5 bis), du côté de WebView2 : ce que Tauri ne transmet pas.
 //!
 //! - Réglages : menu du clic droit (« ouvrir dans une nouvelle fenêtre », « enregistrer sous », « imprimer »...),
 //!   raccourcis du navigateur (Ctrl+P, Ctrl+S, F12...), saisie automatique, mots de passe gardés, outils de
@@ -8,7 +8,6 @@
 //!   thème) ; ici elles sont retirées, si bien qu'une page d'un site qui les demande n'obtient rien (la demande part
 //!   vers un serveur qui n'existe pas). Les permissions de Tauri et le contrôle des commandes refusent déjà ces appels :
 //!   c'est une barrière de plus ;
-//! - page précédente et page suivante (`GoBack`, `GoForward`), sans passer par la page du site ;
 //! - la fenêtre qui contient la vue (`ParentWindow`), pour vérifier dans l'essai qu'elle est bien DANS la fenêtre de
 //!   Jobmind.
 
@@ -66,19 +65,10 @@ fn preparer(c: &ICoreWebView2Controller) -> windows::core::Result<usize> {
 pub fn preparer_sites(v: &Webview, journal: impl Fn(&str) + Send + 'static) -> tauri::Result<()> {
     v.with_webview(move |pw| match preparer(&pw.controller()) {
         Ok(n) => journal(&format!(
-            "Panneau : menu du clic droit, raccourcis du navigateur, saisie automatique et outils coupés ; {n} \
+            "Sites : menu du clic droit, raccourcis du navigateur, saisie automatique et outils coupés ; {n} \
              protocoles de Jobmind retirés"
         )),
-        Err(e) => journal(&format!("Panneau : réglages de WebView2 non posés ({e})")),
-    })
-}
-
-/// Page précédente (`en_avant` : page suivante).
-pub fn naviguer(v: &Webview, en_avant: bool) -> tauri::Result<()> {
-    v.with_webview(move |pw| {
-        // SAFETY : appels COM ordinaires sur le contrôleur que Tauri nous prête, sur le fil de la fenêtre
-        let _ =
-            unsafe { pw.controller().CoreWebView2().and_then(|w| if en_avant { w.GoForward() } else { w.GoBack() }) };
+        Err(e) => journal(&format!("Sites : réglages de WebView2 non posés ({e})")),
     })
 }
 

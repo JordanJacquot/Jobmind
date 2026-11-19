@@ -19,6 +19,12 @@
 //!   Jobmind » (données structurées JSON-LD, règles de LinkedIn, Indeed, Welcome to the Jungle et France Travail,
 //!   microdonnées, ou le texte principal), et le nombre de candidats que la page montre.
 //!
+//! Étape 5 bis :
+//! - [`sites`] : les sites lus en coulisse par la vue des sites (invisible) et montrés dans le design de Jobmind :
+//!   l'adresse d'une page de résultats pour une recherche, et ce que montre une page chargée (une liste, une offre,
+//!   un formulaire de connexion en un ou deux écrans, un captcha, une vérification, connecté ou non). Les quatre sites
+//!   imités de l'essai sont dans `sites::exemples`.
+//!
 //! Une source ne fait qu'une demande par appel de [`JobSource::chercher`] (la première page) : jamais de boucle de
 //! demandes. Une page n'est lue que sur un clic, une à la fois. Une clé n'est jamais dans une erreur : chaque raison
 //! est passée par [`masquer`].
@@ -30,6 +36,7 @@ pub mod html;
 pub mod http;
 pub mod jooble;
 pub mod page;
+pub mod sites;
 pub mod texte;
 
 /// Ce qu'on cherche : la recherche gardée, telle qu'une source la reçoit.

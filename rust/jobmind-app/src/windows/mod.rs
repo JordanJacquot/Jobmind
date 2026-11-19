@@ -14,7 +14,7 @@
 //! - [`message`] : la boîte « Jobmind s'utilise avec Mindset » (`MessageBoxW`) ;
 //! - [`dpapi`] (étape 3) : le coffre des clés, DPAPI portée utilisateur (`CryptProtectData`) ;
 //! - [`dialogue`] (étape 3) : la boîte « Ouvrir » de Windows pour choisir un CV (`IFileOpenDialog`) ;
-//! - [`panneau`] (étape 5) : la vue des sites, du côté de WebView2 (réglages coupés, protocoles de Jobmind retirés,
+//! - [`sites`] (étape 5) : la vue des sites, du côté de WebView2 (réglages coupés, protocoles de Jobmind retirés,
 //!   page précédente et suivante, la fenêtre qui la contient) ; « Voir sur le site » s'y ouvre, plus jamais dans le
 //!   navigateur de Windows ;
 //! - `capture` (construction d'essai seulement) : l'image de la fenêtre (`PrintWindow`).
@@ -32,8 +32,8 @@ pub mod fenetre;
 pub mod heure;
 pub mod identite;
 pub mod message;
-pub mod panneau;
 pub mod registre;
+pub mod sites;
 pub mod synchro;
 pub mod systeme;
 pub mod webview2;

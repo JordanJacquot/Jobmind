@@ -30,7 +30,7 @@ l'étape 13.
   au propre ; jamais sans entreprise), filtres (texte cherché dans tout le texte des offres gardées par FTS5, lieu :
   ville et rayon, département, région ; contrat, télétravail ; toutes, favoris, plus tard, cachées), favoris, plus
   tard, « Pas pour moi », « J'ai postulé » (une candidature du suivi liée à l'offre), « Voir sur le site » (depuis
-  l'étape 5 : dans le panneau des sites), la mention « Adzuna » liée à adzuna.fr sur chaque offre d'Adzuna ;
+  l'étape 5 bis : dans la petite fenêtre du site), la mention « Adzuna » liée à adzuna.fr sur chaque offre d'Adzuna ;
   « Essayer la clé » dans Mes clés ; migration 4 de la base.
 - [x] **5. Le panneau des sites** dans Jobmind et « Ajouter à Jobmind » : LinkedIn, Indeed, Welcome to the Jungle,
   France Travail et les autres sites affichés DANS la fenêtre de Jobmind (une seconde vue de la même fenêtre, jamais
@@ -46,6 +46,40 @@ l'étape 13.
   (la même fusion des doublons), un second clic la met à jour ; une page qui n'est pas une offre ou qui en montre
   plusieurs : un message simple. Les pages du panneau n'ont aucun accès aux commandes de Jobmind (permissions de
   Tauri, contrôle du nom de la vue dans chaque commande, protocoles de Jobmind retirés de la vue). Migration 5.
+- [x] **5 bis. Les sites en coulisse** (19/11, demande de Jordan : le grand panneau de l'étape 5 cassait le style de
+  Jobmind ; il n'existe plus). La vue des sites de l'étape 5 reste (même sécurité, même session `panneau-sites`), mais
+  chargée en coulisse : posée hors de la place visible de la fenêtre, elle charge ses pages sans se voir. Jobmind
+  montre tout dans son propre design (`src\coulisse.rs`, `jobmind-sources\src\sites.rs`) :
+  - onglet Offres : la source en haut de la liste (« Mes offres », LinkedIn, Indeed, Welcome to the Jungle, France
+    Travail, avec un point vert quand Jordan y est connecté) ; un site choisi, sa recherche (celles de Mes recherches)
+    et « Chercher sur LinkedIn » : Jobmind construit l'adresse de la page de résultats du site (mots et lieu encodés ;
+    France Travail : le département ou la région par leur code), la charge en coulisse, la lit (les blocs de chaque
+    site, sinon les liens qui mènent à une offre : titre, entreprise, lieu, date, lien, candidats) et la montre comme
+    les offres d'Adzuna ; « Page suivante » sur un clic seulement ;
+  - un résultat ouvert : l'offre chargée en coulisse et lue par le lecteur de l'étape 5, montrée comme une offre
+    (« Lue sur LinkedIn », candidats, contrat, salaire, date, l'annonce), avec « Ajouter à Jobmind » (l'archive, la
+    même fusion des doublons) et « Voir la page du site » ;
+  - « Me connecter » : une carte de Jobmind par-dessus l'onglet demande le mail et le mot de passe ; Jobmind les tape
+    dans le formulaire du site en coulisse (des événements de saisie lettre par lettre, puis l'envoi), une seule
+    fois, en suivant les écrans (LinkedIn et Welcome to the Jungle en un écran, Indeed et France Travail en deux) ;
+    un écran qui redemande ce qui est déjà tapé : le site a refusé, aucun second essai. Le mot de passe n'est gardé
+    que le temps de le taper (`Secret` : jamais dans la base, un fichier, le journal ni l'état de la page ; effacé de
+    la mémoire de Jobmind dès qu'il est tapé, abandonné, ou après 3 minutes) ; « Google ou Apple » : « Utiliser la
+    page du site ». « Connecté à LinkedIn » se déduit de chaque page lue ;
+  - la petite fenêtre du site : la même vue, posée dans un cadre de Jobmind (80 % de l'onglet, un bandeau avec ce
+    qu'on attend de Jordan et « Fermer ») seulement quand le site demande une personne (captcha : cadres reCAPTCHA,
+    hCaptcha, Arkose, Cloudflare ; code reçu, « vérifiez que c'est vous », checkpoint ; écran de connexion inconnu ;
+    Google ou Apple) ou quand Jordan veut voir la page (« Voir la page du site », « Voir sur le site » d'une offre
+    gardée, postuler sur LinkedIn ; « Ajouter à Jobmind » y reste). Ouverte pour une vérification, elle relit la page
+    sans la recharger et se referme seule quand la page redevient normale ; Jobmind reprend alors ce qu'il faisait
+    (la page demandée rechargée une seule fois si le site a mené ailleurs) ;
+  - une page que Jobmind ne sait plus lire (relue deux fois, sans la recharger) : « Jobmind n'arrive pas à lire cette
+    page de LinkedIn » avec « Voir la page du site », et la ligne `Sites : LECTURE CASSÉE` au journal (l'adresse, le
+    titre, chaque règle essayée et ce qu'elle a trouvé) ;
+  - une page à la fois, seulement sur un clic, au moins 3 s entre deux chargements ; une page qui ne vient pas est
+    abandonnée après 40 s (jamais pendant que Jordan fait une vérification) ; aucune boucle, aucun contournement.
+  Aucune nouvelle commande Tauri : tout passe par `action`. Les règles des vrais sites (blocs, connexion, captcha)
+  sont celles de leur structure connue en novembre 2026 ; les essais ne les ont jamais essayées sur les vrais sites.
 - [ ] **6. La lecture et le tri** : diplôme et expérience trouvés dans le texte (règles, puis petit modèle Claude), note
   de pertinence et sa raison, hors sujet ; filtres « Aucun diplôme requis », « Débutant accepté ».
 - [ ] **7. Gmail** : branchement guidé ; alertes d'offres ajoutées seules ; réponses des recruteurs rangées dans le
@@ -54,8 +88,8 @@ l'étape 13.
 - [ ] **9. Le style de Jordan** : plancher professionnel, règles fixes modifiables, réécriture, score naturel,
   surlignage, intensité.
 - [ ] **10. L'envoi par mail** depuis Gmail, et l'entrée automatique dans le suivi avec le contenu exact.
-- [ ] **11. L'envoi sur le site** : navigateur caché, remplissage, récapitulatif relu, captcha ou connexion dans le
-  panneau (LinkedIn : page visible, Jordan clique).
+- [ ] **11. L'envoi sur le site** : navigateur caché, remplissage, récapitulatif relu, captcha ou connexion dans la
+  petite fenêtre du site (LinkedIn : page visible, Jordan clique).
 - [ ] **12. Tableau de bord**, export CSV et PDF, sauvegarde et restauration, rafraîchissement automatique des
   recherches.
 - [ ] **13. Publication** : dépôt GitHub privé ; dans Mindset, une appli réservée au PC de Jordan et lue depuis un dépôt
@@ -69,11 +103,11 @@ Jobmind est écrite en Rust avec Tauri, sur le modèle de Paymind (`rust\`, Rust
 |---|---|
 | `jobmind-vie` | la vie dans Mindset (verrou, demandes, accrochage, thème, carte), reprise de Paymind |
 | `jobmind-relais` | `Jobmind.exe`, le relais qui lance `Mindset.exe` |
-| `jobmind-app` | `Mindset.exe` : la fenêtre Tauri, le kit d'écrans de la suite, les onglets (`ui\jobmind.js`), les gestes du suivi, des offres (`offres.rs`, `vue_offres.rs` ; le fil des recherches) et du profil, le panneau des sites (`panneau.rs` : sa barre et « Ajouter à Jobmind » ; `fenetre.rs` : la vue des sites dans la fenêtre ; `src\windows\panneau.rs` : ses réglages de WebView2), le coffre DPAPI et la boîte « Ouvrir » (`src\windows`) |
-| `jobmind-storage` | dossier de données, journal, réglages, carte de Mindset, base SQLite et migrations, candidatures, bulles, profil (CV et leurs fichiers, style, ce que je cherche), clés chiffrées (`data\cles.json`) ; offres archivées, doublons rattachés, recherche FTS5, recherches gardées, demandes du jour ; les offres lues dans le panneau et le nombre de candidats vu à chaque clic (`offres.rs`, table `offres_vues`) |
+| `jobmind-app` | `Mindset.exe` : la fenêtre Tauri, le kit d'écrans de la suite, les onglets (`ui\jobmind.js`), les gestes du suivi, des offres (`offres.rs`, `vue_offres.rs` ; le fil des recherches) et du profil, les sites en coulisse (`coulisse.rs` : la source, la liste et l'offre lues sur un site, « Ajouter à Jobmind », la connexion et son mot de passe effacé dès qu'il est tapé, la petite fenêtre du site ; `fenetre.rs` : la vue des sites dans la fenêtre ; `programme.rs` : ses chargements, lectures et saisies ; `src\windows\sites.rs` : ses réglages de WebView2), le coffre DPAPI et la boîte « Ouvrir » (`src\windows`) |
+| `jobmind-storage` | dossier de données, journal, réglages, carte de Mindset, base SQLite et migrations, candidatures, bulles, profil (CV et leurs fichiers, style, ce que je cherche), clés chiffrées (`data\cles.json`) ; offres archivées, doublons rattachés, recherche FTS5, recherches gardées, demandes du jour ; les offres lues sur les sites et le nombre de candidats vu à chaque clic (`offres.rs`, table `offres_vues`) |
 | `jobmind-core` | modèles, statuts, jours, saisie vérifiée, groupes du suivi, relances, bilan, bulles dues ; profil, ce que je cherche, régions et départements, forme des clés ; ce qui se lit dans une offre (contrat, télétravail, département), règle des doublons, filtres de l'onglet Offres, recherches gardées ; pertinence à venir (étape 6) |
 | `jobmind-lecture` | le texte d'un CV en PDF (pdf-extract, MIT) ou en Word .docx (zip et XML lus ici), en Rust pur ; fichier trop gros, scanné, abîmé ou protégé : une phrase simple |
-| `jobmind-sources` | le trait `JobSource`, Adzuna (GET, API France) et Jooble (POST), le client HTTP (ureq, chiffrement SChannel de Windows, délais de 10 s et 25 s), le texte des offres remis au propre ; la page lue (`html.rs` : le HTML découpé sans navigateur, donnée non fiable ; `page.rs` : l'offre et le nombre de candidats, par JSON-LD, règles de LinkedIn, Indeed, Welcome to the Jungle et France Travail, microdonnées ou texte principal) ; option `faux` : un faux serveur local (127.0.0.1) qui imite Adzuna et Jooble avec des offres inventées, et sert les pages d'exemple des sites (`src\page\exemples`, inventées) au panneau de l'essai. Les alertes mail viendront |
+| `jobmind-sources` | le trait `JobSource`, Adzuna (GET, API France) et Jooble (POST), le client HTTP (ureq, chiffrement SChannel de Windows, délais de 10 s et 25 s), le texte des offres remis au propre ; la page lue (`html.rs` : le HTML découpé sans navigateur, donnée non fiable ; `page.rs` : l'offre et le nombre de candidats, par JSON-LD, règles de LinkedIn, Indeed, Welcome to the Jungle et France Travail, microdonnées ou texte principal) ; les sites en coulisse (`sites.rs` : l'adresse d'une page de résultats, et ce que montre une page : une liste, une offre, un formulaire de connexion en un ou deux écrans, un captcha, une vérification, connecté ou non) ; option `faux` : un faux serveur local (127.0.0.1) qui imite Adzuna et Jooble avec des offres inventées, sert les pages d'exemple des sites (`src\page\exemples`) et imite les quatre sites (`src\sites\exemples.rs` : listes, offres, connexions avec un mail et un mot de passe inventés, sessions factices, captcha, page cassée). Les alertes mail viendront |
 | `jobmind-llm` | le trait `LlmProvider` (Claude, puis un moteur sur le PC) |
 | `jobmind-humanizer` | le style de Jordan |
 | `jobmind-mail` | Gmail (IMAP et SMTP) |
@@ -106,10 +140,14 @@ livrée :
 
 - `outils\essai-fenetre.ps1 -Exe <Mindset.exe d'essai> -Resultats <dossier>` : la fenêtre seule ;
 - `outils\essai-dans-mindset.ps1 -Exe <Mindset.exe d'essai> -Relais <Jobmind.exe> -Resultats <dossier>` : Jobmind lancée
-  par son relais, accrochée par le code d'accrochage de Mindset, la base créée, une capture de chaque onglet, le
-  panneau des sites (dans la fenêtre accrochée, aucune fenêtre à part ; l'essai de sécurité : une page du panneau qui
-  essaie d'appeler Jobmind échoue ; nouvel onglet, téléchargement, session gardée puis effacée, « Ajouter à
-  Jobmind »), puis fermée par « Fermer » et « Tout quitter » ;
+  par son relais, accrochée par le code d'accrochage de Mindset, la base créée, une capture de chaque onglet, la vue
+  des sites (dans la fenêtre accrochée, aucune fenêtre à part ; l'essai de sécurité : une page des sites qui essaie
+  d'appeler Jobmind échoue ; nouvel onglet, téléchargement, session gardée puis effacée, « Ajouter à Jobmind » dans
+  la petite fenêtre), les sites en coulisse (étape 5 bis, sur les quatre sites imités : la liste lue alors que la vue
+  est invisible, une offre, « Ajouter à Jobmind », « Page suivante », la connexion par la carte de Jobmind à LinkedIn
+  en un écran et à Indeed en deux, un captcha qui ouvre puis referme la petite fenêtre, une lecture qui casse), puis
+  fermée par « Fermer » et « Tout quitter » ; à la fin, le mot de passe inventé est cherché dans tout le dossier de
+  l'essai (journal, base, session des sites, WebView2) : il ne doit y être nulle part ;
 - `outils\captures.ps1 -Exe <Mindset.exe d'essai> -Relais <Jobmind.exe> -Resultats <dossier> [-Theme <thème>]
   [-Vues 'candidatures,candidature:1,menu-statut,entretien,ajouter,modifier,offres,profil,rubrique:cles,rubrique:reglages']
   [-Prefixe <nom>] [-Exemples] [-Largeur 944 -Hauteur 608]` : les captures dans un panneau de 1180 x 760 (944 x 608 :
@@ -128,12 +166,17 @@ livrée :
   « Chercher maintenant » et attend la fin au journal, `offre:<n>` ouvre l'offre n, `recherches` et
   `nouvelle-recherche` montrent Mes recherches, `filtres:liste=favoris` ou `filtres:genre=ville;ville=Metz;rayon=10`
   posent des filtres, `reseau:coupe` (ou `quota`, `refuse`, `normal`) change la réponse du faux serveur pour la suite,
-  `essayer:adzuna` clique « Essayer la clé ». Le panneau des sites (étape 5) : l'essai n'y affiche que son faux
-  serveur, qui sert des pages d'exemple inventées à la place des sites (jamais un vrai site) ;
-  `panneau:<nom>=<adresse>` ouvre le panneau sur cette page (`panneau.demande`), `ajouter-page` clique « Ajouter à
-  Jobmind » et attend la lecture, `clic:pn:voir`, `clic:pn:fermer` et `clic:pn:decon` cliquent dans sa barre et dans
+  `essayer:adzuna` clique « Essayer la clé ». Les sites (étapes 5 et 5 bis) : l'essai n'y affiche que son faux
+  serveur, qui imite les quatre sites avec des offres, des pages de connexion et des sessions inventées (jamais un vrai
+  site, jamais un vrai identifiant) ; `voir:<nom>=<adresse>` ouvre la petite fenêtre du site sur cette page
+  (`voir.demande`), `ajouter-page` clique « Ajouter à Jobmind » dans la petite fenêtre, `site:linkedin` (ou `indeed`,
+  `wttj`, `francetravail`, `mes`) choisit la source, `chercher-site` clique « Chercher sur le site » et attend la
+  lecture en coulisse, `resultat:<n>` ouvre le résultat n, `connexion:linkedin` remplit la carte de connexion avec les
+  identifiants inventés (`connexion.demande`), `connecter:linkedin` la remplit et l'envoie, `sites:captcha` et
+  `sites:casse` changent la prochaine liste (`sites.essai`), `pause:<s>` attend ; `clic:pf:fermer`, `clic:cs:voir`,
+  `clic:cs:a-voir` et `clic:pn:decon` cliquent dans la petite fenêtre, l'offre, la phrase d'une lecture qui casse et
   Réglages, par exemple
-  `-Vues 'panneau:offre=https://www.linkedin.com/jobs/collections/recommended/?currentJobId=4012345678,ajouter-page,clic:pn:voir'` ;
+  `-Vues 'site:linkedin,chercher-site,resultat:1,connexion:linkedin,connecter:linkedin,sites:captcha,chercher-site'` ;
 - `D:\Projets\Mindset\outils\tester-contrat.ps1 -AppliConstruite <dossier>\Jobmind -EntreeApps outils\entree-apps-rust.json` :
   tout le contrat avec le vrai code de Mindset, sur l'exe livré.
 

@@ -805,7 +805,7 @@ const MOTS_CONTRAT: [&str; 11] = [
 ];
 
 /// Un texte en minuscules, sans accents (pour chercher des mots).
-fn simple(t: &str) -> String {
+pub(crate) fn simple(t: &str) -> String {
     t.chars()
         .flat_map(char::to_lowercase)
         .map(|c| match c {
@@ -934,7 +934,7 @@ fn simple_id(t: &str, max: usize) -> Option<String> {
 }
 
 /// L'identifiant de l'offre chez son site, et son adresse remise au propre (la même offre revue est reconnue).
-fn identifiant(site: Site, a: &Adresse) -> Option<(String, String)> {
+pub(crate) fn identifiant(site: Site, a: &Adresse) -> Option<(String, String)> {
     match site {
         Site::LinkedIn => {
             let id = a

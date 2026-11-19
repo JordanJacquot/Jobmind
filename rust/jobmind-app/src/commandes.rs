@@ -156,9 +156,12 @@ pub fn noter_visibilite<R: Runtime>(webview: Webview<R>, visible: bool, page: St
 /// ([`pont::lire_message`] : taille, type, champs), puis donné au receveur de l'appli. Une erreur de la page va
 /// toujours au journal. Un message refusé est noté au journal, et la page reçoit seulement « refusé ».
 #[tauri::command]
-pub fn action<R: Runtime>(webview: Webview<R>, message: Value, page: State<'_, Page>) -> Result<(), String> {
+pub fn action<R: Runtime>(webview: Webview<R>, mut message: Value, page: State<'_, Page>) -> Result<(), String> {
     seulement_la_page(&webview, &page, "action")?;
-    let m = match pont::lire_message(&message) {
+    let lu = pont::lire_message(&message);
+    // (étape 5 bis : le message reçu est effacé de la mémoire aussitôt lu ; il a pu porter un mot de passe)
+    pont::effacer_valeur(&mut message);
+    let m = match lu {
         Ok(m) => m,
         Err(r) => {
             (page.journal)(&format!("Écran : message refusé ({})", r.raison()));

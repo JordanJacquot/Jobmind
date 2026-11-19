@@ -1,0 +1,528 @@
+//! Les tests des sites en coulisse, sans fenêtre : un petit « navigateur » d'essai demande les pages aux quatre sites
+//! imités (jobmind_sources::sites::exemples, inventés, servis sans réseau), suit leurs redirections, garde leurs
+//! cookies et envoie leurs formulaires comme la vue des sites le ferait.
+
+use std::sync::Mutex;
+
+use jobmind_core::recherches::NouvelleRecherche;
+use jobmind_sources::faux::{RepFaux, Requete};
+use jobmind_sources::html::Document;
+use jobmind_sources::sites::exemples::{self, MAIL_ESSAI, MDP_ESSAI, ModeSites};
+use jobmind_sources::sites::{adresse_recherche, comprendre, encoder};
+
+use super::*;
+
+fn m(h: u32, mi: u32) -> Moment {
+    Moment::nouveau(2026, 11, 19, h, mi, 0).unwrap()
+}
+
+fn jour() -> jobmind_core::Jour {
+    m(9, 0).jour()
+}
+
+/// Une base avec une recherche gardée (« cariste », Metz, 30 km) : sa base et son numéro.
+fn base() -> (Base, i64) {
+    let (b, _) = Base::en_memoire(m(9, 0)).unwrap();
+    let n = NouvelleRecherche {
+        nom: "Cariste à Metz".into(),
+        mots: "cariste".into(),
+        lieu: Lieu::Ville { nom: "Metz".into(), rayon: 30 },
+    };
+    let id = base_offres::ajouter_recherche(b.connexion(), &n, m(9, 0)).unwrap();
+    (b, id)
+}
+
+/// Le navigateur d'essai : la page affichée, les cookies, le mode des sites imités.
+struct Navigateur {
+    adresse: String,
+    html: String,
+    cookies: Vec<String>,
+    mode: Mutex<ModeSites>,
+}
+
+impl Navigateur {
+    fn nouveau() -> Navigateur {
+        Navigateur {
+            adresse: String::new(),
+            html: String::new(),
+            cookies: Vec::new(),
+            mode: Mutex::new(ModeSites::Normal),
+        }
+    }
+
+    fn demander(&mut self, methode: &str, adresse: &str, corps: &str) {
+        let chemin = format!("/site/{}", adresse.split("://").nth(1).unwrap_or_default());
+        let r = Requete { methode: methode.into(), chemin, corps: corps.into(), cookies: self.cookies.join("; ") };
+        let rep: RepFaux =
+            exemples::repondre(&r, &self.mode).unwrap_or_else(|| jobmind_sources::page::exemples::repondre(&r.chemin));
+        for (k, v) in &rep.entetes {
+            if k == "Set-Cookie" {
+                let c = v.split(';').next().unwrap_or_default().to_string();
+                self.cookies.retain(|x| x.split('=').next() != c.split('=').next());
+                self.cookies.push(c);
+            }
+        }
+        match rep.entetes.iter().find(|(k, _)| k == "Location") {
+            Some((_, l)) => {
+                let suite = format!("https://{}", l.trim_start_matches("/site/"));
+                self.demander("GET", &suite, "");
+            }
+            None => {
+                self.adresse = adresse.to_string();
+                self.html = rep.corps;
+            }
+        }
+    }
+
+    fn aller(&mut self, adresse: &str) {
+        self.demander("GET", adresse, "");
+    }
+
+    fn lecture(&self) -> Lecture {
+        Lecture { brute: self.adresse.clone(), comprise: comprendre(&self.adresse, &self.html) }
+    }
+
+    /// Ce que fait le script de saisie : le mail et le mot de passe dans leurs cases, puis le formulaire envoyé.
+    fn taper(&mut self, mail: Option<&str>, mdp: Option<&str>) {
+        let d = Document::lire(&self.html);
+        let f = d.trouver("form").expect("un formulaire");
+        let action = d.attr(f, "action").unwrap_or_default().to_string();
+        let mut corps = Vec::new();
+        for i in d.tous("form input", 50) {
+            let nom = d.attr(i, "name").unwrap_or_default();
+            let v = match d.attr(i, "type").unwrap_or("text") {
+                "hidden" => d.attr(i, "value").unwrap_or_default().to_string(),
+                "password" => mdp.unwrap_or_default().to_string(),
+                _ => mail.unwrap_or_default().to_string(),
+            };
+            corps.push(format!("{nom}={}", encoder(&v)));
+        }
+        let cible = format!("https://{}", action.trim_start_matches("/site/"));
+        self.demander("POST", &cible, &corps.join("&"));
+    }
+}
+
+/// Le premier ordre « Lire » d'un fait (son numéro).
+fn lire_no(f: &Fait) -> u64 {
+    f.coulisse
+        .iter()
+        .find_map(|o| match o {
+            Ordre::Lire { no, .. } => Some(*no),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("pas de lecture dans {f:?}"))
+}
+
+/// Le premier chargement d'un fait.
+fn charge(f: &Fait) -> String {
+    f.coulisse
+        .iter()
+        .find_map(|o| match o {
+            Ordre::Charger(u) => Some(u.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("pas de chargement dans {f:?}"))
+}
+
+/// Charge la page demandée par `f` dans le navigateur, puis la fait lire : ce que la lecture a donné.
+fn charger_et_lire(c: &mut Coulisse, b: Option<&Base>, n: &mut Navigateur, f: &Fait) -> Fait {
+    n.aller(&charge(f));
+    let p = c.page_chargee(&n.adresse);
+    c.lu(b, lire_no(&p), n.lecture(), m(9, 5))
+}
+
+/// Tous les textes d'une valeur.
+fn textes_de(v: &Value, l: &mut Vec<String>) {
+    match v {
+        Value::String(s) => l.push(s.clone()),
+        Value::Array(a) => a.iter().for_each(|x| textes_de(x, l)),
+        Value::Object(o) => o.values().for_each(|x| textes_de(x, l)),
+        _ => {}
+    }
+}
+
+fn sans_tiret_long(v: &Value) {
+    let mut l = Vec::new();
+    textes_de(v, &mut l);
+    assert!(l.iter().all(|t| !t.contains(['\u{2013}', '\u{2014}'])), "{l:?}");
+}
+
+#[test]
+fn liste_offre_et_ajout() {
+    let (b, rid) = base();
+    let mut c = Coulisse::default();
+    let mut n = Navigateur::nouveau();
+    // La source choisie (un code inconnu : mes offres)
+    let f = c.geste(Some(&b), SOURCE, &json!({ "site": "linkedin" }), m(9, 0));
+    assert!(f.change && c.source == Some(Site::LinkedIn));
+    c.geste(Some(&b), SOURCE, &json!({ "site": "javascript:alert(1)" }), m(9, 0));
+    assert_eq!(c.source, None);
+    // « Chercher sur LinkedIn » : l'adresse de la page de résultats, rien d'autre
+    let f = c.geste(Some(&b), CHERCHER, &json!({ "site": "linkedin", "recherche": rid }), m(9, 0));
+    let u = charge(&f);
+    let metz = LieuSite::Ville { nom: "Metz".into(), rayon_km: 30 };
+    assert_eq!(u, adresse_recherche(Site::LinkedIn, "cariste", &metz, 1).unwrap());
+    assert_eq!(f.coulisse.len(), 1);
+    assert!(c.vue(jour())["attente"].as_str().unwrap().contains("Jobmind lit les résultats sur LinkedIn"));
+    // Un second clic pendant la lecture : rien de chargé
+    let f2 = c.geste(Some(&b), CHERCHER, &json!({ "site": "linkedin", "recherche": rid }), m(9, 0));
+    assert!(f2.coulisse.is_empty() && f2.message.is_some());
+    // Une page chargée : lue un peu après ; une lecture d'un autre numéro est laissée
+    n.aller(&u);
+    let p = c.page_chargee(&n.adresse);
+    assert!(matches!(p.coulisse[..], [Ordre::Lire { delai_ms: ATTENTE_LECTURE_MS, .. }]));
+    assert_eq!(c.lu(Some(&b), 999, n.lecture(), m(9, 1)), Fait::default());
+    let f = c.lu(Some(&b), lire_no(&p), n.lecture(), m(9, 1));
+    assert!(f.change && f.coulisse.is_empty(), "{f:?}");
+    assert!(f.journal.as_deref().unwrap().contains("liste lue de linkedin (6 résultats, page 1, lue par regles)"));
+    let v = c.vue(jour());
+    assert_eq!(v["liste"]["lignes"].as_array().unwrap().len(), 6);
+    assert_eq!(v["liste"]["lignes"][0]["titre"], "Cariste H/F");
+    assert_eq!(v["liste"]["suivante"], true);
+    assert_eq!(v["sites"][0]["etat"], "Pas connecté à LinkedIn");
+    assert!(v["attente"].is_null());
+    sans_tiret_long(&v);
+    // Un résultat ouvert : son offre lue en coulisse, montrée dans le design de Jobmind
+    let f = c.geste(Some(&b), OUVRIR, &json!({ "i": 1 }), m(9, 2));
+    let f = charger_et_lire(&mut c, Some(&b), &mut n, &f);
+    assert!(f.journal.as_deref().unwrap().starts_with("Sites : offre lue de linkedin"), "{f:?}");
+    let v = c.vue(jour());
+    assert_eq!(v["fiche"]["titre"], "Agent de quai (H/F)");
+    assert_eq!(v["fiche"]["candidats"], "12 candidats sur LinkedIn");
+    assert_eq!(v["liste"]["lignes"][1]["sel"], true);
+    sans_tiret_long(&v);
+    // « Ajouter à Jobmind » : gardée dans l'archive
+    let f = c.geste(Some(&b), AJOUTER, &Value::Null, m(9, 3));
+    assert!(f.bravo, "{f:?}");
+    let id = c.fiche.as_ref().unwrap().ajoutee.unwrap();
+    let o = base_offres::lire(b.connexion(), id).unwrap().unwrap();
+    assert_eq!(o.offre.titre, "Agent de quai (H/F)");
+    assert_eq!(o.candidats.unwrap().texte, "12 candidats");
+    assert_eq!(c.vue(jour())["fiche"]["ajoutee"], id);
+    // Le même résultat rouvert : rien de rechargé
+    assert!(c.geste(Some(&b), OUVRIR, &json!({ "i": 1 }), m(9, 4)).coulisse.is_empty());
+    // « Page suivante » : la page 2, sur ce clic seulement
+    let f = c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 5));
+    assert!(charge(&f).ends_with("&start=25"), "{f:?}");
+    charger_et_lire(&mut c, Some(&b), &mut n, &f);
+    let v = c.vue(jour());
+    assert_eq!(v["liste"]["lignes"].as_array().unwrap().len(), 3);
+    assert_eq!(v["liste"]["suivante"], false);
+    assert_eq!(v["liste"]["sous"], "Page 2, 3 offres");
+    assert!(c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 6)).coulisse.is_empty());
+    // « Voir dans mes offres »
+    let f = c.geste(Some(&b), VOIR_OFFRE, &json!({ "id": id }), m(9, 7));
+    assert_eq!(f.offre, Some(id));
+    assert_eq!(c.source, None);
+}
+
+#[test]
+fn une_recherche_est_necessaire() {
+    let (b, _) = Base::en_memoire(m(9, 0)).unwrap();
+    let mut c = Coulisse::default();
+    let f = c.geste(Some(&b), CHERCHER, &json!({ "site": "indeed" }), m(9, 0));
+    assert!(f.coulisse.is_empty());
+    assert!(c.annonces[1].as_ref().unwrap().texte.contains("Nouvelle recherche"));
+    let f = c.geste(None, CHERCHER, &json!({ "site": "indeed" }), m(9, 0));
+    assert_eq!(f.message.as_deref(), Some(SANS_BASE));
+}
+
+#[test]
+fn connexion_en_un_ecran() {
+    let mut c = Coulisse::default();
+    let mut n = Navigateur::nouveau();
+    // Rien sans mail ni mot de passe, ni pour un autre site
+    assert!(c.connecter("linkedin", " ", Secret::new(MDP_ESSAI.into())).coulisse.is_empty());
+    assert!(c.connecter("linkedin", MAIL_ESSAI, Secret::new("  ".into())).coulisse.is_empty());
+    assert!(c.connecter("myspace", MAIL_ESSAI, Secret::new(MDP_ESSAI.into())).coulisse.is_empty());
+    let f = c.connecter("linkedin", MAIL_ESSAI, Secret::new(MDP_ESSAI.into()));
+    assert_eq!(charge(&f), "https://www.linkedin.com/login/fr");
+    // Le mot de passe n'est jamais dans ce qui s'affiche ou se note
+    assert!(!format!("{c:?}").contains(MDP_ESSAI));
+    assert!(!c.vue(jour()).to_string().contains(MDP_ESSAI));
+    // La page de connexion lue : le mail et le mot de passe tapés, une seule fois
+    let f = charger_et_lire(&mut c, None, &mut n, &f);
+    let (mail, mdp) = match &f.coulisse[0] {
+        Ordre::Taper { attendu, mail, mdp, .. } => {
+            assert_eq!(attendu, "https://www.linkedin.com/login/fr");
+            (mail.clone(), mdp.clone())
+        }
+        o => panic!("{o:?}"),
+    };
+    assert_eq!(mail.as_deref(), Some(MAIL_ESSAI));
+    assert_eq!(mdp.as_ref().map(Secret::texte), Some(MDP_ESSAI));
+    assert!(!format!("{f:?}").contains(MDP_ESSAI), "le mot de passe ne s'affiche pas");
+    assert!(!f.journal.as_deref().unwrap().contains(MDP_ESSAI));
+    // (Jobmind ne le garde plus : il est parti avec la saisie)
+    assert!(c.connexion.as_ref().unwrap().mdp.is_none());
+    let no = lire_no(&f);
+    // Le formulaire envoyé : le site pose la session ; la page suivante est lue
+    n.taper(mail.as_deref(), mdp.as_ref().map(Secret::texte));
+    drop(mdp);
+    assert!(n.cookies.iter().any(|x| x == "essai_linkedin=1"), "{:?}", n.cookies);
+    let p = c.page_chargee(&n.adresse);
+    assert_ne!(lire_no(&p), no, "la page chargée remplace la lecture prévue");
+    let f = c.lu(None, lire_no(&p), n.lecture(), m(9, 2));
+    assert_eq!(f.message.as_deref(), Some("Tu es connecté à LinkedIn."));
+    assert!(c.connexion.is_none() && c.attente.is_none());
+    assert_eq!(c.vue(jour())["sites"][0]["etat"], "Connecté à LinkedIn");
+    assert_eq!(c.vue(jour())["sites"][0]["connecte"], true);
+}
+
+#[test]
+fn connexion_en_deux_ecrans() {
+    for (site, i) in [("indeed", 1), ("francetravail", 3)] {
+        let mut c = Coulisse::default();
+        let mut n = Navigateur::nouveau();
+        let f = c.connecter(site, MAIL_ESSAI, Secret::new(MDP_ESSAI.into()));
+        // 1. le mail seul
+        let f = charger_et_lire(&mut c, None, &mut n, &f);
+        let Ordre::Taper { mail, mdp, .. } = &f.coulisse[0] else { panic!("{f:?}") };
+        assert_eq!((mail.as_deref(), mdp.is_none()), (Some(MAIL_ESSAI), true), "{site}");
+        n.taper(mail.as_deref(), None);
+        // 2. le mot de passe seul
+        let p = c.page_chargee(&n.adresse);
+        let f = c.lu(None, lire_no(&p), n.lecture(), m(9, 1));
+        let Ordre::Taper { mail, mdp, .. } = &f.coulisse[0] else { panic!("{site} : {f:?}") };
+        assert_eq!((mail.is_none(), mdp.as_ref().map(Secret::texte)), (true, Some(MDP_ESSAI)), "{site}");
+        n.taper(None, mdp.as_ref().map(Secret::texte));
+        // 3. connecté
+        let p = c.page_chargee(&n.adresse);
+        let f = c.lu(None, lire_no(&p), n.lecture(), m(9, 2));
+        assert!(f.bravo, "{site} : {f:?}");
+        assert_eq!(c.connecte[i], Some(true));
+    }
+}
+
+#[test]
+fn un_seul_essai_si_le_site_refuse() {
+    let mut c = Coulisse::default();
+    let mut n = Navigateur::nouveau();
+    let f = c.connecter("linkedin", MAIL_ESSAI, Secret::new("pas-le-bon".into()));
+    let f = charger_et_lire(&mut c, None, &mut n, &f);
+    let Ordre::Taper { mail, mdp, .. } = &f.coulisse[0] else { panic!("{f:?}") };
+    n.taper(mail.as_deref(), mdp.as_ref().map(Secret::texte));
+    // La page de connexion revient (le site a refusé) : aucun second essai
+    let p = c.page_chargee(&n.adresse);
+    let f = c.lu(None, lire_no(&p), n.lecture(), m(9, 1));
+    assert!(f.coulisse.is_empty(), "{f:?}");
+    assert!(f.journal.unwrap().contains("refusée par le site"));
+    let a = c.annonces[0].as_ref().unwrap();
+    assert!(a.texte.starts_with("LinkedIn n'a pas accepté ce mail ou ce mot de passe."));
+    assert_eq!(a.bouton, Some("page_site"));
+    assert!(c.connexion.is_none() && c.attente.is_none());
+}
+
+#[test]
+fn google_ou_apple_par_la_page_du_site() {
+    let mut c = Coulisse::default();
+    let mut n = Navigateur::nouveau();
+    let f = c.geste(None, PAGE_SITE, &json!({ "site": "wttj" }), m(9, 0));
+    assert!(f.coulisse.contains(&Ordre::Montrer));
+    assert_eq!(c.petite.as_ref().unwrap().raison, Raison::ConnexionSite);
+    assert!(c.vue(jour())["petite"]["titre"].as_str().unwrap().starts_with("Connecte-toi à Welcome to the Jungle"));
+    // La page de connexion : rien n'est tapé, Jobmind attend Jordan (relue sans recharger)
+    let f = charger_et_lire(&mut c, None, &mut n, &f);
+    assert!(matches!(f.coulisse[..], [Ordre::Lire { delai_ms: VERIFIER_MS, .. }]), "{f:?}");
+    // Jordan se connecte lui-même : la petite fenêtre se ferme seule
+    n.taper(Some(MAIL_ESSAI), Some(MDP_ESSAI));
+    let p = c.page_chargee(&n.adresse);
+    let f = c.lu(None, lire_no(&p), n.lecture(), m(9, 1));
+    assert!(f.coulisse.contains(&Ordre::Cacher) && f.bravo, "{f:?}");
+    assert!(c.petite.is_none());
+    assert_eq!(c.connecte[2], Some(true));
+}
+
+#[test]
+fn captcha_puis_reprise() {
+    let (b, rid) = base();
+    let mut c = Coulisse::default();
+    let mut n = Navigateur::nouveau();
+    *n.mode.lock().unwrap() = ModeSites::Captcha;
+    let f = c.geste(Some(&b), CHERCHER, &json!({ "site": "linkedin", "recherche": rid }), m(9, 0));
+    let demandee = charge(&f);
+    let f = charger_et_lire(&mut c, Some(&b), &mut n, &f);
+    assert!(n.adresse.contains("/checkpoint/challenge/"), "{}", n.adresse);
+    assert!(f.coulisse.contains(&Ordre::Montrer), "{f:?}");
+    assert!(f.journal.clone().unwrap().contains("demande une personne (captcha)"));
+    let v = c.vue(jour());
+    assert_eq!(v["petite"]["titre"], "LinkedIn vérifie que tu es une personne");
+    assert!(v["attente"].is_null(), "rien ne s'abandonne pendant que Jordan fait la vérification");
+    assert!(c.attend_personne());
+    assert_eq!(c.trop_long(), Fait::default());
+    // Toujours le captcha : relu plus tard, sans recharger
+    let f = c.lu(Some(&b), lire_no(&f), n.lecture(), m(9, 1));
+    assert!(matches!(f.coulisse[..], [Ordre::Lire { delai_ms: VERIFIER_MS, .. }]), "{f:?}");
+    // Jordan a fait la vérification : le site revient à la liste ; la petite fenêtre se ferme, la liste est lue
+    n.aller(&demandee);
+    let p = c.page_chargee(&n.adresse);
+    let f = c.lu(Some(&b), lire_no(&p), n.lecture(), m(9, 2));
+    assert_eq!(f.coulisse.first(), Some(&Ordre::Cacher), "{f:?}");
+    assert!(c.petite.is_none());
+    assert_eq!(c.liste_de(Site::LinkedIn).unwrap().resultats.len(), 6);
+    // Une vérification qui ramène ailleurs : la page demandée est rechargée une seule fois
+    *n.mode.lock().unwrap() = ModeSites::Captcha;
+    let f = c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 3));
+    charger_et_lire(&mut c, Some(&b), &mut n, &f);
+    assert!(c.attend_personne());
+    n.aller("https://www.linkedin.com/feed/");
+    let p = c.page_chargee(&n.adresse);
+    let f = c.lu(Some(&b), lire_no(&p), n.lecture(), m(9, 4));
+    assert_eq!(f.coulisse[0], Ordre::Cacher);
+    assert!(charge(&f).ends_with("&start=25"), "{f:?}");
+}
+
+#[test]
+fn fermer_pendant_une_verification() {
+    let (b, rid) = base();
+    let mut c = Coulisse::default();
+    let mut n = Navigateur::nouveau();
+    *n.mode.lock().unwrap() = ModeSites::Captcha;
+    let f = c.geste(Some(&b), CHERCHER, &json!({ "site": "linkedin", "recherche": rid }), m(9, 0));
+    charger_et_lire(&mut c, Some(&b), &mut n, &f);
+    let f = c.geste(Some(&b), FERMER, &Value::Null, m(9, 1));
+    assert_eq!(f.coulisse, vec![Ordre::Cacher]);
+    assert!(c.petite.is_none() && c.attente.is_none());
+    assert!(c.annonces[0].as_ref().unwrap().texte.contains("La vérification n'est pas finie"));
+}
+
+#[test]
+fn lecture_qui_casse() {
+    let (b, rid) = base();
+    let mut c = Coulisse::default();
+    let mut n = Navigateur::nouveau();
+    *n.mode.lock().unwrap() = ModeSites::Casse;
+    let f = c.geste(Some(&b), CHERCHER, &json!({ "site": "linkedin", "recherche": rid }), m(9, 0));
+    let mut f = charger_et_lire(&mut c, Some(&b), &mut n, &f);
+    // Relue (le site se dessine peut-être encore), sans recharger, puis cassée
+    for _ in 0..RELECTURES {
+        assert!(matches!(f.coulisse[..], [Ordre::Lire { delai_ms: ECART_RELECTURE_MS, .. }]), "{f:?}");
+        f = c.lu(Some(&b), lire_no(&f), n.lecture(), m(9, 1));
+    }
+    assert!(f.coulisse.is_empty());
+    let j = f.journal.unwrap();
+    assert!(
+        j.starts_with("Sites : LECTURE CASSÉE (linkedin, liste) adresse https://www.linkedin.com/jobs/search/"),
+        "{j}"
+    );
+    assert!(j.contains("li.scaffold-layout__list-item=0"), "{j}");
+    let v = c.vue(jour());
+    assert_eq!(v["annonce"]["texte"], "Jobmind n'arrive pas à lire cette page de LinkedIn.");
+    assert_eq!(v["annonce"]["bouton"], "voir");
+    // « Voir la page du site » : la petite fenêtre sur la page de résultats
+    let f = c.geste(Some(&b), VOIR, &Value::Null, m(9, 2));
+    assert_eq!(f.coulisse.len(), 2);
+    assert!(charge(&f).starts_with("https://www.linkedin.com/jobs/search/") && f.coulisse[1] == Ordre::Montrer);
+    assert_eq!(c.petite.as_ref().unwrap().raison, Raison::Voir);
+    assert!(!c.attend_personne());
+}
+
+#[test]
+fn ajouter_depuis_la_petite_fenetre() {
+    let (b, _) = base();
+    let mut c = Coulisse::default();
+    let mut n = Navigateur::nouveau();
+    let o = c.voir("https://www.linkedin.com/jobs/view/4012345678/");
+    assert_eq!(o, vec![Ordre::Charger("https://www.linkedin.com/jobs/view/4012345678/".into()), Ordre::Montrer]);
+    n.aller("https://www.linkedin.com/jobs/view/4012345678/");
+    // (une page chargée dans la petite fenêtre n'est pas lue d'elle-même)
+    assert!(c.page_chargee(&n.adresse).coulisse.is_empty());
+    let v = c.vue(jour());
+    assert_eq!(v["petite"]["ajouter"], true);
+    assert!(v["petite"]["texte"].as_str().unwrap().contains("« Postuler »"));
+    let f = c.geste(Some(&b), AJOUTER_PAGE, &Value::Null, m(9, 0));
+    assert_eq!(c.vue(jour())["petite"]["lecture"], true);
+    let f = c.lu(Some(&b), lire_no(&f), n.lecture(), m(9, 1));
+    assert!(f.bravo, "{f:?}");
+    let a = c.petite.as_ref().unwrap().annonce.clone().unwrap();
+    assert_eq!(a.texte, "« Cariste H/F » est ajoutée à tes offres. 34 candidats sur LinkedIn.");
+    assert!(a.offre.is_some());
+    // Une page qui n'est pas une offre : une phrase simple
+    n.aller("https://www.linkedin.com/feed/");
+    let f = c.geste(Some(&b), AJOUTER_PAGE, &Value::Null, m(9, 2));
+    c.lu(Some(&b), lire_no(&f), n.lecture(), m(9, 3));
+    assert!(c.petite.as_ref().unwrap().annonce.as_ref().unwrap().texte.starts_with("Cette page n'est pas une offre"));
+    // « Fermer » : en coulisse
+    assert_eq!(c.geste(Some(&b), FERMER, &Value::Null, m(9, 4)).coulisse, vec![Ordre::Cacher]);
+}
+
+#[test]
+fn verification_et_ecran_inconnu_pendant_la_connexion() {
+    let mut c = Coulisse::default();
+    c.connecter("indeed", MAIL_ESSAI, Secret::new(MDP_ESSAI.into()));
+    let p = c.page_chargee("https://secure.indeed.com/auth/otp");
+    let html = "<html><body><h1>Code envoyé</h1><input autocomplete=\"one-time-code\" type=\"text\"></body></html>";
+    let u = "https://secure.indeed.com/auth/otp";
+    let l = Lecture { brute: u.into(), comprise: comprendre(u, html) };
+    let f = c.lu(None, lire_no(&p), l, m(9, 0));
+    assert!(f.coulisse.contains(&Ordre::Montrer));
+    assert_eq!(c.petite.as_ref().unwrap().raison, Raison::Verification);
+    assert!(c.connexion.is_none(), "le mot de passe est oublié : Jordan finit lui-même");
+    // Un écran inconnu dès le début : la page du site
+    let mut c = Coulisse::default();
+    c.connecter("wttj", MAIL_ESSAI, Secret::new(MDP_ESSAI.into()));
+    let u = "https://www.welcometothejungle.com/fr/signin";
+    let p = c.page_chargee(u);
+    let html = "<html><body><h1>Bienvenue</h1><p>Une page toute nouvelle.</p></body></html>";
+    let l = Lecture { brute: u.into(), comprise: comprendre(u, html) };
+    let f = c.lu(None, lire_no(&p), l, m(9, 0));
+    assert!(f.coulisse.contains(&Ordre::Montrer));
+    assert_eq!(c.petite.as_ref().unwrap().raison, Raison::Inconnue);
+    // La saisie ratée (les cases ont disparu) : la page du site aussi
+    let mut c = Coulisse::default();
+    c.connecter("linkedin", MAIL_ESSAI, Secret::new(MDP_ESSAI.into()));
+    let f = c.saisie_ratee("sans_mdp");
+    assert!(f.coulisse.contains(&Ordre::Montrer) && c.connexion.is_none());
+}
+
+#[test]
+fn temps_depasses_et_lectures_perdues() {
+    let (b, rid) = base();
+    let mut c = Coulisse::default();
+    let f = c.geste(Some(&b), CHERCHER, &json!({ "site": "indeed", "recherche": rid }), m(9, 0));
+    assert!(!f.coulisse.is_empty());
+    let f = c.trop_long();
+    assert!(f.change && c.attente.is_none());
+    assert_eq!(c.annonces[1].as_ref().unwrap().texte, "Indeed ne répond pas. Réessaie dans un moment.");
+    // Une lecture perdue (la page ne répond pas) : la lecture casse, le bouton montre la page
+    c.geste(Some(&b), CHERCHER, &json!({ "site": "indeed", "recherche": rid }), m(9, 1));
+    let p = c.page_chargee("https://fr.indeed.com/jobs?q=cariste");
+    assert_eq!(c.lecture_perdue(12345, "x"), Fait::default());
+    let f = c.lecture_perdue(lire_no(&p), "la page n'a pas répondu");
+    assert!(f.journal.unwrap().contains("lecture perdue"));
+    // Le mot de passe d'une connexion qui n'avance pas : oublié
+    c.connecter("indeed", MAIL_ESSAI, Secret::new(MDP_ESSAI.into()));
+    let f = c.oublier_connexion();
+    assert!(f.journal.unwrap().contains("mot de passe oublié") && c.connexion.is_none());
+    // « Annuler » une connexion
+    c.connecter("indeed", MAIL_ESSAI, Secret::new(MDP_ESSAI.into()));
+    assert!(c.geste(None, ANNULER, &Value::Null, m(9, 2)).change);
+    assert!(c.connexion.is_none() && c.attente.is_none());
+    // « Me déconnecter de tous les sites »
+    c.connecte[0] = Some(true);
+    let f = c.geste(None, DECONNECTER, &Value::Null, m(9, 3));
+    assert_eq!(f.coulisse, vec![Ordre::Cacher, Ordre::Effacer]);
+    assert_eq!(c.connecte, [Some(false); 4]);
+}
+
+#[test]
+fn le_secret_ne_se_montre_pas_et_s_efface() {
+    let s = Secret::new(MDP_ESSAI.into());
+    assert_eq!(format!("{s:?}"), "Secret(caché)");
+    let o = Ordre::Taper { no: 1, attendu: "x".into(), mail: Some(MAIL_ESSAI.into()), mdp: Some(s) };
+    assert!(!format!("{o:?}").contains(MDP_ESSAI));
+    let mut t = String::from(MDP_ESSAI);
+    effacer(&mut t);
+    assert!(t.is_empty());
+    assert!(est_geste(CONNECTER) && est_geste(ZONE) && !est_geste("pn-ouvrir"));
+    assert_eq!(
+        lire_zone(&json!({ "x": 10, "y": 20, "l": 800, "h": 400 })),
+        Some(Zone { x: 10.0, y: 20.0, l: 800.0, h: 400.0 })
+    );
+    assert_eq!(lire_zone(&json!({ "x": -1, "y": 20, "l": 800, "h": 400 })), None);
+    assert_eq!(lire_zone(&json!({ "x": 1, "y": 20, "l": 8, "h": 400 })), None);
+    // Les textes de la vue : simples, sans tiret long
+    let mut c = Coulisse { source: Some(Site::FranceTravail), ..Coulisse::default() };
+    c.petite = Some(Petite { raison: Raison::Captcha, site: Site::Indeed, offre: false, lecture: None, annonce: None });
+    sans_tiret_long(&c.vue(jour()));
+}

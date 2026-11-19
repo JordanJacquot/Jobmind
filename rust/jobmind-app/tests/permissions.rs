@@ -224,7 +224,7 @@ fn la_vue_des_sites_ne_peut_rien_appeler() {
     let site: tauri::Url = "https://www.linkedin.com/jobs/".parse().unwrap();
     let sites = fenetre
         .add_child(
-            tauri::webview::WebviewBuilder::new(jobmind_app::panneau::LABEL, WebviewUrl::External(site)),
+            tauri::webview::WebviewBuilder::new(jobmind_app::coulisse::LABEL, WebviewUrl::External(site)),
             tauri::LogicalPosition::new(0.0, 120.0),
             tauri::LogicalSize::new(900.0, 500.0),
         )

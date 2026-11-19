@@ -26,12 +26,17 @@
 # (des filtres posés, par exemple filtres:liste=favoris ou filtres:genre=ville;ville=Metz;rayon=10), « reseau:<mode> »
 # (la réponse du faux serveur pour la suite : normal, coupe, quota, refuse ; sans capture), « essayer:<adzuna|jooble> »
 # (« Essayer la clé » dans Mes clés, puis attendre sa réponse).
-# Étape 5 (le panneau des sites, contre les pages d'exemple du faux serveur local, jamais un vrai site) :
-# « panneau:<nom>=<adresse> » (le panneau ouvert sur cette page, comme « Voir sur le site » : panneau.demande, lu
-# seulement par la construction d'essai ; une adresse d'un site est changée pour la page qui l'imite ; attendre que sa
-# page soit chargée ; capture <Prefixe>-panneau-<nom>.png), « ajouter-page » (un clic sur « Ajouter à Jobmind », puis
-# attendre la lecture au journal) ; les boutons de la barre par « clic:pn:voir », « clic:pn:fermer », « clic:pn:decon »
-# (Réglages : « Me déconnecter de tous les sites »).
+# Étapes 5 et 5 bis (les sites, contre les sites imités du faux serveur local, jamais un vrai site) :
+# « voir:<nom>=<adresse> » (la petite fenêtre du site ouverte sur cette page, comme « Voir sur le site » :
+# voir.demande, lu seulement par la construction d'essai ; une adresse d'un site est changée pour la page qui l'imite ;
+# attendre que sa page soit chargée ; capture <Prefixe>-voir-<nom>.png), « ajouter-page » (« Ajouter à Jobmind » dans
+# la petite fenêtre, puis attendre la lecture au journal), « site:<mes|linkedin|indeed|wttj|francetravail> » (la
+# source de l'onglet Offres), « chercher-site » (« Chercher sur le site », puis attendre la lecture en coulisse),
+# « resultat:<n> » (le résultat n ouvert), « connexion:<site> » (la carte de connexion remplie avec les identifiants
+# inventés, sans l'envoyer), « connecter:<site> » (remplie et envoyée, puis attendre la connexion), « sites:<captcha|
+# casse> » (la prochaine liste des sites imités ; sans capture), « pause:<s> » (attendre s secondes, sans capture) ;
+# les boutons par « clic:pf:fermer », « clic:cs:voir »,
+# « clic:cs:ajouter », « clic:cs:suivante », « clic:pn:decon » (Réglages : « Me déconnecter de tous les sites »).
 # -Exemples : la base d'essai est remplie de candidatures inventées à des statuts variés (exemples.demande, lu par la
 # construction d'essai au démarrage). -Largeur et -Hauteur : la taille du panneau (944 x 608 : un panneau de 1180 x 760
 # vu à 125 % d'affichage).
@@ -257,18 +262,56 @@ try {
             Ordre ('{"kit":"accueil","cliquer":"kt:' + $s + '"}')
             Verifier (Attendre { (Compter "Clés : essai de la clé $s ") -ge $essais + 2 } 30000) "Essayer la clé $s : réponse (journal)"
         }
-        # Étape 5 : le panneau des sites, sur le faux serveur local qui imite les sites (jamais internet)
-        elseif ($v -match '^panneau:([a-z][a-z0-9-]{0,30})=(.+)$') {
-            $nom = "panneau-$($Matches[1])"
-            $titres = Compter 'Essai : titre du panneau'
-            [IO.File]::WriteAllText((Join-Path $donnees 'panneau.demande'), $Matches[2], $sansBom)
-            Verifier (Attendre { (Compter 'Essai : titre du panneau') -gt $titres } 15000) "panneau ouvert sur $($Matches[2]) (journal)"
+        # Étapes 5 et 5 bis : les sites, sur le faux serveur local qui imite les sites (jamais internet)
+        elseif ($v -match '^voir:([a-z][a-z0-9-]{0,30})=(.+)$') {
+            $nom = "voir-$($Matches[1])"
+            $titres = Compter 'Essai : titre de la vue des sites'
+            [IO.File]::WriteAllText((Join-Path $donnees 'voir.demande'), $Matches[2], $sansBom)
+            Verifier (Attendre { (Compter 'Essai : titre de la vue des sites') -gt $titres } 15000) "petite fenêtre ouverte sur $($Matches[2]) (journal)"
         }
         elseif ($v -eq 'ajouter-page') {
-            $lus = { (Compter 'Panneau : offre ') + (Compter "Panneau : page lue, pas d'offre") + (Compter 'Panneau : lecture abandonnée') }
+            $lus = { (Compter 'Sites : offre ') + (Compter "Sites : page montrée lue, pas d'offre") + (Compter 'Sites : page montrée non lue') }
             $lusAvant = & $lus
-            Ordre '{"kit":"accueil","cliquer":"pn:ajouter"}'
+            Ordre '{"kit":"accueil","cliquer":"pf:ajouter"}'
             Verifier (Attendre { (& $lus) -gt $lusAvant } 15000) '« Ajouter à Jobmind » : la page est lue (journal)'
+        }
+        elseif ($v -match '^site:(mes|linkedin|indeed|wttj|francetravail)$') {
+            $i = @{ mes = 0; linkedin = 1; indeed = 2; wttj = 3; francetravail = 4 }[$Matches[1]]
+            Ordre '{"kit":"accueil","onglet":"offres"}'
+            [void](Attendre { $false } 700)
+            Ordre ('{"kit":"accueil","cliquer":"cs:s' + $i + '"}')
+        }
+        elseif ($v -match '^pause:(\d{1,2})$') {
+            [void](Attendre { $false } (1000 * [int]$Matches[1]))
+            continue
+        }
+        elseif ($v -match '^sites:(captcha|casse|normal)$') {
+            [IO.File]::WriteAllText((Join-Path $donnees 'sites.essai'), $Matches[1], $sansBom)
+            Ok "prochaine liste des sites imités : $($Matches[1])"
+            continue
+        }
+        elseif ($v -eq 'chercher-site') {
+            $fins = { (Compter 'Sites : liste lue de') + (Compter 'LECTURE CASSÉE') + (Compter 'demande une personne') + (Compter 'Sites : aucun résultat') + (Compter 'ne répond pas (abandonné)') + (Compter 'demande une connexion') }
+            $nAvant = & $fins
+            Ordre '{"kit":"accueil","cliquer":"cs:chercher"}'
+            Verifier (Attendre { (& $fins) -gt $nAvant } 30000) '« Chercher sur le site » : la page est lue (journal)'
+            if ((Compter 'demande une personne') -gt 0) { [void](Attendre { $false } 200) } else { [void](Attendre { $false } 600) }
+        }
+        elseif ($v -match '^resultat:(\d{1,3})$') {
+            $lues = { (Compter 'Sites : offre lue de') + (Compter 'LECTURE CASSÉE') + (Compter 'demande une personne') }
+            $nAvant = & $lues
+            Ordre ('{"kit":"accueil","cliquer":"csl:' + $Matches[1] + '"}')
+            Verifier (Attendre { (& $lues) -gt $nAvant } 30000) "le résultat $($Matches[1]) est ouvert (journal)"
+        }
+        elseif ($v -match '^(connexion|connecter):(linkedin|indeed|wttj|francetravail)$') {
+            # (des identifiants inventés, ceux du faux serveur : jamais de vrais)
+            $envoyer = $Matches[1] -eq 'connecter'
+            $site = $Matches[2]
+            $j = [ordered]@{ site = $site; mail = 'jordan.exemple@exemple.fr'; mdp = 'Essai-MotDePasse-7391!'; envoyer = $envoyer } | ConvertTo-Json -Compress
+            $cx = Compter "Sites : connecté à $site"
+            [IO.File]::WriteAllText((Join-Path $donnees 'connexion.demande'), $j, $sansBom)
+            Verifier (Attendre { -not (Test-Path -LiteralPath (Join-Path $donnees 'connexion.demande')) } 4000) "carte de connexion de $site remplie"
+            if ($envoyer) { Verifier (Attendre { (Compter "Sites : connecté à $site") -gt $cx } 30000) "connecté à $site (journal)" }
         }
         elseif ($v -eq 'calendrier') { Ordre '{"kit":"accueil","calendrier":true}' }
         elseif ($v -match '^jour:(\d{1,2})$') { Ordre ('{"kit":"accueil","cliquer":"cal:' + (Get-Date -Day ([int]$Matches[1]) -Format 'yyyy-MM-dd') + '"}') }

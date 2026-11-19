@@ -10,7 +10,8 @@
 //!   aux pages de l'appli, aucune nouvelle fenêtre. Le menu du clic droit, les raccourcis du navigateur et la saisie
 //!   des mots de passe se coupent dans les réglages de WebView2, que Tauri ne transmet pas (src\windows\webview2.rs).
 //!
-//! Étape 5 : la vue des sites (le panneau), seconde vue de cette même fenêtre ([`creer_panneau`]).
+//! Étape 5 (et 5 bis) : la vue des sites, seconde vue de cette même fenêtre ([`creer_vue_sites`]), chargée en coulisse
+//! (invisible, hors de la fenêtre) ou montrée dans la petite fenêtre de Jobmind.
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
@@ -94,10 +95,10 @@ pub fn creer_principale<R: Runtime, M: Manager<R>>(
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Le panneau des sites (étape 5)
+// La vue des sites (étape 5, en coulisse depuis l'étape 5 bis)
 // ---------------------------------------------------------------------------------------------------------------
 
-/// Une adresse de site que le panneau peut afficher : http ou https, un vrai nom de site (jamais `*.localhost`, où
+/// Une adresse de site que la vue des sites peut afficher : http ou https, un vrai nom de site (jamais `*.localhost`, où
 /// Tauri sert les pages et les commandes de Jobmind, jamais l'adresse de la machine elle-même), sans nom d'utilisateur
 /// ni mot de passe ; ou `about:blank` (la page vide, après « Me déconnecter »).
 pub fn adresse_site_permise(a: &Url) -> bool {
@@ -122,7 +123,7 @@ pub enum EvenementSites {
     /// Une page chargée : son adresse
     Adresse(String),
     /// Une page qui voulait ouvrir une nouvelle fenêtre (un lien « nouvel onglet », `window.open`) : son adresse,
-    /// ouverte dans le panneau à la place
+    /// ouverte dans la même vue à la place (quand la petite fenêtre est ouverte)
     NouvelleFenetre(String),
     /// Un téléchargement refusé (l'hôte)
     Telechargement(String),
@@ -132,8 +133,8 @@ pub enum EvenementSites {
     Titre(String),
 }
 
-/// Ce qui dit si une adresse s'affiche dans le panneau ([`adresse_site_permise`] ; la construction d'essai ne permet
-/// que son faux serveur local).
+/// Ce qui dit si une adresse s'affiche dans la vue des sites ([`adresse_site_permise`] ; la construction d'essai ne
+/// permet que son faux serveur local).
 pub type Permise = Arc<dyn Fn(&Url) -> bool + Send + Sync>;
 /// Ce qui reçoit les événements de la vue des sites.
 pub type Rapport = Arc<dyn Fn(EvenementSites) + Send + Sync>;
@@ -144,9 +145,11 @@ pub type Rapport = Arc<dyn Fn(EvenementSites) + Send + Sync>;
 /// l'appli (capabilities\principale.json n'accepte que les pages locales), et le protocole des pages de l'appli lui
 /// répond « interdit ». Sa session (cookies, connexions) est gardée dans `dossier` (le dossier de données de Jobmind,
 /// `panneau-sites`), avec les mêmes options du navigateur que la fenêtre. Outils de développement, raccourcis de zoom,
-/// saisie automatique coupés ; aucune nouvelle fenêtre (l'adresse est rapportée pour être ouverte dans le panneau),
-/// aucun téléchargement, aucune permission (caméra, micro, position, notifications).
-pub fn creer_panneau<R: Runtime>(
+/// saisie automatique coupés ; aucune nouvelle fenêtre (l'adresse est rapportée pour être ouverte dans la même vue),
+/// aucun téléchargement, aucune permission (caméra, micro, position, notifications). Étape 5 bis : elle est créée hors
+/// de la place visible de la fenêtre (en coulisse : elle charge ses pages sans se voir), et le programme ne la pose
+/// sur la page de Jobmind que dans la petite fenêtre du site.
+pub fn creer_vue_sites<R: Runtime>(
     fenetre: &Window<R>,
     dossier: PathBuf,
     adresse: Url,
@@ -156,7 +159,7 @@ pub fn creer_panneau<R: Runtime>(
 ) -> tauri::Result<Webview<R>> {
     let (r1, r2, r3, r4, r5) =
         (Arc::clone(&rapport), Arc::clone(&rapport), Arc::clone(&rapport), Arc::clone(&rapport), rapport);
-    let constructeur = WebviewBuilder::new(crate::panneau::LABEL, WebviewUrl::External(adresse))
+    let constructeur = WebviewBuilder::new(crate::coulisse::LABEL, WebviewUrl::External(adresse))
         .data_directory(dossier)
         .additional_browser_args(webview::OPTIONS_NAVIGATEUR)
         .devtools(false)
@@ -200,7 +203,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn adresses_du_panneau() {
+    fn adresses_de_la_vue_des_sites() {
         for a in [
             "https://www.linkedin.com/jobs/view/4012345678/",
             "https://fr.indeed.com/viewjob?jk=1",

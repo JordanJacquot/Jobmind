@@ -23,6 +23,8 @@ pub struct Requete {
     /// Le chemin et ses paramètres (« /v1/api/jobs/fr/search/1?app_id=... »)
     pub chemin: String,
     pub corps: String,
+    /// L'en-tête `Cookie` reçu (étape 5 bis : les sessions factices des sites imités)
+    pub cookies: String,
 }
 
 /// Une réponse à rendre.
@@ -119,22 +121,25 @@ fn servir(c: TcpStream, repondeur: &Repondeur, recues: &Mutex<Vec<Requete>>) {
     let methode = morceaux.next().unwrap_or_default().to_string();
     let chemin = morceaux.next().unwrap_or_default().to_string();
     let mut longueur = 0usize;
+    let mut cookies = String::new();
     loop {
         let mut l = String::new();
         if lecteur.read_line(&mut l).unwrap_or(0) == 0 || l.trim().is_empty() {
             break;
         }
-        if let Some((k, v)) = l.split_once(':')
-            && k.trim().eq_ignore_ascii_case("content-length")
-        {
-            longueur = v.trim().parse().unwrap_or(0).min(1_000_000);
+        if let Some((k, v)) = l.split_once(':') {
+            if k.trim().eq_ignore_ascii_case("content-length") {
+                longueur = v.trim().parse().unwrap_or(0).min(1_000_000);
+            } else if k.trim().eq_ignore_ascii_case("cookie") {
+                cookies = v.trim().chars().take(4000).collect();
+            }
         }
     }
     let mut corps = vec![0u8; longueur];
     if lecteur.read_exact(&mut corps).is_err() {
         return;
     }
-    let requete = Requete { methode, chemin, corps: String::from_utf8_lossy(&corps).into_owned() };
+    let requete = Requete { methode, chemin, corps: String::from_utf8_lossy(&corps).into_owned(), cookies };
     if let Ok(mut l) = recues.lock() {
         l.push(requete.clone());
     }
@@ -500,7 +505,22 @@ pub fn reponse_jooble() -> String {
 
 /// Le répondeur qui imite Adzuna et Jooble ; `mode` se change pendant qu'il tourne.
 pub fn imitation(mode: Arc<Mutex<Mode>>) -> impl Fn(&Requete) -> RepFaux + Send + Sync + 'static {
+    imitation_avec_sites(mode, Arc::new(Mutex::new(crate::sites::exemples::ModeSites::Normal)))
+}
+
+/// Le même répondeur, avec le mode des quatre sites imités (étape 5 bis : un captcha, une page que Jobmind ne sait
+/// plus lire), qui se change pendant qu'il tourne.
+pub fn imitation_avec_sites(
+    mode: Arc<Mutex<Mode>>,
+    sites: Arc<Mutex<crate::sites::exemples::ModeSites>>,
+) -> impl Fn(&Requete) -> RepFaux + Send + Sync + 'static {
     move |r: &Requete| {
+        // (étape 5 bis : les listes, les offres et les connexions des quatre sites imités)
+        if (r.methode == "GET" || r.methode == "POST")
+            && let Some(rep) = crate::sites::exemples::repondre(r, &sites)
+        {
+            return rep;
+        }
         // (étape 5 : les pages d'exemple des sites, pour le panneau de l'essai)
         if r.methode == "GET" && (r.chemin.starts_with("/site/") || r.chemin.starts_with("/essai/")) {
             return crate::page::exemples::repondre(&r.chemin);

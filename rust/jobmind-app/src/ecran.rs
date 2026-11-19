@@ -100,14 +100,14 @@ fn rubrique_reglages(delai: u32) -> Value {
                 "moins": "Un jour de moins",
                 "plus": "Un jour de plus",
             },
-            // (étape 5 : la session du panneau des sites)
+            // (étapes 5 et 5 bis : la session des sites lus par Jobmind)
             "sites": {
-                "titre": "Les sites du panneau",
-                "texte": "Tu te connectes toi-même à LinkedIn, Indeed et aux autres sites dans le panneau de Jobmind. \
-                          Tes connexions sont gardées sur ce PC, seulement pour Jobmind.",
+                "titre": "Tes connexions aux sites",
+                "texte": "Jobmind garde tes connexions à LinkedIn, Indeed, Welcome to the Jungle et France Travail sur \
+                          ce PC, seulement pour lui. Ton mot de passe, lui, n'est jamais gardé.",
                 "bouton": "Me déconnecter de tous les sites",
-                "question": "Te déconnecter de tous les sites du panneau ? Tu devras te reconnecter à tes comptes la \
-                             prochaine fois.",
+                "question": "Te déconnecter de tous les sites ? Tu devras te reconnecter à tes comptes la prochaine \
+                             fois.",
                 "oui": "Oui, me déconnecter",
                 "non": "Annuler",
             },

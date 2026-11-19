@@ -28,10 +28,12 @@
 //   ('o-chercher' : Rust interroge Adzuna et Jooble sur un fil à part), la liste ('o-ouvrir'), l'offre ouverte
 //   (favori, plus tard, « Pas pour moi », « Voir sur le site », la mention « Adzuna », « J'ai postulé »), Mes recherches
 //   ('o-recherche', 'o-recherche-supprimer', 'o-depuis-profil') ; Mes clés : « Essayer la clé » ('cle-essayer') ;
-// - le panneau des sites (étape 5) : « Ouvrir les sites » ('pn-ouvrir') et « Voir sur le site » l'ouvrent ; il prend
-//   toute la place de l'accueil : sa barre (retour, avancer, recharger, l'adresse, les raccourcis, « Fermer le
-//   panneau », « Ajouter à Jobmind ») est dessinée ici, la page du site est une seconde vue posée par Rust sur la zone
-//   laissée vide (sa place envoyée par 'pn-zone') ; Réglages : « Me déconnecter de tous les sites » ;
+// - les sites en coulisse (étape 5 bis) : en haut de la liste des offres, la source (« Mes offres », LinkedIn, Indeed,
+//   Welcome to the Jungle, France Travail : 'cs-source') ; un site choisi, « Chercher sur LinkedIn » ('cs-chercher'),
+//   ses résultats lus par Rust en coulisse ('cs-ouvrir', « Page suivante » : 'cs-suivante'), l'offre ouverte
+//   (« Ajouter à Jobmind » : 'cs-ajouter', « Voir la page du site » : 'cs-voir') ; la carte de connexion de Jobmind
+//   ('cs-connecter') ; la petite fenêtre du site, où Rust pose la vraie page (sa place : 'cs-zone') ; Réglages :
+//   « Me déconnecter de tous les sites » ('cs-deconnecter') ;
 // - Retour (Échap, B) ferme d'abord ce qui est ouvert (menu, question, formulaire), revient ensuite au premier
 //   onglet, puis à la console de Mindset ;
 // - les ordres de l'appli : { kit: 'accueil', onglet: id }, { rubrique: id }, { candidature: id } (le dossier
@@ -400,105 +402,271 @@
       ${d.note ? `<p class="jm-note gauche">${esc(texteSur(d.note))}</p>` : ''}</div>`;
   }
 
-  // Réglages (étape 5) : la session du panneau des sites, et « Me déconnecter de tous les sites » (jamais au premier
+  // Réglages (étapes 5 et 5 bis) : la session des sites, et « Me déconnecter de tous les sites » (jamais au premier
   // clic : une question d'abord)
   function sitesReglageHTML(s) {
     const { esc } = O;
     if (!s || typeof s !== 'object' || !texteSur(s.titre)) return '';
     const bas = sitesConfirme
-      ? `<div class="jm-suppr"><p>${esc(texteSur(s.question))}</p><div class="jm-btns">${bouton('pn-decon-oui', 'pn:oui', texteSur(s.oui), 'coche', 'danger')}${bouton('pn-decon-non', 'pn:non', texteSur(s.non), '', 'second')}</div></div>`
-      : `<div class="jm-btns">${bouton('pn-deconnecter', 'pn:decon', texteSur(s.bouton), 'cadenas', 'second')}</div>`;
+      ? `<div class="jm-suppr"><p>${esc(texteSur(s.question))}</p><div class="jm-btns">${bouton('cs-decon-oui', 'pn:oui', texteSur(s.oui), 'coche', 'danger')}${bouton('cs-decon-non', 'pn:non', texteSur(s.non), '', 'second')}</div></div>`
+      : `<div class="jm-btns">${bouton('cs-deconnecter', 'pn:decon', texteSur(s.bouton), 'cadenas', 'second')}</div>`;
     return `<div class="jm-carte-r jm-r-sites"><div class="jm-r-tete"><span class="jm-a-ic">${icone('globe')}</span><div><b>${esc(texteSur(s.titre))}</b><p>${esc(texteSur(s.texte))}</p></div></div>${bas}</div>`;
   }
 
-  // ---------------------------------------------------------------- le panneau des sites (étape 5)
-  // La barre du panneau : page précédente et suivante, recharger, l'adresse (jamais modifiable), « Fermer le
-  // panneau », les raccourcis des sites et « Ajouter à Jobmind ». La page du site elle-même n'est PAS dans cette page :
-  // c'est une seconde vue que Rust pose dans la même fenêtre, exactement sur la zone laissée vide ici (.jm-pn-site),
-  // dont la place lui est envoyée à chaque changement ('pn-zone'). Cette page ne lit jamais le site : « Ajouter à
-  // Jobmind » le demande à Rust, qui lit la page lui-même et dit ce qu'il a trouvé (l'annonce de la barre).
+  // ---------------------------------------------------------------- les sites en coulisse (étape 5 bis)
+  // LinkedIn, Indeed, Welcome to the Jungle et France Travail sont lus par Rust en coulisse (une vue des sites chargée
+  // mais invisible) ; cette page n'en montre que ce que Rust a lu, dans le design de Jobmind : la liste des résultats,
+  // l'offre ouverte (P.coulisse). Deux cartes par-dessus l'onglet :
+  // - la connexion (« Me connecter ») : le mail et le mot de passe tapés ici ne vivent que dans cnx (jamais dans
+  //   l'état, jamais redessinés en HTML : la case du mot de passe est remplie par sa propriété), envoyés une fois à
+  //   Rust ('cs-connecter'), puis oubliés aussitôt ;
+  // - la petite fenêtre du site (P.coulisse.petite) : un bandeau de Jobmind et, dessous, la zone laissée vide
+  //   (.jm-pf-site) où Rust pose la vraie page du site ; sa place lui est envoyée à chaque changement ('cs-zone').
   let sitesConfirme = false;  // « Me déconnecter de tous les sites ? » demandé
-  let pnZone = null;          // la dernière zone envoyée
-  let pnObs = null;           // qui regarde la taille de la zone
-  let pnMinuteur = 0;
-  const panneauDe = () => { const p = P?.panneau; return p && typeof p === 'object' ? p : null; };
-  const panneauOuvert = () => panneauDe()?.ouvert === true;
+  let cnx = null;             // la carte de connexion ouverte : { site, mail, mdp }
+  let pfZone = null;          // la dernière zone envoyée
+  let pfObs = null;           // qui regarde la taille de la zone
+  let pfMinuteur = 0;
+  let carteVue = null;        // la carte dessinée la fois d'avant (« pf » ou « cx ») : seule une nouvelle carte s'anime
+  const cs = () => objet(P?.coulisse);
+  const tC = () => { const t = objet(cs().textes); return (k, site) => texteSur(t[k]).replace('{site}', site || ''); };
+  const siteDe = (id) => liste(cs().sites).find((s) => s?.id === id && codeSurP(id)) || null;
+  const sourceSite = () => (codeSurP(cs().source) ? siteDe(cs().source) : null);
+  const petiteOuverte = () => !!(cs().petite && typeof cs().petite === 'object');
 
-  function panneauSitesHTML(p) {
-    const { esc } = O, t = tx(p);
-    const rond = (perso, k, ic, aide) => `<button type="button" class="jm-rond f" data-perso="${perso}" data-k="${k}" title="${esc(aide)}" aria-label="${esc(aide)}">${icone(ic)}</button>`;
-    const racc = liste(p.raccourcis).filter((r) => codeSurP(r?.id)).map((r, i) => `<button type="button" class="jm-puce petite f" data-perso="pn-aller" data-id="${r.id}" data-k="pn:r${i}">${esc(texteSur(r.nom))}</button>`).join('');
-    const lecture = p.lecture === true;
-    const a = objet(p.annonce);
-    const g = ['ok', 'attention', 'erreur'].includes(a.genre) ? a.genre : 'ok';
-    const annonce = texteSur(a.texte)
-      ? `<div class="jm-annonce ${g} jm-pn-annonce" role="status">${icone(g === 'ok' ? 'coche' : 'attention')}<div><span>${esc(texteSur(a.texte))}</span></div>${numSur(a.offre) ? bouton('pn-offre', 'pn:voir', t('voir'), 'droite', 'second', ` data-id="${a.offre}"`) : ''}</div>`
-      : '';
-    const adresse = texteSur(p.adresse);
-    return `<div class="jm jm-pn" id="jm" data-onglet="panneau">
-      <div class="jm-pn-barre">
-        <div class="jm-pn-rang">
-          <div class="jm-pn-nav">${rond('pn-retour', 'pn:retour', 'gauche', t('retour'))}${rond('pn-avancer', 'pn:avancer', 'droite', t('avancer'))}${rond('pn-recharger', 'pn:recharger', 'recharger', t('recharger'))}</div>
-          <div class="jm-pn-adresse" role="note" aria-label="${esc(t('adresse'))}">${icone('globe')}<span>${esc(adresse || '...')}</span>${texteSur(p.site) ? `<b>${esc(texteSur(p.site))}</b>` : ''}</div>
-          ${bouton('pn-fermer', 'pn:fermer', t('fermer'), 'croix', 'second')}
-        </div>
-        <div class="jm-pn-rang">
-          <div class="jm-puces jm-pn-racc">${racc}</div>
-          <button type="button" class="jm-bt principal jm-pn-ajouter f" data-perso="pn-ajouter" data-k="pn:ajouter"${lecture ? ' disabled' : ''}>${lecture ? '<span class="jm-roue" aria-hidden="true"></span>' : icone('plus')}<span>${esc(lecture ? t('lecture') : t('ajouter'))}</span></button>
-        </div>
-        ${annonce || `<p class="jm-pn-aide">${esc(t('aide'))}</p>`}
-      </div>
-      <div class="jm-pn-site" aria-hidden="true"><span class="jm-roue" aria-hidden="true"></span></div>
-    </div>`;
+  // Les sources de l'onglet Offres : mes offres gardées, ou un des quatre sites
+  function sourcesHTML() {
+    const { esc } = O, t = tC(), src = cs().source || '';
+    const sites = liste(cs().sites).filter((s) => codeSurP(s?.id));
+    if (!sites.length) return '';
+    const l = [{ id: '', nom: t('mes_offres') }, ...sites];
+    return `<div class="jm-sources" role="radiogroup" aria-label="${esc(t('sites_t'))}">${l.map((s, i) => {
+      const oui = (s.id || '') === src;
+      const point = s.connecte === true ? '<i class="jm-point ok" aria-hidden="true"></i>' : '';
+      return `<button type="button" role="radio" aria-checked="${oui}" class="jm-puce petite f${oui ? ' oui' : ''}" data-perso="cs-source" data-id="${s.id || ''}" data-k="cs:s${i}">${point}${esc(texteSur(s.nom))}</button>`;
+    }).join('')}</div>`;
   }
 
-  function dessinerPanneau(focusK) {
-    const kActif = document.activeElement?.closest?.('#jm [data-k]')?.dataset.k;
-    hote.innerHTML = panneauSitesHTML(panneauDe());
-    O.anime = false;
-    const k = focusK || kActif;
-    const cible = k && hote.querySelector(`[data-k="${CSS.escape(k)}"]`);
-    (cible || hote.querySelector('[data-k="pn:ajouter"]'))?.focus({ preventScroll: true });
+  // Une phrase de Rust (une erreur, une lecture qui casse, une connexion faite), avec son bouton
+  function annonceSitesHTML(a, site) {
+    const { esc } = O, t = tC();
+    if (!a || !texteSur(a.texte)) return '';
+    const g = ['ok', 'attention', 'erreur'].includes(a.genre) ? a.genre : 'ok';
+    const b = { voir: ['cs-voir', 'cs:a-voir', t('voir'), 'ext'], connexion: ['cs-connexion', 'cs:a-cx', t('connecter'), 'cadenas'], page_site: ['cs-page-site', 'cs:a-site', t('page_site'), 'globe'] }[a.bouton];
+    const offre = numSur(a.offre) ? bouton('cs-offre', 'cs:a-offre', t('voir_offre'), 'droite', 'discret', ` data-id="${a.offre}"`) : '';
+    return `<div class="jm-annonce ${g}" role="status">${icone(g === 'ok' ? 'coche' : 'attention')}<div><span>${esc(texteSur(a.texte))}</span>${b ? bouton(b[0], b[1], b[2], b[3], 'discret', ` data-id="${site?.id || ''}"`) : ''}${offre}</div></div>`;
+  }
+
+  // La colonne de gauche quand un site est choisi : la recherche, « Chercher sur LinkedIn », la connexion, la liste
+  function listeSitesHTML(x, s) {
+    const { esc } = O, t = tC(), c = cs(), to = tO(x);
+    const recherches = liste(x.recherches).filter((r) => numSur(r?.id));
+    let h = `${sourcesHTML()}<div class="jm-rch">`;
+    if (recherches.length) {
+      h += `<div class="jm-rch-l"><label class="jm-rch-choix"><span>${esc(to('mes_recherches'))}</span><select class="f" data-perso="of-recherche" data-k="or:choix">${recherches.map((r) => `<option value="${r.id}"${r.id === x.recherche ? ' selected' : ''}>${esc(texteSur(r.nom))}</option>`).join('')}</select></label></div>`;
+      if (x.recherche_sous) h += `<p class="jm-rch-sous">${esc(texteSur(x.recherche_sous))}</p>`;
+    } else {
+      h += `<p class="jm-rch-sous">${esc(to('sans_recherche'))}</p><div class="jm-btns serre">${bouton('of-nouvelle', 'or:nouvelle', to('nouvelle'), 'plus', '')}</div>`;
+    }
+    const occupe = typeof c.attente === 'string' && c.attente;
+    h += `<button type="button" class="jm-bt principal jm-rch-go f" data-perso="cs-chercher" data-id="${s.id}" data-k="cs:chercher"${occupe || !recherches.length ? ' disabled' : ''}>${icone('loupe')}<span>${esc(t('chercher', s.nom))}</span></button>`;
+    if (occupe) h += `<div class="jm-attente petite" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(occupe)}</span></div>`;
+    h += annonceSitesHTML(c.annonce, s);
+    const oui = s.connecte === true;
+    h += `<div class="jm-cx-etat${oui ? ' ok' : ''}"><i class="jm-point${oui ? ' ok' : ''}" aria-hidden="true"></i><span>${esc(texteSur(s.etat))}</span>${oui ? '' : bouton('cs-connexion', 'cs:connecter', t('connecter'), 'cadenas', 'discret', ` data-id="${s.id}"`)}</div>`;
+    h += '</div>';
+    const l = c.liste && typeof c.liste === 'object' && c.liste.site === s.id ? c.liste : null;
+    if (l && liste(l.lignes).length) {
+      h += `<div class="jm-liste-tete"><span class="jm-liste-t">${esc(texteSur(l.titre))}</span></div><p class="jm-rch-sous jm-cs-sous">${esc(texteSur(l.sous))}</p>`;
+      for (const r of liste(l.lignes)) {
+        if (!Number.isInteger(r?.i) || r.i < 0 || r.i > 999) continue;
+        const sel = r.sel === true;
+        h += `<button type="button" class="jm-cand jm-off f${sel ? ' sel' : ''}" data-perso="cs-ouvrir" data-i="${r.i}" data-k="csl:${r.i}" aria-current="${sel}">
+          <span class="jm-c1"><b>${esc(texteSur(r.titre))}</b></span>
+          <span class="jm-c2">${esc(texteSur(r.sous))}</span><span class="jm-c3 pale">${esc(texteSur(r.l3))}</span></button>`;
+      }
+      if (l.suivante === true) h += `<div class="jm-btns centre jm-cs-suite">${bouton('cs-suivante', 'cs:suivante', t('suivante'), 'droite', 'second')}</div>`;
+    }
+    return h;
+  }
+
+  // L'offre d'un site lue en coulisse, comme une offre de l'onglet Offres
+  function ficheSiteHTML(f, s) {
+    const { esc } = O, t = tC();
+    let h = `<div class="jm-d jm-of${O.anime ? ' entree' : ''}"><div class="jm-d-tete"><div class="jm-d-titres"><h1>${esc(texteSur(f.titre))}</h1><div class="jm-d-sous">${esc(texteSur(f.sous))}</div></div></div>`;
+    h += `<div class="jm-o-src"><span>${esc(texteSur(f.source))}</span></div>`;
+    if (texteSur(f.candidats)) h += `<p class="jm-o-double jm-o-cand">${icone('profil')}<span>${esc(texteSur(f.candidats))}</span></p>`;
+    h += `<div class="jm-infos">${liste(f.infos).map((i) => `<div><span>${esc(texteSur(i?.nom))}</span><b>${esc(texteSur(i?.valeur))}</b></div>`).join('')}</div>`;
+    const voir = bouton('cs-voir', 'cs:voir', t('voir'), 'ext', '', ` data-id="${s.id}"`);
+    if (numSur(f.ajoutee)) {
+      h += `<div class="jm-action calme-o"><span class="jm-a-ic">${icone('coche')}</span><div class="jm-a-txt"><b>${esc(t('ajoutee'))}</b></div><div class="jm-a-bts">${bouton('cs-offre', 'cs:offre', t('voir_offre'), 'dossier', '', ` data-id="${f.ajoutee}"`)}</div></div><div class="jm-btns">${voir}</div>`;
+    } else {
+      h += `<div class="jm-btns jm-o-bts">${bouton('cs-ajouter', 'cs:ajouter', t('ajouter'), 'plus', 'principal')}${voir}</div>`;
+    }
+    const texte = texteSur(f.texte);
+    h += `<h2 class="jm-h2">${esc(t('texte_t'))}</h2>`;
+    h += texte ? `<div class="jm-o-texte" data-brut>${esc(texte)}</div>` : `<p class="jm-panneau-vide">${esc(t('texte_vide'))}</p>`;
+    return `${h}</div>`;
+  }
+
+  // La droite quand un site est choisi : l'offre ouverte, son chargement, ou ce que fait ce site dans Jobmind
+  function droiteSitesHTML(s) {
+    const { esc } = O, t = tC(), c = cs();
+    if (c.attente_offre === true) {
+      return `<div class="jm-vide"><div class="jm-v-ic plasma-bord">${icone('globe')}</div><div class="jm-attente" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(texteSur(c.attente))}</span></div></div>`;
+    }
+    const f = c.fiche && typeof c.fiche === 'object' && c.fiche.site === s.id ? c.fiche : null;
+    if (f) return ficheSiteHTML(f, s);
+    const l = c.liste && typeof c.liste === 'object' && c.liste.site === s.id && liste(c.liste.lignes).length;
+    return `<div class="jm-vide${anime()}"><div class="jm-v-ic plasma-bord">${icone('globe')}</div><h1>${esc(t('vide_t', s.nom))}</h1>
+      <p>${esc(l ? t('choisir') : t('vide', s.nom))}</p>
+      ${s.connecte === true ? '' : `<p class="jm-note">${esc(t('vide_note'))}</p><div class="jm-btns centre">${bouton('cs-connexion', 'cs:connecter2', t('connecter'), 'cadenas', 'second', ` data-id="${s.id}"`)}</div>`}</div>`;
+  }
+
+  // La carte de connexion de Jobmind (par-dessus l'onglet)
+  function connexionHTML() {
+    const { esc } = O, t = tC(), s = siteDe(cnx?.site);
+    if (!s) return '';
+    return `<div class="jm-modale${carteVue === 'cx' ? '' : ' entree'}" role="dialog" aria-modal="true" aria-labelledby="jm-cx-t"><form class="jm-modale-boite" novalidate>
+      <div class="jm-modale-tete"><span class="jm-a-ic">${icone('cadenas')}</span><h2 id="jm-cx-t">${esc(t('cx_titre', s.nom))}</h2></div>
+      <p class="jm-intro">${esc(t('cx_intro', s.nom))}</p>
+      <div class="jm-grille un">
+        <label class="jm-champ"><span>${esc(t('cx_mail'))}</span><input class="f" type="email" data-perso="cs-cx-champ" data-champ="mail" data-k="cx:mail" maxlength="200" autocomplete="off" spellcheck="false" value="${esc(cnx.mail || '')}"></label>
+        <label class="jm-champ"><span>${esc(t('cx_mdp'))}</span><input class="f" type="password" data-perso="cs-cx-champ" data-champ="mdp" data-k="cx:mdp" maxlength="300" autocomplete="off" spellcheck="false"></label>
+      </div>
+      <p class="jm-err" role="alert"></p>
+      <div class="jm-btns">${bouton('cs-cx-ok', 'cx:ok', t('cx_ok'), 'cadenas', 'principal')}${bouton('cs-cx-non', 'cx:non', t('cx_annuler'), '', 'second')}</div>
+      <div class="jm-cx-autre"><span>${esc(t('cx_autre'))}</span>${bouton('cs-page-site', 'cx:site', t('page_site'), 'globe', 'discret', ` data-id="${s.id}"`)}</div>
+    </form></div>`;
+  }
+
+  // La petite fenêtre du site : le bandeau de Jobmind, et la place de la vraie page
+  function petiteHTML() {
+    const { esc } = O, t = tC(), p = objet(cs().petite);
+    const lecture = p.lecture === true;
+    const ajouter = p.ajouter === true
+      ? `<button type="button" class="jm-bt principal f" data-perso="cs-ajouter-page" data-k="pf:ajouter"${lecture ? ' disabled' : ''}>${lecture ? '<span class="jm-roue" aria-hidden="true"></span>' : icone('plus')}<span>${esc(lecture ? t('lecture') : t('ajouter'))}</span></button>`
+      : '';
+    return `<div class="jm-pf${carteVue === 'pf' ? '' : ' entree'}" role="dialog" aria-modal="true" aria-labelledby="jm-pf-t"><div class="jm-pf-cadre">
+      <div class="jm-pf-bandeau"><span class="jm-a-ic">${icone(p.ajouter === true ? 'globe' : 'attention')}</span>
+        <div class="jm-pf-txt"><b id="jm-pf-t">${esc(texteSur(p.titre))}</b><span>${esc(texteSur(p.texte))}</span></div>
+        <div class="jm-pf-bts">${ajouter}${bouton('cs-fermer', 'pf:fermer', t('fermer'), 'croix', 'second')}</div></div>
+      ${annonceSitesHTML(p.annonce, null).replace('class="jm-annonce', 'class="jm-pf-annonce jm-annonce')}
+      <div class="jm-pf-site" aria-hidden="true"><span class="jm-roue" aria-hidden="true"></span></div>
+    </div></div>`;
+  }
+
+  // Les cartes par-dessus l'onglet (après chaque dessin)
+  function cartesSites() {
+    const jm = hote.querySelector('#jm');
+    if (!jm) return;
+    if (cnx && !siteDe(cnx.site)) cnx = null;
+    if (petiteOuverte()) { cnx = null; jm.insertAdjacentHTML('beforeend', petiteHTML()); carteVue = 'pf'; }
+    else if (cnx) {
+      jm.insertAdjacentHTML('beforeend', connexionHTML());
+      carteVue = 'cx';
+      // (le mot de passe tapé reste dans sa case, posé par sa propriété : jamais écrit dans le HTML)
+      const m = hote.querySelector('[data-k="cx:mdp"]'); if (m) m.value = cnx.mdp || '';
+    } else carteVue = null;
     suivreZone();
   }
 
-  // La zone laissée au site : envoyée à Rust (en pixels de la page) à chaque changement de taille ou de place
+  // La zone laissée à la page du site : envoyée à Rust (en pixels de la page) à chaque changement de taille ou de place
   function suivreZone() {
-    const el = hote?.querySelector('.jm-pn-site');
-    if (!el) { if (pnObs) { pnObs.disconnect(); pnObs = null; } pnZone = null; return; }
-    if (!pnObs) pnObs = new ResizeObserver(() => { clearTimeout(pnMinuteur); pnMinuteur = setTimeout(envoyerZone, 40); });
-    pnObs.disconnect();
-    pnObs.observe(el);
+    const el = hote?.querySelector('.jm-pf-site');
+    if (!el) { if (pfObs) { pfObs.disconnect(); pfObs = null; } pfZone = null; return; }
+    if (!pfObs) pfObs = new ResizeObserver(() => { clearTimeout(pfMinuteur); pfMinuteur = setTimeout(envoyerZone, 40); });
+    pfObs.disconnect();
+    pfObs.observe(el);
     requestAnimationFrame(envoyerZone);
   }
   function envoyerZone() {
-    const el = hote?.querySelector('.jm-pn-site');
-    if (!el || !panneauOuvert()) return;
+    const el = hote?.querySelector('.jm-pf-site');
+    if (!el || !petiteOuverte()) return;
     const r = el.getBoundingClientRect(), d = (n) => Math.round(n * 2) / 2;
     const z = { x: d(r.left), y: d(r.top), l: d(r.width), h: d(r.height) };
     if (z.l < 40 || z.h < 40) return;
-    if (pnZone && pnZone.x === z.x && pnZone.y === z.y && pnZone.l === z.l && pnZone.h === z.h) return;
-    pnZone = z;
-    O.action('pn-zone', z);
+    if (pfZone && pfZone.x === z.x && pfZone.y === z.y && pfZone.l === z.l && pfZone.h === z.h) return;
+    pfZone = z;
+    O.action('cs-zone', z);
   }
-  addEventListener('resize', () => { clearTimeout(pnMinuteur); pnMinuteur = setTimeout(envoyerZone, 40); });
+  addEventListener('resize', () => { clearTimeout(pfMinuteur); pfMinuteur = setTimeout(envoyerZone, 40); });
 
-  // Un élément du panneau (ou des réglages de sa session) ; vrai s'il en était un
-  function validerPanneau(el, d) {
+  // Ouvre la carte de connexion d'un site
+  function ouvrirConnexion(id) {
+    if (!siteDe(id)) return;
+    cnx = { site: id, mail: cnx?.site === id ? cnx.mail : '', mdp: '' };
+    dessinerTout('cx:mail');
+  }
+  function fermerConnexion() {
+    const id = cnx?.site;
+    if (cnx) cnx.mdp = '';
+    cnx = null;
+    dessinerTout(id ? 'cs:connecter' : undefined);
+  }
+  // « Me connecter » : le mail et le mot de passe partent une fois à Rust, puis sont oubliés ici
+  function envoyerConnexion() {
+    if (!cnx) return;
+    const t = tC(), mail = String(cnx.mail || '').trim(), mdp = String(cnx.mdp || '');
+    const vide = !mail ? 'mail' : (!mdp ? 'mdp' : null);
+    if (vide) {
+      const el = hote.querySelector(`[data-k="cx:${vide}"]`);
+      el?.closest('.jm-champ')?.classList.add('faux');
+      const err = hote.querySelector('.jm-modale .jm-err'); if (err) err.textContent = t(vide === 'mail' ? 'cx_vide_mail' : 'cx_vide_mdp');
+      el?.focus({ preventScroll: false });
+      O.son?.retour?.();
+      return;
+    }
+    if (Date.now() < envoiJusqua) return;
+    envoiJusqua = Date.now() + 800;
+    O.son?.ok?.();
+    const site = cnx.site;
+    hote.querySelectorAll('.jm-modale input').forEach((el) => { el.value = ''; });
+    cnx.mdp = ''; cnx = null;
+    O.action('cs-connecter', { site, mail: mail.slice(0, 200), mdp: mdp.slice(0, 300) });
+    dessinerTout('cs:chercher');
+  }
+
+  // Un élément des sites (ou des réglages de leur session) ; vrai s'il en était un
+  function validerSites(el, d) {
     switch (d.perso) {
-      case 'pn-ouvrir': O.son?.ok?.(); O.action('pn-ouvrir', codeSurP(d.id) ? { site: d.id } : {}); return true;
-      case 'pn-aller': if (codeSurP(d.id)) { O.son?.tic?.(); O.action('pn-aller', { site: d.id }); } return true;
-      case 'pn-retour': O.son?.tic?.(); O.action('pn-retour'); return true;
-      case 'pn-avancer': O.son?.tic?.(); O.action('pn-avancer'); return true;
-      case 'pn-recharger': O.son?.tic?.(); O.action('pn-recharger'); return true;
-      case 'pn-fermer': O.son?.retour?.(); O.action('pn-fermer'); return true;
-      case 'pn-ajouter': if (!el.disabled) { el.disabled = true; O.son?.ok?.(); O.action('pn-ajouter'); } return true;
-      case 'pn-offre': { const id = Number(d.id); if (numSur(id)) { O.son?.ok?.(); O.action('pn-offre', { id }); } return true; }
-      case 'pn-deconnecter': O.son?.tic?.(); sitesConfirme = true; dessinerTout('pn:non'); hote.querySelector('.jm-r-sites .jm-suppr')?.scrollIntoView({ block: 'nearest', behavior: reduit() ? 'auto' : 'smooth' }); return true;
-      case 'pn-decon-non': O.son?.retour?.(); sitesConfirme = false; dessinerTout('pn:decon'); return true;
-      case 'pn-decon-oui': sitesConfirme = false; el.disabled = true; O.son?.ok?.(); O.action('pn-deconnecter'); return true;
+      case 'cs-source': if (d.id === '' || codeSurP(d.id)) { O.son?.bascule?.(); O.anime = !reduit(); O.action('cs-source', { site: d.id || '' }); } return true;
+      case 'cs-chercher': {
+        if (el.disabled || !codeSurP(d.id)) return true;
+        const x = offresDe();
+        O.son?.ok?.(); O.action('cs-chercher', { site: d.id, recherche: numSur(x?.recherche) ? x.recherche : 0 });
+        return true;
+      }
+      case 'cs-suivante': O.son?.ok?.(); O.action('cs-suivante'); return true;
+      case 'cs-ouvrir': { const i = Number(d.i); if (Number.isInteger(i) && i >= 0) { O.son?.ok?.(); O.anime = !reduit(); O.action('cs-ouvrir', { i }); } return true; }
+      case 'cs-ajouter': if (!el.disabled) { el.disabled = true; O.son?.ok?.(); O.action('cs-ajouter'); } return true;
+      case 'cs-voir': O.son?.ok?.(); O.action('cs-voir'); return true;
+      case 'cs-offre': { const id = Number(d.id); if (numSur(id)) { O.son?.ok?.(); O.action('cs-offre', { id }); } return true; }
+      case 'cs-connexion': O.son?.ok?.(); ouvrirConnexion(codeSurP(d.id) ? d.id : cs().source); return true;
+      case 'cs-cx-champ': {   // (Entrée : la case suivante, puis « Me connecter »)
+        if (d.champ === 'mail') hote.querySelector('[data-k="cx:mdp"]')?.focus({ preventScroll: false });
+        else envoyerConnexion();
+        return true;
+      }
+      case 'cs-cx-ok': envoyerConnexion(); return true;
+      case 'cs-cx-non': O.son?.retour?.(); fermerConnexion(); return true;
+      case 'cs-page-site': { const id = codeSurP(d.id) ? d.id : cnx?.site; if (cnx) cnx.mdp = ''; cnx = null; if (codeSurP(id)) { O.son?.ok?.(); O.action('cs-page-site', { site: id }); } return true; }
+      case 'cs-fermer': O.son?.retour?.(); O.action('cs-fermer'); return true;
+      case 'cs-ajouter-page': if (!el.disabled) { el.disabled = true; O.son?.ok?.(); O.action('cs-ajouter-page'); } return true;
+      case 'cs-deconnecter': O.son?.tic?.(); sitesConfirme = true; dessinerTout('pn:non'); hote.querySelector('.jm-r-sites .jm-suppr')?.scrollIntoView({ block: 'nearest', behavior: reduit() ? 'auto' : 'smooth' }); return true;
+      case 'cs-decon-non': O.son?.retour?.(); sitesConfirme = false; dessinerTout('pn:decon'); return true;
+      case 'cs-decon-oui': sitesConfirme = false; el.disabled = true; O.son?.ok?.(); O.action('cs-deconnecter'); return true;
       default: return false;
     }
+  }
+
+  // Ce qui se tape dans la carte de connexion : gardé ici seulement, jamais dans l'état
+  function saisieSites(el, d) {
+    if (d.perso !== 'cs-cx-champ' || !cnx || !['mail', 'mdp'].includes(d.champ)) return false;
+    cnx[d.champ] = String(el.value);
+    el.closest('.jm-champ')?.classList.remove('faux');
+    const err = hote.querySelector('.jm-modale .jm-err'); if (err) err.textContent = '';
+    return true;
   }
 
   function droiteRubrique(r, o) {
@@ -517,9 +685,6 @@
   }
 
   function dessinerTout(focusK) {
-    // (étape 5 : le panneau des sites ouvert prend toute la place de l'accueil)
-    if (panneauOuvert()) { dessinerPanneau(focusK); return; }
-    suivreZone();
     const o = ongletDe(onglet);
     if (!o) { hote.innerHTML = ''; return; }
     onglet = o.id;
@@ -537,9 +702,16 @@
       droite = droiteCandidatures(o, s);
     } else if (x) {
       suivreOffres(x);
-      barre = barreOffresHTML(x);
-      gauche = listeOffresHTML(o, x);
-      droite = droiteOffres(x);
+      // (étape 5 bis : un site choisi, ses résultats lus en coulisse ; sinon mes offres gardées et leurs filtres)
+      const site = sourceSite();
+      if (site) {
+        gauche = listeSitesHTML(x, site);
+        droite = droiteSitesHTML(site);
+      } else {
+        barre = barreOffresHTML(x);
+        gauche = listeOffresHTML(o, x);
+        droite = droiteOffres(x);
+      }
     } else {
       const r = rubriqueDe(o);
       gauche = listeHTML(o, r);
@@ -553,6 +725,8 @@
         </div>
       </div>`;
     O.anime = false;
+    // (étape 5 bis : la carte de connexion, ou la petite fenêtre du site, par-dessus l'onglet)
+    cartesSites();
     if (memeOnglet) {
       const d = hote.querySelector('.jm-dossier'), l = hote.querySelector('.jm-liste');
       if (d) d.scrollTop = hautD;
@@ -774,6 +948,8 @@
       const f = fiche(); if (f) notes[f.id] = el.value;
     } else if (d.perso === 'p-champ') {
       saisieProfil(el, d);
+    } else if (d.perso === 'cs-cx-champ') {
+      saisieSites(el, d);
     } else if (typeof d.perso === 'string' && d.perso.startsWith('of-')) {
       saisieOffres(el, d);
     }
@@ -1276,7 +1452,8 @@
     const { esc } = O, t = tO(x);
     const recherches = liste(x.recherches).filter((r) => numSur(r?.id));
     const enCours = typeof x.en_cours === 'string' && x.en_cours;
-    let h = '<div class="jm-rch">';
+    // (étape 5 bis : la source, mes offres ou un des quatre sites, en haut de la liste)
+    let h = `${sourcesHTML()}<div class="jm-rch">`;
     if (recherches.length) {
       h += `<div class="jm-rch-l"><label class="jm-rch-choix"><span>${esc(t('mes_recherches'))}</span><select class="f" data-perso="of-recherche" data-k="or:choix">${recherches.map((r) => `<option value="${r.id}"${r.id === x.recherche ? ' selected' : ''}>${esc(texteSur(r.nom))}</option>`).join('')}</select></label>
           <button type="button" class="jm-rond f${ofVue === 'recherches' ? ' on' : ''}" data-perso="of-gerer" data-k="or:gerer" title="${esc(t('gerer'))}" aria-label="${esc(t('gerer'))}">${icone('reglages')}</button></div>`;
@@ -1293,9 +1470,6 @@
       const g = ['ok', 'attention', 'erreur'].includes(a.genre) ? a.genre : 'ok';
       h += `<div class="jm-annonce ${g}" role="status">${icone(g === 'ok' ? 'coche' : 'attention')}<div><span>${esc(texteSur(a.texte))}</span>${a.cles === true ? bouton('of-cles', 'or:cles', t('ouvrir_cles'), 'cle', 'discret') : ''}</div></div>`;
     }
-    // (étape 5 : LinkedIn, Indeed, Welcome to the Jungle, France Travail dans le panneau des sites)
-    const pn = panneauDe();
-    if (pn) h += bouton('pn-ouvrir', 'or:sites', tx(pn)('naviguer'), 'globe', 'second jm-rch-sites');
     h += '</div>';
     const lignes = liste(x.lignes).filter((l) => numSur(l?.id));
     const ouverte = ofChoisie ?? x.fiche?.id;
@@ -1575,7 +1749,7 @@
     // Un onglet, une ligne, un bouton (clic, A ou Entrée)
     valider(el) {
       const d = el.dataset;
-      if (validerPanneau(el, d)) return;
+      if (validerSites(el, d)) return;
       if (d.perso === 'onglet' && idSur(d.id)) { if (d.id !== onglet) O.son?.tic?.(); montrer(d.id); return; }
       if (d.perso === 'rubrique' && idSur(d.id)) { O.son?.ok?.(); ouvrirRubrique(d.id); return; }
       validerSuivi(el, d);
@@ -1583,8 +1757,9 @@
     // Retour (Échap, B, le bouton du bas) : d'abord ce qui est ouvert, puis le premier onglet ; sinon le kit revient
     // au menu de Mindset
     retour() {
-      // (étape 5 : le panneau des sites se ferme d'abord)
-      if (panneauOuvert()) { O.action('pn-fermer'); return true; }
+      // (étape 5 bis : la petite fenêtre du site, puis la carte de connexion, se ferment d'abord)
+      if (petiteOuverte()) { O.action('cs-fermer'); return true; }
+      if (cnx) { fermerConnexion(); return true; }
       if (sitesConfirme) { sitesConfirme = false; dessinerTout('pn:decon'); return true; }
       if (cal && calOuvert(cal.ou)) { fermerCal(); return true; }
       if (menu) { menu = false; dessinerTout('d:statut'); return true; }
@@ -1602,6 +1777,16 @@
       if (!hote || !P) return;
       if (ordreProfil(o)) return;
       if (ordreOffres(o)) return;
+      // (construction d'essai seulement : la carte de connexion remplie comme Jordan, avec des identifiants inventés)
+      if (o.connexion && typeof o.connexion === 'object') {
+        const c = o.connexion;
+        if (!codeSurP(c.site) || !siteDe(c.site)) return;
+        if (onglet !== 'offres') montrer('offres');
+        cnx = { site: c.site, mail: texteSur(c.mail).slice(0, 200), mdp: texteSur(c.mdp).slice(0, 300) };
+        dessinerTout('cx:mdp');
+        if (c.envoyer === true) envoyerConnexion();
+        return;
+      }
       if (idSur(o.rubrique)) {
         const avec = onglets().find((x) => rubriquesDe(x).some((r) => r.id === o.rubrique));
         if (avec) { montrer(avec.id, `r:${o.rubrique}`); ouvrirRubrique(o.rubrique); }

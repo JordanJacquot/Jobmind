@@ -135,12 +135,43 @@ fn court(t: &str) -> String {
     t.chars().take(120).collect()
 }
 
-/// La ligne du journal d'un message (le receveur par défaut, en attendant celui du programme)
+/// Les champs d'un geste jamais écrits au journal (un mot de passe, une clé, un mail tapé pour se connecter).
+const CACHES: [&str; 5] = ["mdp", "mail", "cle", "valeurs", "password"];
+
+/// Écrit des zéros sur tous les textes d'une valeur (un message de la page qui portait un mot de passe), puis les vide.
+pub fn effacer_valeur(v: &mut Value) {
+    match v {
+        Value::String(s) => {
+            let n = s.len();
+            s.clear();
+            s.extend(std::iter::repeat_n('\0', n));
+            std::hint::black_box(s.as_str());
+            s.clear();
+        }
+        Value::Array(a) => a.iter_mut().for_each(effacer_valeur),
+        Value::Object(o) => o.values_mut().for_each(effacer_valeur),
+        _ => {}
+    }
+}
+
+/// La ligne du journal d'un message (le receveur par défaut, en attendant celui du programme). Étape 5 bis : un mot
+/// de passe, une clé ou un mail n'y sont jamais (« caché »).
 pub fn ligne_journal(m: &MessagePage) -> String {
     match m {
         MessagePage::Pret => "Écran prêt".into(),
         MessagePage::Action { id, valeur, ecran } => {
-            format!("Écran : action {id} (écran {ecran}, valeur {})", court(&valeur.to_string()))
+            let mut v = valeur.clone();
+            if let Some(o) = v.as_object_mut() {
+                for k in CACHES {
+                    if let Some(x) = o.get_mut(k) {
+                        effacer_valeur(x);
+                        *x = Value::String("caché".into());
+                    }
+                }
+            }
+            let l = format!("Écran : action {id} (écran {ecran}, valeur {})", court(&v.to_string()));
+            effacer_valeur(&mut v);
+            l
         }
         MessagePage::Ecran { id } => format!("Écran : montre {id}"),
         MessagePage::Menu => "Écran : retour au menu de Mindset demandé".into(),

@@ -14,16 +14,39 @@ chaque candidature vite sans qu'elle sonne comme une IA, et savoir à tout momen
      **diplôme demandé** (dont « aucun diplôme requis »), expérience demandée.
    - **Jobmind lit chaque offre** : quand le site ne dit pas clairement le diplôme ou l'expérience demandés, il les
      trouve dans le texte de l'offre (règles simples d'abord, IA si besoin).
-   - **LinkedIn, Indeed, Welcome to the Jungle** (demande de Jordan, 18/11), sans recherche automatique sur ces sites
-     (interdite, risque de blocage du compte) :
-     - **« Ajouter à Jobmind »** : Jordan navigue sur ces sites dans le panneau intégré, connecté à son compte ; un clic
-       lit la page qu'il regarde et ajoute l'offre (archivée, triée, prête pour la candidature). Une page à la fois.
+   - **LinkedIn, Indeed, Welcome to the Jungle, France Travail** (demande de Jordan, 18/11), sans recherche
+     automatique sur ces sites (interdite, risque de blocage du compte) :
+     - **Les sites dans le design de Jobmind** (demande de Jordan, 19/11 : le grand panneau qui montrait les vrais
+       sites cassait le style de Jobmind ; c'est l'étape 5 bis) : Jobmind lit les sites lui-même, avec un navigateur
+       caché dans Jobmind (chargé mais invisible, connexions gardées sur le PC), et montre tout avec son propre style :
+       - dans l'onglet Offres, Jordan choisit la source (Mes offres, LinkedIn, Indeed, Welcome to the Jungle, France
+         Travail) et sa recherche (celles de « Ce que je cherche » ou de Mes recherches) ; « Chercher sur LinkedIn »
+         ouvre la page de résultats du site en coulisse, la lit (titre, entreprise, lieu, date, lien, nombre de
+         candidats quand la liste le montre) et l'affiche comme les offres d'Adzuna. « Page suivante » sur un clic
+         seulement ;
+       - un clic sur un résultat : Jobmind ouvre l'offre en coulisse, la lit (données du site, règles par site, texte
+         principal, nombre de candidats) et la montre comme une offre de l'onglet Offres, avec **« Ajouter à
+         Jobmind »** (gardée dans l'archive, triée, prête pour la candidature) et « Voir la page du site » ;
+       - **la connexion** : une petite carte de Jobmind demande le mail et le mot de passe ; Jobmind les tape une
+         seule fois dans le formulaire du site, en coulisse, en suivant les écrans (le mail, puis le mot de passe). Le
+         mot de passe n'est jamais gardé (ni base, ni fichier, ni journal), il est effacé dès qu'il est tapé.
+         « Continuer avec Google ou Apple » : Jordan utilise la page du site. Jobmind dit s'il est connecté
+         (« Connecté à LinkedIn ») ;
+       - **la petite fenêtre du site** (la vraie page, dans un cadre par-dessus Jobmind, jamais une autre fenêtre)
+         s'ouvre seulement quand le site demande une personne (captcha, code reçu par mail, « vérifiez que c'est
+         vous », un écran de connexion inconnu) ou quand Jordan veut voir la page (« Voir la page du site », « Voir
+         sur le site », « Postuler » sur LinkedIn). Ouverte pour une vérification, elle se referme seule ensuite et
+         Jobmind reprend ce qu'il faisait. On peut aussi y cliquer « Ajouter à Jobmind » ;
+       - quand un site change sa page et que Jobmind ne sait plus la lire : une phrase simple (« Jobmind n'arrive pas
+         à lire cette page de LinkedIn ») avec « Voir la page du site », et une trace au journal pour corriger ;
+       - toujours une page à la fois, seulement après un clic de Jordan, à son rythme (au moins 3 secondes entre deux
+         pages) : aucun parcours automatique, aucune boucle, aucun contournement de captcha.
      - **Les alertes par mail** : Jobmind lit dans Gmail les alertes « nouvelles offres » de ces sites et ajoute les
        offres tout seul. La lecture de Gmail entre donc dans la 1re version.
      - **Nombre de candidats** : quand la page le montre (LinkedIn : « 34 candidats », « Plus de 100 candidats »),
        Jobmind le garde et l'affiche avec sa date (« 34 candidats sur LinkedIn, vu le 18 nov. »). Mis à jour seulement
        quand Jordan rouvre l'offre, jamais en arrière-plan.
-     - Postuler sur LinkedIn : la page reste visible dans le panneau, Jordan clique lui-même.
+     - Postuler sur LinkedIn : la page du site s'ouvre dans la petite fenêtre, Jordan clique lui-même.
    - **Tri par pertinence** : une note pour chaque offre selon ta recherche et ton profil, avec la raison en une ligne
      (« aucun diplôme demandé, à 12 km, débutant accepté »). Les offres hors sujet sont rangées à part, jamais effacées.
 2. **La candidature préparée par IA** : lettre ou message, réponses aux questions courantes, conseils pour adapter le
@@ -54,7 +77,8 @@ chaque candidature vite sans qu'elle sonne comme une IA, et savoir à tout momen
 
 ## Ce qu'elle ne fera pas
 - Aucune recherche automatique en arrière-plan sur les sites qui l'interdisent (LinkedIn, Indeed, Welcome to the
-  Jungle...) : leurs offres arrivent par « Ajouter à Jobmind » ou par leurs alertes mail.
+  Jungle...) : Jobmind n'y ouvre une page que sur un clic de Jordan, une à la fois ; leurs offres arrivent par
+  « Ajouter à Jobmind » ou par leurs alertes mail.
 - Aucun envoi sans Jordan : Jobmind prépare et remplit tout, mais c'est toujours Jordan qui clique Envoyer. Pas
   d'envoi en masse, pas de contournement des protections d'un site (captcha, connexion) : s'il y en a, Jordan les fait.
 - Aucun texte qui invente une expérience, une compétence, un diplôme ou un chiffre.
@@ -91,6 +115,7 @@ au plan, choisir entre une clé d'accès GitHub chiffrée dans le Mindset de Jor
 **Maquette choisie** (18/11) : C, « Les dossiers » (D:\Projets\Jobmind\maquettes\proposition-c.html) : onglets
 Candidatures, Offres, Mon profil ; liste fine à gauche, dossier ouvert à droite. Les lettres de la maquette sont trop
 familières : la vraie appli suit la règle « toujours professionnel ».
-**Tout dans Jobmind** : aucune autre fenêtre ni navigateur ne s'ouvre. Les pages des sites (offre d'origine, captcha,
-connexion) s'affichent dans un panneau de Jobmind.
+**Tout dans Jobmind** : aucune autre fenêtre ni navigateur ne s'ouvre. Les sites sont lus en coulisse et montrés dans
+le design de Jobmind ; leurs vraies pages (offre d'origine, captcha, connexion) ne s'affichent que dans la petite
+fenêtre du site, par-dessus Jobmind, quand il le faut (étape 5 bis).
 **Nom** : Jobmind   **Couleur** : #FFC93C (jaune)

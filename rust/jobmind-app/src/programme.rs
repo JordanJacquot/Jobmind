@@ -18,12 +18,16 @@
 //!    à part, qui lit ensuite le fichier et rapporte chaque étape au fil de la fenêtre (lecture abandonnée après 60 s).
 //!    Offres (étape 4) : « Chercher maintenant » et « Essayer la clé » tournent sur un fil à part (les clés lues au
 //!    dernier moment, données à ce fil seulement), qui rapporte au fil de la fenêtre (abandonné après 90 s).
-//!    Le panneau des sites (étape 5) : la vue des sites, seconde vue DANS la fenêtre « principale » (jamais une fenêtre
-//!    à part), créée la première fois qu'il s'ouvre (« Ouvrir les sites », « Voir sur le site »), cachée quand il se
-//!    ferme ; chaque pas de la minuterie exécute les ordres de sa barre hors du verrou de l'état, suit sa place (la zone
-//!    que la page lui laisse, à l'échelle de la fenêtre) et traite ce qu'elle a rapporté (son adresse, une nouvelle
-//!    fenêtre demandée, ouverte dans le panneau, un téléchargement refusé) ; « Ajouter à Jobmind » lit la page par un
-//!    petit script (son adresse et son HTML), lu ensuite sur un fil à part (abandonné après 20 s).
+//!    Les sites en coulisse (étape 5 bis, crate::coulisse) : la vue des sites, seconde vue DANS la fenêtre
+//!    « principale » (jamais une fenêtre à part), créée la première fois qu'une page d'un site est demandée, posée
+//!    hors de la place visible de la fenêtre (elle charge ses pages sans se voir), et montrée seulement dans la petite
+//!    fenêtre du site (la zone que la page de Jobmind lui laisse, à l'échelle de la fenêtre). Chaque pas de la
+//!    minuterie exécute ses ordres hors du verrou de l'état : un chargement (au moins 3 s après le précédent), une
+//!    lecture prévue (un petit script rend l'adresse et le HTML de la page, compris ensuite sur un fil à part par
+//!    jobmind_sources::sites), la saisie du mail et du mot de passe dans le formulaire du site (le mot de passe effacé
+//!    aussitôt), la vue montrée ou remise en coulisse ; et traite ce qu'elle a rapporté (une page chargée, une nouvelle
+//!    fenêtre demandée, un téléchargement refusé). Une lecture est abandonnée après 20 s, une page qui ne vient pas
+//!    après 40 s (sauf quand la petite fenêtre attend Jordan), un mot de passe pas encore tapé après 3 minutes.
 //!    L'échelle de la page dans un panneau de Mindset plus petit que la fenêtre suit chaque nouvelle
 //!    taille (`Resized`), et chaque pas. La croix et `WM_CLOSE` (le bouton « Fermer » de Mindset) quittent.
 //! 5. La fin : la relance si le thème a changé, puis `std::process::exit` (aucun fil ne garde le processus en vie sans
@@ -53,9 +57,9 @@ use serde_json::{Value, json};
 use suite_commun::themes;
 use tauri::{App, AppHandle, LogicalPosition, LogicalSize, Manager, Url, Webview, Window, WindowEvent};
 
+use crate::coulisse::{self, Coulisse, Lecture, Ordre, Secret};
 use crate::fenetre::{EvenementSites, LABEL, TAILLE_MIN, creer_principale};
 use crate::offres::{self, Offres, Retour, Tache};
-use crate::panneau::{self, Lecture, Ordre, Panneau};
 use crate::pont::MessagePage;
 use crate::profil::{self, Contexte, Import, Profil};
 use crate::suivi::{self, Fait, Suivi};
@@ -104,20 +108,36 @@ struct Etat {
     offres: Offres,
     /// La recherche d'offres en cours a commencé à ce moment
     reseau_depuis: Option<Instant>,
-    /// Étape 5 : le panneau des sites (sa barre, la lecture en cours), et ce que sa vue doit faire au prochain pas
-    panneau: Panneau,
-    ordres_panneau: Vec<Ordre>,
+    /// Étape 5 bis : les sites en coulisse (leurs listes, l'offre lue, la connexion, la petite fenêtre)
+    coulisse: Coulisse,
+    /// Ce que la vue des sites doit faire au prochain pas (hors du verrou de l'état)
+    actions_vue: Vec<ActionVue>,
     /// Ce que la vue des sites a rapporté pendant ses événements, traité au prochain pas
     evenements_sites: Arc<Mutex<Vec<EvenementSites>>>,
-    /// La lecture de la page du panneau a commencé à ce moment
-    page_depuis: Option<Instant>,
+    /// Le chargement demandé, fait dès que l'écart avec le précédent est passé (coulisse::ECART_MS)
+    chargement_prevu: Option<String>,
+    /// Le dernier chargement de la vue des sites
+    dernier_chargement: Option<Instant>,
+    /// La lecture prévue de la page : (quand, son numéro)
+    lecture_prevue: Option<(Instant, u64)>,
+    /// La lecture en cours (son numéro, depuis quand) : abandonnée après LECTURE_PAGE_MAX
+    lecture_en_cours: Option<(u64, Instant)>,
+    /// Ce qui est en cours en coulisse (son numéro, depuis quand) : abandonné après ATTENTE_MAX
+    attente_vue: Option<(u64, Instant)>,
+    /// La connexion en cours (son numéro, depuis quand) : le mot de passe oublié après CONNEXION_MAX
+    connexion_vue: Option<(u64, Instant)>,
+    /// La vue des sites est montrée dans la petite fenêtre (sinon : en coulisse, hors de la fenêtre)
+    montree: bool,
     /// La place donnée en dernier à la vue des sites (en pixels logiques)
     place_sites: Option<(f64, f64, f64, f64)>,
-    /// Le dossier de données de Jobmind (la session du panneau y est gardée)
+    /// Le dossier de données de Jobmind (la session des sites y est gardée)
     donnees_appli: PathBuf,
-    /// Construction d'essai : le faux serveur local qui imite Adzuna et Jooble, et son mode
+    /// Construction d'essai : le faux serveur local qui imite Adzuna, Jooble et les quatre sites, et ses modes
     #[cfg(feature = "essai")]
-    faux: Option<(jobmind_sources::faux::FauxServeur, FauxMode)>,
+    faux: Option<(jobmind_sources::faux::FauxServeur, FauxMode, ModeSites)>,
+    /// Construction d'essai : les connexions déjà vues (pour vérifier une fois ce que le faux serveur a reçu)
+    #[cfg(feature = "essai")]
+    connexions_vues: [Option<bool>; 4],
     /// Le jour de la liste montrée : un nouveau jour, elle est refaite
     jour: Jour,
     /// Tauri, une fois la fenêtre créée : l'état renvoyé à la page après un geste
@@ -133,8 +153,8 @@ struct Etat {
 
 thread_local! {
     static ETAT: RefCell<Option<Etat>> = const { RefCell::new(None) };
-    /// Étape 5 : la vue des sites, créée la première fois que le panneau s'ouvre, jamais recréée (cachée quand le
-    /// panneau se ferme : sa page et sa session restent)
+    /// Étape 5 bis : la vue des sites, créée la première fois qu'une page d'un site est demandée, jamais recréée (en
+    /// coulisse quand elle n'est pas dans la petite fenêtre : sa page et sa session restent)
     static SITES: RefCell<Option<Webview>> = const { RefCell::new(None) };
     /// La vue des sites est en train d'être créée (WebView2 laisse passer d'autres événements pendant ce temps)
     static CREATION: Cell<bool> = const { Cell::new(false) };
@@ -143,6 +163,9 @@ thread_local! {
 /// Construction d'essai : le mode du faux serveur (normal, trop de demandes, clé refusée).
 #[cfg(feature = "essai")]
 type FauxMode = std::sync::Arc<std::sync::Mutex<jobmind_sources::faux::Mode>>;
+/// Construction d'essai (étape 5 bis) : ce que fera la prochaine liste des sites imités (un captcha, une page cassée).
+#[cfg(feature = "essai")]
+type ModeSites = Arc<Mutex<jobmind_sources::sites::exemples::ModeSites>>;
 
 /// Le dossier du programme (celui de Mindset.exe et Jobmind.exe).
 fn dossier_programme() -> Option<String> {
@@ -287,10 +310,12 @@ pub fn lancer() -> ! {
     #[cfg(feature = "essai")]
     let faux = {
         let mode: FauxMode = std::sync::Arc::new(std::sync::Mutex::new(jobmind_sources::faux::Mode::Normal));
-        match jobmind_sources::faux::FauxServeur::demarrer(jobmind_sources::faux::imitation(mode.clone())) {
+        let sites: ModeSites = Arc::new(Mutex::new(jobmind_sources::sites::exemples::ModeSites::Normal));
+        let repondeur = jobmind_sources::faux::imitation_avec_sites(mode.clone(), Arc::clone(&sites));
+        match jobmind_sources::faux::FauxServeur::demarrer(repondeur) {
             Ok(s) => {
-                journal.ecrire("Essai : faux serveur d'Adzuna et Jooble prêt (127.0.0.1)");
-                Some((s, mode))
+                journal.ecrire("Essai : faux serveur d'Adzuna, de Jooble et des quatre sites prêt (127.0.0.1)");
+                Some((s, mode, sites))
             }
             Err(e) => {
                 journal.ecrire(&format!("Essai : faux serveur non lancé ({e})"));
@@ -310,9 +335,13 @@ pub fn lancer() -> ! {
     if let Some(r) = raison {
         journal.ecrire(&r);
     }
-    let (depart, raison) = suivi.etat_complet(VERSION, d.base.as_ref(), jour, &vue_profil, &vue_offres);
+    let (mut depart, raison) = suivi.etat_complet(VERSION, d.base.as_ref(), jour, &vue_profil, &vue_offres);
     if let Some(r) = raison {
         journal.ecrire(&r);
+    }
+    // (étape 5 bis : les sites, dès le premier état de la page)
+    if let Some(perso) = depart.pointer_mut("/accueil/perso").and_then(Value::as_object_mut) {
+        perso.insert("coulisse".into(), Coulisse::default().vue(jour));
     }
     *donnees.borrow_mut() = Some(d);
 
@@ -328,7 +357,7 @@ pub fn lancer() -> ! {
                 return;
             };
             if let Some(etat) = e.as_mut() {
-                etat.recevoir(&m);
+                etat.recevoir(m);
             }
         })
     });
@@ -351,14 +380,22 @@ pub fn lancer() -> ! {
             lecture_depuis: None,
             offres,
             reseau_depuis: None,
-            panneau: Panneau::default(),
-            ordres_panneau: Vec::new(),
+            coulisse: Coulisse::default(),
+            actions_vue: Vec::new(),
             evenements_sites: Arc::new(Mutex::new(Vec::new())),
-            page_depuis: None,
+            chargement_prevu: None,
+            dernier_chargement: None,
+            lecture_prevue: None,
+            lecture_en_cours: None,
+            attente_vue: None,
+            connexion_vue: None,
+            montree: false,
             place_sites: None,
             donnees_appli: l.dossier_donnees.clone(),
             #[cfg(feature = "essai")]
             faux,
+            #[cfg(feature = "essai")]
+            connexions_vues: [None; 4],
             jour,
             app: None,
             releve: Instant::now(),
@@ -483,15 +520,17 @@ fn tour(app: &AppHandle) {
             etat.bulles(app);
             etat.lecture_trop_longue(app);
             etat.reseau_trop_long(app);
-            etat.page_trop_longue(app);
-            etat.evenements_du_panneau(app);
+            etat.evenements_des_sites(app);
+            etat.minuteries_des_sites(app);
         }
         #[cfg(feature = "essai")]
         {
             capture_demandee(etat);
             ordre_demande(etat, app);
             import_demande(etat, app);
-            panneau_demande(etat, app);
+            voir_demande(etat, app);
+            connexion_demande(etat, app);
+            connexion_recue(etat);
         }
         etat.fin = fin;
         fin
@@ -505,30 +544,99 @@ fn tour(app: &AppHandle) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Le panneau des sites (étape 5)
+// Les sites en coulisse (étape 5 bis)
 // ---------------------------------------------------------------------------------------------------------------
 
-/// La lecture de la page du panneau : abandonnée après ce temps (une page qui ne répond pas).
-const PAGE_MAX: Duration = Duration::from_secs(20);
+/// Une lecture de page : abandonnée après ce temps (une page qui ne répond pas).
+const LECTURE_PAGE_MAX: Duration = Duration::from_secs(20);
+/// Ce qui est en cours en coulisse (une liste, une offre, la connexion) : abandonné après ce temps, sauf quand la
+/// petite fenêtre attend Jordan.
+const ATTENTE_MAX: Duration = Duration::from_secs(40);
+/// Le mot de passe d'une connexion qui n'avance pas : oublié après ce temps.
+const CONNEXION_MAX: Duration = Duration::from_secs(180);
 /// La réponse de la page lue, au plus (en octets).
 const LECTURE_MAX_OCTETS: usize = 8_000_000;
 
-/// Le petit script qui lit la page affichée, sur le clic « Ajouter à Jobmind » seulement : son adresse et son HTML
-/// (une copie sans scripts, styles, images ni vidéos ; coupée à 3 millions de caractères). Il ne change rien à la
-/// page. Ce qu'il rend est une donnée non fiable (la page peut avoir changé ses propres fonctions) : vérifié, borné,
-/// lu comme du texte par jobmind-sources, jamais exécuté.
+/// Le petit script qui lit la page affichée par la vue des sites : son adresse, son HTML (une copie sans scripts,
+/// styles, images ni vidéos ; les cadres et les cases des formulaires gardés sans leur contenu, la valeur d'une case
+/// de mot de passe retirée ; coupée à 3 millions de caractères) et si la page se croit visible. Il ne change rien à
+/// la page. Ce qu'il rend est une donnée non fiable (la page peut avoir changé ses propres fonctions) : vérifié,
+/// borné, lu comme du texte par jobmind-sources, jamais exécuté ni réinjecté en HTML.
 const SCRIPT_LECTURE: &str = "(function () { try { var d = document.documentElement; if (!d) { return null; } \
     var c = d.cloneNode(true); var q = c.querySelectorAll('script:not([type=\"application/ld+json\"]),style,svg,\
-    noscript,template,iframe,link,img,video,audio,canvas,picture,source,code[id^=\"bpr-guid\"]'); \
-    for (var i = 0; i < q.length; i++) { q[i].remove(); } var h = String(c.outerHTML); \
-    if (h.length > 3000000) { h = h.slice(0, 3000000); } \
-    return { u: String(location.href).slice(0, 4000), h: h }; } catch (e) { return null; } })()";
+    noscript,template,link,img,video,audio,canvas,picture,source,code[id^=\"bpr-guid\"]'); \
+    for (var i = 0; i < q.length; i++) { q[i].remove(); } \
+    var f = c.querySelectorAll('iframe'); for (var j = 0; j < f.length; j++) { f[j].removeAttribute('srcdoc'); } \
+    var m = c.querySelectorAll('input'); for (var k = 0; k < m.length; k++) { \
+    if (String(m[k].type || '').toLowerCase() === 'password') { m[k].removeAttribute('value'); } } \
+    var h = String(c.outerHTML); if (h.length > 3000000) { h = h.slice(0, 3000000); } \
+    return { u: String(location.href).slice(0, 4000), h: h, v: String(document.visibilityState) }; } \
+    catch (e) { return null; } })()";
+
+/// Le script qui tape le mail et/ou le mot de passe dans le formulaire de connexion de la page, avec des événements
+/// de saisie comme au clavier (le champ pris, chaque lettre, la case quittée), puis envoie le formulaire. Une seule
+/// fois, et seulement si la page est toujours celle qui vient d'être lue (`attendu`). Le mail et le mot de passe sont
+/// des chaînes JSON (échappées) ; ce texte est effacé de la mémoire de Jobmind dès qu'il est donné à la vue.
+fn script_saisie(attendu: &str, mail: Option<&str>, mdp: Option<&str>) -> String {
+    let j = |t: Option<&str>| t.map_or("null".to_string(), |t| Value::String(t.to_string()).to_string());
+    let mut s = String::with_capacity(3000);
+    s.push_str("(function () { try { var ATTENDU = ");
+    s.push_str(&j(Some(attendu)));
+    s.push_str("; var MAIL = ");
+    s.push_str(&j(mail));
+    s.push_str("; var MDP = ");
+    s.push_str(&j(mdp));
+    s.push_str(
+        "; if (String(location.href) !== ATTENDU) { return 'ailleurs'; } \
+        var vis = function (e) { if (!e || e.disabled || e.readOnly) { return false; } \
+          var t = String(e.type || 'text').toLowerCase(); if (t === 'hidden') { return false; } \
+          var s = getComputedStyle(e); var r = e.getBoundingClientRect(); \
+          return s.display !== 'none' && s.visibility !== 'hidden' && (r.width > 0 || r.height > 0); }; \
+        var ins = Array.prototype.slice.call(document.querySelectorAll('input')); \
+        var mdp = ins.filter(function (e) { return vis(e) && String(e.type).toLowerCase() === 'password'; })[0]; \
+        var mail = ins.filter(function (e) { if (!vis(e)) { return false; } var t = String(e.type || 'text').toLowerCase(); \
+          if (t === 'email') { return true; } if (t !== 'text' && t !== 'tel') { return false; } \
+          var n = (String(e.name || '') + ' ' + String(e.id || '') + ' ' + String(e.autocomplete || '')).toLowerCase(); \
+          return /session_key|email|username|identifiant|login|courriel/.test(n); })[0]; \
+        var poser = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; \
+        var taper = function (e, v) { e.focus(); e.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); \
+          poser.call(e, ''); e.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' })); \
+          for (var i = 0; i < v.length; i++) { var c = v.charAt(i); \
+            e.dispatchEvent(new KeyboardEvent('keydown', { key: c, bubbles: true, cancelable: true })); \
+            e.dispatchEvent(new KeyboardEvent('keypress', { key: c, bubbles: true, cancelable: true })); \
+            poser.call(e, e.value + c); \
+            e.dispatchEvent(new InputEvent('input', { data: c, inputType: 'insertText', bubbles: true })); \
+            e.dispatchEvent(new KeyboardEvent('keyup', { key: c, bubbles: true, cancelable: true })); } \
+          e.dispatchEvent(new Event('change', { bubbles: true })); \
+          e.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); e.blur(); }; \
+        if (MAIL !== null) { if (!mail) { return 'sans_mail'; } taper(mail, MAIL); } \
+        if (MDP !== null) { if (!mdp) { return 'sans_mdp'; } taper(mdp, MDP); } \
+        MAIL = null; MDP = null; \
+        var champ = mdp || mail; var f = champ && champ.form; \
+        setTimeout(function () { try { \
+          var b = f ? (f.querySelector('button[type=submit],input[type=submit]') || f.querySelector('button:not([type=button])')) : null; \
+          if (b) { b.click(); } else if (f && f.requestSubmit) { f.requestSubmit(); } else if (f) { f.submit(); } \
+        } catch (e) { } }, 350); \
+        return f ? 'ok' : 'sans_formulaire'; } catch (e) { return 'erreur'; } })()",
+    );
+    s
+}
+
+/// Ce que la vue des sites doit faire à ce pas (pris dans l'état, fait hors de son verrou).
+enum ActionVue {
+    Naviguer(String),
+    Lire(u64),
+    Taper { attendu: String, mail: Option<String>, mdp: Option<Secret> },
+    Montrer,
+    Cacher,
+    Effacer,
+}
 
 /// Ce que la vue des sites doit faire à ce pas, pris dans l'état.
 struct Travail {
-    ordres: Vec<Ordre>,
-    ouvert: bool,
-    zone: Option<panneau::Zone>,
+    actions: Vec<ActionVue>,
+    montree: bool,
+    zone: Option<coulisse::Zone>,
     echelle: f64,
     dossier: PathBuf,
     journal: Journal,
@@ -536,13 +644,11 @@ struct Travail {
     permise: crate::fenetre::Permise,
     hwnd: usize,
     place: Option<(f64, f64, f64, f64)>,
-    /// L'adresse affichée en dernier (vide : aucune page, par exemple après « Me déconnecter »)
-    derniere: String,
     adresse_locale: Box<dyn Fn(&str) -> String>,
 }
 
-/// Le pas de la vue des sites : les ordres de la barre exécutés (la vue créée la première fois), puis sa place
-/// suivie (la place que lui laisse la page de Jobmind, à l'échelle de la fenêtre).
+/// Le pas de la vue des sites : ses actions faites (la vue créée la première fois, en coulisse), puis sa place suivie
+/// (hors de la fenêtre en coulisse ; la zone de la petite fenêtre quand elle est montrée).
 fn vue_des_sites(app: &AppHandle) {
     if CREATION.with(Cell::get) {
         return;
@@ -553,8 +659,8 @@ fn vue_des_sites(app: &AppHandle) {
         if etat.fin.is_some() {
             return None;
         }
-        let ordres = std::mem::take(&mut etat.ordres_panneau);
-        if ordres.is_empty() && SITES.with(|s| s.borrow().is_none()) {
+        let actions = std::mem::take(&mut etat.actions_vue);
+        if actions.is_empty() && SITES.with(|s| s.borrow().is_none()) {
             return None;
         }
         let evenements = Arc::clone(&etat.evenements_sites);
@@ -566,17 +672,16 @@ fn vue_des_sites(app: &AppHandle) {
             }
         });
         Some(Travail {
-            ordres,
-            ouvert: etat.panneau.ouvert,
-            zone: etat.panneau.zone,
+            actions,
+            montree: etat.montree,
+            zone: etat.coulisse.zone,
             echelle: etat.vie.echelle(),
-            dossier: etat.donnees_appli.join(panneau::DOSSIER),
+            dossier: etat.donnees_appli.join(coulisse::DOSSIER),
             journal: etat.journal.clone(),
             rapport,
             permise: etat.permise(),
             hwnd: etat.fenetre.as_ref().map_or(0, FenetreTauri::hwnd),
             place: etat.place_sites,
-            derniere: etat.panneau.adresse.clone(),
             adresse_locale: etat.vers_local(),
         })
     }) else {
@@ -584,103 +689,103 @@ fn vue_des_sites(app: &AppHandle) {
     };
     let Some(fenetre) = app.get_window(LABEL) else { return };
     let mut place = t.place;
-    let mut lecture: Option<u64> = None;
+    let mut montree = t.montree;
     let mut erreur: Option<String> = None;
-    for o in t.ordres {
-        let vue = SITES.with(|s| s.borrow().clone());
-        match (o, vue) {
-            (Ordre::Ouvrir(adresse), None) => {
-                let a = (t.adresse_locale)(adresse.as_deref().unwrap_or(panneau::RACCOURCIS[0].adresse));
-                let Ok(url) = a.parse::<Url>() else { continue };
-                let p = place_logique(&fenetre, t.zone, t.echelle);
-                CREATION.with(|c| c.set(true));
-                let r = crate::fenetre::creer_panneau(
-                    &fenetre,
-                    t.dossier.clone(),
-                    url,
-                    (LogicalPosition::new(p.0, p.1), LogicalSize::new(p.2, p.3)),
-                    Arc::clone(&t.permise),
-                    Arc::clone(&t.rapport),
-                );
-                CREATION.with(|c| c.set(false));
-                match r {
-                    Ok(v) => {
-                        place = Some(p);
-                        let j = t.journal.clone();
-                        if let Err(e) = crate::windows::panneau::preparer_sites(&v, move |x| j.ecrire(x)) {
-                            t.journal.ecrire(&format!("Panneau : réglages de WebView2 non posés ({e})"));
-                        }
-                        let (j, h) = (t.journal.clone(), t.hwnd);
-                        let _ = crate::windows::panneau::fenetre_parente(&v, move |p| {
-                            j.ecrire(if crate::windows::panneau::dans_la_fenetre(h, p) {
-                                "Panneau : vue des sites créée dans la fenêtre de Jobmind"
-                            } else {
-                                "Panneau : vue des sites créée HORS de la fenêtre de Jobmind"
-                            })
-                        });
-                        SITES.with(|s| *s.borrow_mut() = Some(v));
+    let mut perdues: Vec<u64> = Vec::new();
+    let mut saisie: Option<String> = None;
+    for a in t.actions {
+        // (la vue créée la première fois qu'elle sert, en coulisse)
+        if SITES.with(|s| s.borrow().is_none())
+            && matches!(a, ActionVue::Naviguer(_) | ActionVue::Montrer | ActionVue::Lire(_) | ActionVue::Taper { .. })
+        {
+            let depart = match &a {
+                ActionVue::Naviguer(u) => (t.adresse_locale)(u),
+                _ => "about:blank".to_string(),
+            };
+            let Ok(url) = depart.parse::<Url>() else { continue };
+            let p = place_coulisse(&fenetre);
+            CREATION.with(|c| c.set(true));
+            let r = crate::fenetre::creer_vue_sites(
+                &fenetre,
+                t.dossier.clone(),
+                url,
+                (LogicalPosition::new(p.0, p.1), LogicalSize::new(p.2, p.3)),
+                Arc::clone(&t.permise),
+                Arc::clone(&t.rapport),
+            );
+            CREATION.with(|c| c.set(false));
+            match r {
+                Ok(v) => {
+                    place = Some(p);
+                    let j = t.journal.clone();
+                    if let Err(e) = crate::windows::sites::preparer_sites(&v, move |x| j.ecrire(x)) {
+                        t.journal.ecrire(&format!("Sites : réglages de WebView2 non posés ({e})"));
                     }
-                    Err(e) => {
-                        t.journal.ecrire(&format!("Panneau : vue des sites non créée ({e})"));
-                        erreur = Some("Le panneau des sites n'a pas pu s'ouvrir. Ferme Jobmind et rouvre-la.".into());
+                    let (j, h) = (t.journal.clone(), t.hwnd);
+                    let _ = crate::windows::sites::fenetre_parente(&v, move |p| {
+                        j.ecrire(if crate::windows::sites::dans_la_fenetre(h, p) {
+                            "Sites : vue des sites créée dans la fenêtre de Jobmind, en coulisse (hors de sa place visible)"
+                        } else {
+                            "Sites : vue des sites créée HORS de la fenêtre de Jobmind"
+                        })
+                    });
+                    SITES.with(|s| *s.borrow_mut() = Some(v));
+                    if let ActionVue::Naviguer(_) = a {
+                        continue;
                     }
+                }
+                Err(e) => {
+                    t.journal.ecrire(&format!("Sites : vue des sites non créée ({e})"));
+                    erreur = Some("Jobmind n'a pas pu ouvrir les sites. Ferme Jobmind et rouvre-la.".into());
+                    continue;
                 }
             }
-            (Ordre::Ouvrir(adresse), Some(v)) => {
-                // (rouvert sans adresse sur une page vide : le premier raccourci)
-                let adresse =
-                    adresse.or_else(|| t.derniere.is_empty().then(|| panneau::RACCOURCIS[0].adresse.to_string()));
-                if let Some(a) = adresse
-                    && let Ok(url) = (t.adresse_locale)(&a).parse::<Url>()
-                {
+        }
+        let vue = SITES.with(|s| s.borrow().clone());
+        match (a, vue) {
+            (ActionVue::Naviguer(u), Some(v)) => {
+                if let Ok(url) = (t.adresse_locale)(&u).parse::<Url>() {
                     let _ = v.navigate(url);
                 }
-                let _ = v.show();
+            }
+            (ActionVue::Lire(no), Some(v)) => {
+                let a = app.clone();
+                if let Err(e) = v.eval_with_callback(SCRIPT_LECTURE, move |rendu| lecture_rendue(&a, no, rendu)) {
+                    t.journal.ecrire(&format!("Sites : page non lue ({e})"));
+                    perdues.push(no);
+                }
+            }
+            (ActionVue::Lire(no), None) => perdues.push(no),
+            (ActionVue::Taper { attendu, mail, mdp }, Some(v)) => {
+                let mut script = script_saisie(&attendu, mail.as_deref(), mdp.as_ref().map(Secret::texte));
+                drop(mdp);
+                let a = app.clone();
+                let r = v.eval_with_callback(script.as_str(), move |rendu| saisie_rendue(&a, rendu));
+                coulisse::effacer(&mut script);
+                if let Err(e) = r {
+                    saisie = Some(format!("script refusé ({e})"));
+                }
+            }
+            (ActionVue::Taper { .. }, None) => saisie = Some("pas de vue".into()),
+            (ActionVue::Montrer, Some(_)) => {
+                montree = true;
                 place = None;
             }
-            (Ordre::Aller(a), Some(v)) => {
-                if let Ok(url) = (t.adresse_locale)(&a).parse::<Url>() {
-                    let _ = v.navigate(url);
-                }
+            (ActionVue::Cacher, _) => {
+                montree = false;
+                place = None;
             }
-            (Ordre::Retour, Some(v)) => {
-                let _ = crate::windows::panneau::naviguer(&v, false);
-            }
-            (Ordre::Avancer, Some(v)) => {
-                let _ = crate::windows::panneau::naviguer(&v, true);
-            }
-            (Ordre::Recharger, Some(v)) => {
-                let _ = v.reload();
-            }
-            (Ordre::Fermer, Some(v)) => {
-                let _ = v.hide();
-            }
-            (Ordre::Lire(jeton), Some(v)) => {
-                lecture = Some(jeton);
-                let a = app.clone();
-                let r = v.eval_with_callback(SCRIPT_LECTURE, move |rendu| lecture_rendue(&a, jeton, rendu));
-                if let Err(e) = r {
-                    t.journal.ecrire(&format!("Panneau : page non lue ({e})"));
-                }
-            }
-            (Ordre::Lire(jeton), None) => {
-                rapporter_page(app, Lecture { jeton, resultat: Err(jobmind_sources::page::PageRefusee::Vide) });
-            }
-            (Ordre::Effacer, vue) => {
+            (ActionVue::Effacer, vue) => {
                 let fait = effacer_sites(vue.as_ref(), &t.dossier, &t.journal);
-                if vue.is_some() {
-                    place = None;
-                }
+                place = None;
                 rapporter_message(app, fait);
             }
             (_, None) => {}
         }
     }
-    // La place de la vue : celle que lui laisse la page, à l'échelle de la fenêtre
-    if t.ouvert
-        && let Some(v) = SITES.with(|s| s.borrow().clone())
-    {
-        let p = place_logique(&fenetre, t.zone, t.echelle);
+    // La place de la vue : hors de la place visible (en coulisse), ou la zone de la petite fenêtre
+    if let Some(v) = SITES.with(|s| s.borrow().clone()) {
+        let p = if montree { place_logique(&fenetre, t.zone, t.echelle) } else { place_coulisse(&fenetre) };
         if place != Some(p) {
             let r = v.set_bounds(tauri::Rect {
                 position: LogicalPosition::new(p.0, p.1).into(),
@@ -696,26 +801,42 @@ fn vue_des_sites(app: &AppHandle) {
             && let Some(etat) = e.as_mut()
         {
             etat.place_sites = place;
-            if lecture.is_some() {
-                etat.page_depuis = Some(Instant::now());
+            etat.montree = montree;
+            for no in perdues {
+                etat.lecture_en_cours = None;
+                etat.faire(app, |e, _| e.coulisse.lecture_perdue(no, "pas de vue"));
+            }
+            if let Some(r) = saisie {
+                etat.faire(app, |e, _| e.coulisse.saisie_ratee(&r));
             }
             if let Some(m) = erreur {
-                etat.panneau.ouvert = false;
                 etat.faire(app, |_, _| crate::suivi::Fait { message: Some(m), change: true, ..Default::default() });
             }
         }
     });
 }
 
-/// La place de la vue des sites en pixels logiques (x, y, largeur, hauteur) : la zone que la page lui laisse, à
-/// l'échelle de la fenêtre, dans la fenêtre ; sans zone encore, tout sous les 150 premiers pixels de la page.
-fn place_logique(fenetre: &Window, zone: Option<panneau::Zone>, echelle: f64) -> (f64, f64, f64, f64) {
+/// La place de la vue en coulisse : à la taille de la fenêtre (les sites se dessinent comme sur un écran ordinaire),
+/// posée juste à droite de sa place visible (une fenêtre enfant ne se dessine jamais hors de sa fenêtre : rien ne se
+/// voit, ni dans Jobmind ni à côté).
+fn place_coulisse(fenetre: &Window) -> (f64, f64, f64, f64) {
+    let (lf, hf) = match (fenetre.inner_size(), fenetre.scale_factor()) {
+        (Ok(t), Ok(s)) if s > 0.0 => (f64::from(t.width) / s, f64::from(t.height) / s),
+        _ => (crate::fenetre::TAILLE.0, crate::fenetre::TAILLE.1),
+    };
+    let (l, h) = (lf.max(crate::fenetre::TAILLE.0), hf.max(crate::fenetre::TAILLE.1));
+    ((lf + 64.0).round(), 0.0, l.round(), h.round())
+}
+
+/// La place de la petite fenêtre en pixels logiques (x, y, largeur, hauteur) : la zone que la page lui laisse, à
+/// l'échelle de la fenêtre, dans la fenêtre ; sans zone encore, un cadre centré aux trois quarts de la fenêtre.
+fn place_logique(fenetre: &Window, zone: Option<coulisse::Zone>, echelle: f64) -> (f64, f64, f64, f64) {
     let e = if echelle.is_finite() && echelle > 0.0 { echelle } else { 1.0 };
     let (lf, hf) = match (fenetre.inner_size(), fenetre.scale_factor()) {
         (Ok(t), Ok(s)) if s > 0.0 => (f64::from(t.width) / s, f64::from(t.height) / s),
         _ => (crate::fenetre::TAILLE.0, crate::fenetre::TAILLE.1),
     };
-    let z = zone.unwrap_or(panneau::Zone { x: 0.0, y: 150.0, l: lf / e, h: (hf / e - 150.0).max(40.0) });
+    let z = zone.unwrap_or(coulisse::Zone { x: lf / e * 0.125, y: hf / e * 0.2, l: lf / e * 0.75, h: hf / e * 0.65 });
     let x = (z.x * e).clamp(0.0, lf);
     let y = (z.y * e).clamp(0.0, hf);
     let l = (z.l * e).min(lf - x).max(1.0);
@@ -733,11 +854,10 @@ fn effacer_sites(vue: Option<&Webview>, dossier: &Path, journal: &Journal) -> cr
             if let Ok(u) = "about:blank".parse::<Url>() {
                 let _ = v.navigate(u);
             }
-            let _ = v.hide();
             match r {
                 Ok(()) => true,
                 Err(e) => {
-                    journal.ecrire(&format!("Panneau : données des sites non effacées ({e})"));
+                    journal.ecrire(&format!("Sites : données des sites non effacées ({e})"));
                     false
                 }
             }
@@ -745,22 +865,22 @@ fn effacer_sites(vue: Option<&Webview>, dossier: &Path, journal: &Journal) -> cr
         None => match std::fs::symlink_metadata(dossier) {
             Err(_) => true,
             Ok(m) if m.file_type().is_symlink() => {
-                journal.ecrire("Panneau : le dossier de la session est un lien, laissé");
+                journal.ecrire("Sites : le dossier de la session est un lien, laissé");
                 false
             }
             Ok(_) => match std::fs::remove_dir_all(dossier) {
                 Ok(()) => true,
                 Err(e) => {
-                    journal.ecrire(&format!("Panneau : dossier de la session non effacé ({e})"));
+                    journal.ecrire(&format!("Sites : dossier de la session non effacé ({e})"));
                     false
                 }
             },
         },
     };
     if ok {
-        journal.ecrire("Panneau : déconnecté de tous les sites (session effacée)");
+        journal.ecrire("Sites : déconnecté de tous les sites (session effacée)");
         crate::suivi::Fait {
-            message: Some("C'est fait : tu es déconnecté de tous les sites du panneau.".into()),
+            message: Some("C'est fait : tu es déconnecté de tous les sites.".into()),
             bravo: true,
             change: true,
             ..Default::default()
@@ -774,75 +894,116 @@ fn effacer_sites(vue: Option<&Webview>, dossier: &Path, journal: &Journal) -> cr
     }
 }
 
-/// La réponse du script de lecture (sur le fil de la fenêtre) : vérifiée, puis lue sur un fil à part.
-fn lecture_rendue(app: &AppHandle, jeton: u64, rendu: String) {
+/// La réponse du script de lecture (sur le fil de la fenêtre) : vérifiée, puis comprise sur un fil à part.
+fn lecture_rendue(app: &AppHandle, no: u64, rendu: String) {
     let lu = (rendu.len() <= LECTURE_MAX_OCTETS)
         .then(|| serde_json::from_str::<Value>(&rendu).ok())
         .flatten()
-        .and_then(|v| Some((v.get("u")?.as_str()?.to_string(), v.get("h")?.as_str()?.to_string())));
+        .and_then(|v| {
+            Some((
+                v.get("u")?.as_str()?.to_string(),
+                v.get("h")?.as_str()?.to_string(),
+                v.get("v").and_then(Value::as_str).unwrap_or_default().chars().take(20).collect::<String>(),
+            ))
+        });
+    drop(rendu);
     let a = app.clone();
     let vers_site = ETAT.with(|e| e.try_borrow().ok().and_then(|e| e.as_ref().map(Etat::vers_site)));
     let r = std::thread::Builder::new().name("lecture-page".into()).spawn(move || {
-        let resultat = match lu {
-            Some((u, h)) => {
-                let u = match &vers_site {
-                    Some(f) => f(&u),
-                    None => u,
-                };
-                jobmind_sources::page::lire(&u, &h)
-            }
-            None => Err(jobmind_sources::page::PageRefusee::Vide),
+        let Some((brute, h, visible)) = lu else {
+            rapporter_lecture(&a, no, None, String::new());
+            return;
         };
-        rapporter_page(&a, Lecture { jeton, resultat });
+        let u = match &vers_site {
+            Some(f) => f(&brute),
+            None => brute.clone(),
+        };
+        let comprise = jobmind_sources::sites::comprendre(&u, &h);
+        drop(h);
+        rapporter_lecture(&a, no, Some(Lecture { brute, comprise }), visible);
     });
     if r.is_err() {
-        rapporter_page(app, Lecture { jeton, resultat: Err(jobmind_sources::page::PageRefusee::Vide) });
+        rapporter_lecture(app, no, None, String::new());
     }
 }
 
-/// Rapporte la page lue au fil de la fenêtre (occupé : réessayé juste après).
-fn rapporter_page(app: &AppHandle, l: Lecture) {
+/// Rapporte la page comprise (ou sa perte) au fil de la fenêtre (occupé : réessayé juste après).
+fn rapporter_lecture(app: &AppHandle, no: u64, l: Option<Lecture>, visible: String) {
     let a = app.clone();
     let _ = app.run_on_main_thread(move || {
         let pour_etat = a.clone();
         let reste = ETAT.with(move |e| match e.try_borrow_mut() {
             Ok(mut e) => {
                 if let Some(etat) = e.as_mut() {
-                    etat.page_depuis = None;
-                    etat.faire(&pour_etat, |etat, d| etat.panneau.lu(d.base.as_ref(), l, heure::maintenant()));
+                    if etat.lecture_en_cours.is_some_and(|(n, _)| n == no) {
+                        etat.lecture_en_cours = None;
+                    }
+                    match l {
+                        Some(l) => {
+                            let montree = etat.montree;
+                            let j = format!(
+                                "Sites : page lue {} ({}, écran {}, page {visible}){}",
+                                court(&l.comprise.adresse),
+                                l.comprise.site.code(),
+                                l.comprise.ecran.code(),
+                                if montree { ", dans la petite fenêtre" } else { ", en coulisse" }
+                            );
+                            etat.journal.ecrire(&j);
+                            etat.faire(&pour_etat, |etat, d| {
+                                etat.coulisse.lu(d.base.as_ref(), no, l, heure::maintenant())
+                            });
+                        }
+                        None => etat.faire(&pour_etat, |etat, _| etat.coulisse.lecture_perdue(no, "réponse illisible")),
+                    }
                 }
                 None
             }
-            Err(_) => Some(l),
+            Err(_) => Some((l, visible)),
         });
-        if let Some(l) = reste {
+        if let Some((l, visible)) = reste {
             // (réessayé un peu plus tard, depuis un autre fil : jamais en boucle sur celui de la fenêtre)
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_millis(20));
-                rapporter_page(&a, l);
+                rapporter_lecture(&a, no, l, visible);
             });
         }
     });
 }
 
+/// La réponse du script de saisie : rien à faire si elle a marché (la page envoie le formulaire, puis se lit) ;
+/// sinon, la page du site dans la petite fenêtre.
+fn saisie_rendue(app: &AppHandle, rendu: String) {
+    let r = serde_json::from_str::<Value>(&rendu).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+    if r == "ok" {
+        return;
+    }
+    let raison: String = if r.is_empty() { "réponse vide".into() } else { r.chars().take(30).collect() };
+    rapporter_message_avec(app, move |e| e.coulisse.saisie_ratee(&raison));
+}
+
 /// Ce qu'a donné « Me déconnecter », appliqué sur le fil de la fenêtre dès qu'il est libre.
 fn rapporter_message(app: &AppHandle, fait: crate::suivi::Fait) {
+    rapporter_message_avec(app, move |_| fait);
+}
+
+/// Un geste venu d'un rappel de la vue des sites, appliqué sur le fil de la fenêtre dès qu'il est libre.
+fn rapporter_message_avec(app: &AppHandle, f: impl FnOnce(&mut Etat) -> crate::suivi::Fait + Send + 'static) {
     let a = app.clone();
     let _ = app.run_on_main_thread(move || {
         let pour_etat = a.clone();
         let reste = ETAT.with(move |e| match e.try_borrow_mut() {
             Ok(mut e) => {
                 if let Some(etat) = e.as_mut() {
-                    etat.faire(&pour_etat, |_, _| fait);
+                    etat.faire(&pour_etat, |etat, _| f(etat));
                 }
                 None
             }
-            Err(_) => Some(fait),
+            Err(_) => Some(f),
         });
         if let Some(f) = reste {
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_millis(20));
-                rapporter_message(&a, f);
+                rapporter_message_avec(&a, f);
             });
         }
     });
@@ -924,18 +1085,37 @@ impl Etat {
     /// Un message du kit. « Retour » depuis l'accueil ramène à la console de Mindset (seulement dans Mindset : sinon
     /// la demande est seulement notée) ; un geste du suivi ou du profil est vérifié puis écrit ([`Etat::geste`]) ; le
     /// reste est noté au journal (jamais la valeur d'un geste du profil : un texte de Jordan, une clé).
-    fn recevoir(&mut self, m: &MessagePage) {
+    ///
+    /// Étape 5 bis : « Me connecter » ([`coulisse::CONNECTER`]) passe à part : le mot de passe est sorti du message
+    /// sans copie, gardé dans un [`Secret`] (effacé de la mémoire dès qu'il est tapé ou abandonné), et jamais noté.
+    fn recevoir(&mut self, m: MessagePage) {
         let ligne = match m {
             MessagePage::Menu if self.vie.dans_mindset() => {
                 crate::pont::demander_menu(&self.dossier_mindset, &mut self.systeme, &mut self.disque)
             }
-            MessagePage::Action { id, valeur, .. }
-                if suivi::est_geste(id) || profil::est_geste(id) || offres::est_geste(id) || panneau::est_geste(id) =>
+            MessagePage::Action { ref id, mut valeur, .. } if id == coulisse::CONNECTER => {
+                let mdp = match valeur.get_mut("mdp").map(Value::take) {
+                    Some(Value::String(s)) => Secret::new(s),
+                    _ => Secret::new(String::new()),
+                };
+                let site = valeur.get("site").and_then(Value::as_str).unwrap_or_default().to_string();
+                let mail = valeur.get("mail").and_then(Value::as_str).unwrap_or_default().to_string();
+                crate::pont::effacer_valeur(&mut valeur);
+                if let Some(app) = self.app.clone() {
+                    self.faire(&app, |etat, _| etat.coulisse.connecter(&site, &mail, mdp));
+                }
+                return;
+            }
+            MessagePage::Action { ref id, ref valeur, .. }
+                if suivi::est_geste(id)
+                    || profil::est_geste(id)
+                    || offres::est_geste(id)
+                    || coulisse::est_geste(id) =>
             {
                 self.geste(id, valeur);
                 return;
             }
-            _ => crate::pont::ligne_journal(m),
+            ref m => crate::pont::ligne_journal(m),
         };
         self.journal.ecrire(&court(&ligne));
     }
@@ -954,9 +1134,9 @@ impl Etat {
         if let Some(r) = raison {
             self.journal.ecrire(&r);
         }
-        // (étape 5 : la barre du panneau des sites)
+        // (étape 5 bis : les sites lus en coulisse, la carte de connexion, la petite fenêtre du site)
         if let Some(perso) = e.pointer_mut("/accueil/perso").and_then(Value::as_object_mut) {
-            perso.insert("panneau".into(), self.panneau.vue());
+            perso.insert("coulisse".into(), self.coulisse.vue(self.jour));
         }
         e
     }
@@ -981,7 +1161,9 @@ impl Etat {
     fn appliquer(&mut self, app: &AppHandle, d: &mut Donnees, fait: Fait) {
         let page = app.state::<Page>();
         if let Some(j) = &fait.journal {
-            self.journal.ecrire(&court(j));
+            // (étape 5 bis : une ligne des sites garde sa trace entière, pour corriger une lecture qui casse)
+            let l: String = if j.starts_with("Sites :") { j.chars().take(1500).collect() } else { court(j) };
+            self.journal.ecrire(&l);
         }
         if fait.importer {
             self.lancer_import(app, None);
@@ -992,9 +1174,13 @@ impl Etat {
         if let Some(t) = fait.reseau {
             self.lancer_reseau(app, t);
         }
-        if let Some(o) = fait.panneau {
-            self.panneau.noter(&o);
-            self.ordres_panneau.push(o);
+        for o in fait.coulisse {
+            self.programmer(o);
+        }
+        if let Some(u) = fait.voir {
+            for o in self.coulisse.voir(&u) {
+                self.programmer(o);
+            }
         }
         if let Some(id) = fait.offre {
             self.offres.ouverte = Some(id);
@@ -1023,8 +1209,8 @@ impl Etat {
                 let ctx = offres::Contexte { base: d.base.as_ref(), cles: Some(&etat.cles) };
                 return etat.offres.geste(&ctx, id, valeur, maintenant);
             }
-            if panneau::est_geste(id) {
-                return etat.panneau.geste(id, valeur);
+            if coulisse::est_geste(id) {
+                return etat.coulisse.geste(d.base.as_ref(), id, valeur, maintenant);
             }
             if profil::est_geste(id) {
                 let dossier = d.dossier().to_path_buf();
@@ -1139,7 +1325,7 @@ impl Etat {
         let voulu = std::fs::read_to_string(self.dossier.join(crate::essai::RESEAU)).unwrap_or_default();
         let voulu = voulu.trim_start_matches('\u{feff}').trim().to_string();
         let base = match &self.faux {
-            Some((s, mode)) => {
+            Some((s, mode, _)) => {
                 if let Ok(mut m) = mode.lock() {
                     *m = match voulu.as_str() {
                         "quota" => Mode::Quota,
@@ -1176,19 +1362,111 @@ impl Etat {
         }
     }
 
-    /// La lecture de la page du panneau qui dure trop longtemps : abandonnée (un résultat qui arriverait ensuite est
-    /// laissé).
-    fn page_trop_longue(&mut self, app: &AppHandle) {
-        if self.page_depuis.is_some_and(|t| t.elapsed() > PAGE_MAX) {
-            self.page_depuis = None;
-            self.faire(app, |etat, _| etat.panneau.lecture_perdue("la page n'a pas répondu"));
+    /// Un ordre des sites : un chargement attend son tour (l'écart avec le précédent), une lecture est prévue (elle
+    /// remplace celle d'avant), le reste est fait au prochain pas.
+    fn programmer(&mut self, o: Ordre) {
+        match o {
+            Ordre::Charger(u) => {
+                #[cfg(feature = "essai")]
+                self.mode_sites_essai();
+                self.lecture_prevue = None;
+                self.chargement_prevu = Some(u);
+            }
+            Ordre::Lire { no, delai_ms } => {
+                self.lecture_prevue = Some((Instant::now() + Duration::from_millis(delai_ms), no));
+            }
+            Ordre::Taper { attendu, mail, mdp, .. } => self.actions_vue.push(ActionVue::Taper { attendu, mail, mdp }),
+            Ordre::Montrer => self.actions_vue.push(ActionVue::Montrer),
+            Ordre::Cacher => self.actions_vue.push(ActionVue::Cacher),
+            Ordre::Effacer => {
+                self.chargement_prevu = None;
+                self.lecture_prevue = None;
+                self.actions_vue.push(ActionVue::Effacer);
+            }
         }
     }
 
-    /// Ce que la vue des sites a rapporté depuis le dernier pas : l'adresse affichée (la barre la suit), une nouvelle
-    /// fenêtre demandée (ouverte dans le panneau à la place, si son adresse est permise), un téléchargement refusé, une
-    /// adresse refusée.
-    fn evenements_du_panneau(&mut self, app: &AppHandle) {
+    /// Construction d'essai : `sites.essai` (« captcha » ou « casse ») change la prochaine liste des sites imités, une
+    /// seule fois (le fichier est supprimé).
+    #[cfg(feature = "essai")]
+    fn mode_sites_essai(&mut self) {
+        use jobmind_sources::sites::exemples::ModeSites as M;
+        let f = self.dossier.join(crate::essai::SITES);
+        let Ok(t) = std::fs::read_to_string(&f) else { return };
+        let _ = std::fs::remove_file(&f);
+        let m = match t.trim_start_matches('\u{feff}').trim() {
+            "captcha" => M::Captcha,
+            "casse" => M::Casse,
+            _ => M::Normal,
+        };
+        if let Some((_, _, sites)) = &self.faux
+            && let Ok(mut x) = sites.lock()
+        {
+            *x = m;
+        }
+        self.journal.ecrire(&format!("Essai : prochaine liste des sites imités : {m:?}"));
+    }
+
+    /// Les temps des sites, à chaque pas : le chargement qui attendait son tour, la lecture prévue, une lecture ou une
+    /// page qui ne répond pas, un mot de passe gardé trop longtemps.
+    fn minuteries_des_sites(&mut self, app: &AppHandle) {
+        let ici = Instant::now();
+        if self.chargement_prevu.is_some()
+            && self
+                .dernier_chargement
+                .is_none_or(|t| ici.duration_since(t) >= Duration::from_millis(coulisse::ECART_MS))
+            && let Some(u) = self.chargement_prevu.take()
+        {
+            self.dernier_chargement = Some(ici);
+            self.journal.ecrire(&format!("Sites : chargement de {}", court(&u)));
+            self.actions_vue.push(ActionVue::Naviguer(u));
+        }
+        if self.chargement_prevu.is_none()
+            && let Some((quand, no)) = self.lecture_prevue
+            && ici >= quand
+        {
+            self.lecture_prevue = None;
+            self.lecture_en_cours = Some((no, ici));
+            self.actions_vue.push(ActionVue::Lire(no));
+        }
+        if let Some((no, depuis)) = self.lecture_en_cours
+            && ici.duration_since(depuis) > LECTURE_PAGE_MAX
+        {
+            self.lecture_en_cours = None;
+            self.faire(app, |e, _| e.coulisse.lecture_perdue(no, "la page n'a pas répondu"));
+        }
+        // (ce qui est en cours, et la connexion : leur temps compte depuis qu'ils ont commencé)
+        match (self.coulisse.attente_id(), self.attente_vue) {
+            (None, _) => self.attente_vue = None,
+            (Some(id), Some((vu, _))) if id == vu => {}
+            (Some(id), _) => self.attente_vue = Some((id, ici)),
+        }
+        if let Some((_, depuis)) = self.attente_vue
+            && ici.duration_since(depuis) > ATTENTE_MAX
+            && !self.coulisse.attend_personne()
+        {
+            self.attente_vue = None;
+            self.chargement_prevu = None;
+            self.lecture_prevue = None;
+            self.faire(app, |e, _| e.coulisse.trop_long());
+        }
+        match (self.coulisse.connexion_id(), self.connexion_vue) {
+            (None, _) => self.connexion_vue = None,
+            (Some(id), Some((vu, _))) if id == vu => {}
+            (Some(id), _) => self.connexion_vue = Some((id, ici)),
+        }
+        if let Some((_, depuis)) = self.connexion_vue
+            && ici.duration_since(depuis) > CONNEXION_MAX
+        {
+            self.connexion_vue = None;
+            self.faire(app, |e, _| e.coulisse.oublier_connexion());
+        }
+    }
+
+    /// Ce que la vue des sites a rapporté depuis le dernier pas : une page chargée (lue un peu après si Jobmind
+    /// l'attend), une nouvelle fenêtre demandée (ouverte dans la même vue, seulement dans la petite fenêtre et si son
+    /// adresse est permise), un téléchargement refusé, une adresse refusée.
+    fn evenements_des_sites(&mut self, app: &AppHandle) {
         let evenements = match self.evenements_sites.lock() {
             Ok(mut l) if !l.is_empty() => std::mem::take(&mut *l),
             _ => return,
@@ -1198,32 +1476,49 @@ impl Etat {
         let permise = self.permise();
         for ev in evenements {
             match ev {
-                EvenementSites::Adresse(u) => renvoyer |= self.panneau.adresse_vue(&vers_site(&u)),
+                EvenementSites::Adresse(u) => {
+                    let site = vers_site(&u);
+                    if site.starts_with("about:") {
+                        continue;
+                    }
+                    self.journal.ecrire(&format!(
+                        "Sites : page chargée {} ({})",
+                        jobmind_core::offre::hote(&site),
+                        if self.montree { "dans la petite fenêtre" } else { "en coulisse, vue invisible" }
+                    ));
+                    let f = self.coulisse.page_chargee(&site);
+                    if !f.coulisse.is_empty() {
+                        self.faire(app, |_, _| f);
+                    }
+                }
                 EvenementSites::NouvelleFenetre(u) => match u.parse::<Url>() {
-                    Ok(url) if permise(&url) => {
+                    Ok(url) if permise(&url) && self.montree => {
                         self.journal.ecrire(&format!(
-                            "Panneau : nouvelle fenêtre demandée, ouverte dans le panneau ({})",
+                            "Sites : nouvelle fenêtre demandée, ouverte dans la petite fenêtre ({})",
                             jobmind_core::offre::hote(&u)
                         ));
-                        self.ordres_panneau.push(Ordre::Aller(vers_site(&u)));
+                        self.programmer(Ordre::Charger(vers_site(&u)));
                     }
                     _ => self
                         .journal
-                        .ecrire(&format!("Panneau : nouvelle fenêtre refusée ({})", jobmind_core::offre::hote(&u))),
+                        .ecrire(&format!("Sites : nouvelle fenêtre refusée ({})", jobmind_core::offre::hote(&u))),
                 },
                 EvenementSites::Telechargement(h) => {
-                    self.journal.ecrire(&format!("Panneau : téléchargement refusé ({h})"));
-                    self.panneau.annonce = Some(panneau::Annonce {
-                        texte: "Les téléchargements ne se font pas dans le panneau.".into(),
-                        genre: "attention",
-                        offre: None,
-                    });
-                    renvoyer = true;
+                    self.journal.ecrire(&format!("Sites : téléchargement refusé ({h})"));
+                    if let Some(p) = self.coulisse.petite.as_mut() {
+                        p.annonce = Some(coulisse::Annonce {
+                            texte: "Les téléchargements ne se font pas dans Jobmind.".into(),
+                            genre: "attention",
+                            bouton: None,
+                            offre: None,
+                        });
+                        renvoyer = true;
+                    }
                 }
-                EvenementSites::Refusee(h) => self.journal.ecrire(&format!("Panneau : adresse refusée ({h})")),
+                EvenementSites::Refusee(h) => self.journal.ecrire(&format!("Sites : adresse refusée ({h})")),
                 EvenementSites::Titre(_t) => {
                     #[cfg(feature = "essai")]
-                    self.journal.ecrire(&format!("Essai : titre du panneau « {} »", court(&_t)));
+                    self.journal.ecrire(&format!("Essai : titre de la vue des sites « {} »", court(&_t)));
                 }
             }
         }
@@ -1232,7 +1527,7 @@ impl Etat {
         }
     }
 
-    /// Les adresses que le panneau affiche : les sites (jamais `*.localhost` ni la machine elle-même).
+    /// Les adresses que la vue des sites affiche : les sites (jamais `*.localhost` ni la machine elle-même).
     #[cfg(not(feature = "essai"))]
     fn permise(&self) -> crate::fenetre::Permise {
         Arc::new(crate::fenetre::adresse_site_permise)
@@ -1241,11 +1536,11 @@ impl Etat {
     /// Construction d'essai : seulement le faux serveur local qui imite les sites (jamais internet), et la page vide.
     #[cfg(feature = "essai")]
     fn permise(&self) -> crate::fenetre::Permise {
-        let base = self.faux.as_ref().map(|(s, _)| s.adresse()).unwrap_or_default();
+        let base = self.faux.as_ref().map(|(s, _, _)| s.adresse()).unwrap_or_default();
         Arc::new(move |u: &Url| crate::essai::adresse_essai_permise(&base, u))
     }
 
-    /// L'adresse à ouvrir dans le panneau pour l'adresse d'un site (la même ; l'essai la change pour son faux serveur).
+    /// L'adresse à ouvrir dans la vue des sites pour l'adresse d'un site (la même ; l'essai la change pour son faux serveur).
     #[cfg(not(feature = "essai"))]
     fn vers_local(&self) -> Box<dyn Fn(&str) -> String> {
         Box::new(str::to_string)
@@ -1253,11 +1548,11 @@ impl Etat {
 
     #[cfg(feature = "essai")]
     fn vers_local(&self) -> Box<dyn Fn(&str) -> String> {
-        let base = self.faux.as_ref().map(|(s, _)| s.adresse()).unwrap_or_default();
+        let base = self.faux.as_ref().map(|(s, _, _)| s.adresse()).unwrap_or_default();
         Box::new(move |u: &str| crate::essai::vers_local(&base, u))
     }
 
-    /// L'adresse du site d'une page affichée dans le panneau (la même ; l'essai rend celle du site qu'il imite).
+    /// L'adresse du site d'une page affichée dans la vue des sites (la même ; l'essai rend celle du site qu'il imite).
     #[cfg(not(feature = "essai"))]
     fn vers_site(&self) -> Box<dyn Fn(&str) -> String + Send> {
         Box::new(str::to_string)
@@ -1265,7 +1560,7 @@ impl Etat {
 
     #[cfg(feature = "essai")]
     fn vers_site(&self) -> Box<dyn Fn(&str) -> String + Send> {
-        let base = self.faux.as_ref().map(|(s, _)| s.adresse()).unwrap_or_default();
+        let base = self.faux.as_ref().map(|(s, _, _)| s.adresse()).unwrap_or_default();
         Box::new(move |u: &str| crate::essai::vers_site(&base, u))
     }
 
@@ -1483,19 +1778,74 @@ fn import_demande(etat: &mut Etat, app: &AppHandle) {
     });
 }
 
-/// Construction d'essai (étape 5) : un fichier `panneau.demande` (une adresse) ouvre le panneau des sites sur cette
-/// page, comme « Voir sur le site » ; le faux serveur local la sert (jamais un vrai site).
+/// Construction d'essai (étapes 5 et 5 bis) : un fichier `voir.demande` (une adresse) ouvre la petite fenêtre du site
+/// sur cette page, comme « Voir sur le site » ; le faux serveur local la sert (jamais un vrai site).
 #[cfg(feature = "essai")]
-fn panneau_demande(etat: &mut Etat, app: &AppHandle) {
-    let demande = etat.dossier.join(crate::essai::PANNEAU_DEMANDE);
+fn voir_demande(etat: &mut Etat, app: &AppHandle) {
+    let demande = etat.dossier.join(crate::essai::VOIR_DEMANDE);
     if !demande.is_file() {
         return;
     }
     let texte = std::fs::read_to_string(&demande).unwrap_or_default();
     let _ = std::fs::remove_file(&demande);
     let adresse = texte.trim_start_matches('\u{feff}').trim().chars().take(2000).collect::<String>();
-    etat.journal.ecrire(&format!("Essai : panneau demandé sur {}", court(&adresse)));
-    etat.faire(app, move |e, _| e.panneau.ouvrir(Some(adresse)));
+    etat.journal.ecrire(&format!("Essai : petite fenêtre demandée sur {}", court(&adresse)));
+    etat.faire(app, move |_, _| Fait { voir: Some(adresse), change: true, ..Fait::default() });
+}
+
+/// Construction d'essai (étape 5 bis) : un fichier `connexion.demande` (`{ site, mail, mdp, envoyer }`, inventés)
+/// remplit la carte de connexion de Jobmind dans la page, comme Jordan (puis « Me connecter » si `envoyer`). Le
+/// fichier est supprimé aussitôt lu, son texte effacé de la mémoire ; seul le site va au journal.
+#[cfg(feature = "essai")]
+fn connexion_demande(etat: &mut Etat, app: &AppHandle) {
+    let demande = etat.dossier.join(crate::essai::CONNEXION_DEMANDE);
+    if !demande.is_file() {
+        return;
+    }
+    let mut texte = std::fs::read_to_string(&demande).unwrap_or_default();
+    let _ = std::fs::remove_file(&demande);
+    let lu = serde_json::from_str::<Value>(texte.trim_start_matches('\u{feff}'));
+    coulisse::effacer(&mut texte);
+    let Ok(mut v) = lu else {
+        etat.journal.ecrire("Essai : connexion demandée illisible");
+        return;
+    };
+    let site = v.get("site").and_then(Value::as_str).unwrap_or_default().chars().take(20).collect::<String>();
+    etat.journal.ecrire(&format!("Essai : connexion demandée ({site})"));
+    app.state::<Page>().ordre(json!({ "kit": "accueil", "connexion": v.clone() }));
+    crate::pont::effacer_valeur(&mut v);
+}
+
+/// Construction d'essai (étape 5 bis) : quand Jobmind voit qu'il est connecté à un site imité, ce que le faux serveur
+/// a reçu est vérifié une fois : le mail et le mot de passe inventés de l'essai (dit au journal par oui ou non, jamais
+/// en clair).
+#[cfg(feature = "essai")]
+fn connexion_recue(etat: &mut Etat) {
+    use jobmind_sources::sites::exemples::{MAIL_ESSAI, MDP_ESSAI, decoder};
+    for (i, s) in jobmind_sources::page::Site::CONNUS.iter().enumerate() {
+        let c = etat.coulisse.connecte[i];
+        if c == etat.connexions_vues[i] {
+            continue;
+        }
+        etat.connexions_vues[i] = c;
+        if c != Some(true) {
+            continue;
+        }
+        let recues = etat.faux.as_ref().map(|(f, _, _)| f.recues()).unwrap_or_default();
+        let vu = recues.iter().filter(|r| r.methode == "POST").any(|r| {
+            let mut t = decoder(&r.corps);
+            let ok = t.contains(MDP_ESSAI);
+            coulisse::effacer(&mut t);
+            ok
+        });
+        let mail = recues.iter().any(|r| r.methode == "POST" && decoder(&r.corps).contains(MAIL_ESSAI));
+        etat.journal.ecrire(&format!(
+            "Essai : le faux serveur de {} a reçu le mail d'essai : {}, le mot de passe d'essai : {}",
+            s.code(),
+            if mail { "oui" } else { "non" },
+            if vu { "oui" } else { "non" }
+        ));
+    }
 }
 
 /// La boucle de la fenêtre (`run_return`), protégée : tao attrape une panique d'un rappel de la fenêtre (une page, une

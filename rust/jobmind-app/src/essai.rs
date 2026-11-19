@@ -20,11 +20,15 @@
 //! Étape 4 : les recherches d'offres partent vers un faux serveur local (127.0.0.1) qui imite Adzuna et Jooble avec des
 //! offres inventées (jobmind-sources, option « faux ») ; `reseau.essai` change sa réponse.
 //!
-//! Étape 5 : le panneau des sites n'affiche que ce même faux serveur, qui sert les pages d'exemple des sites (une
-//! adresse `https://www.linkedin.com/...` est changée pour la page qui l'imite, `http://127.0.0.1:<port>/site/...`) et
-//! les pages des essais du panneau (`/essai/...` : la page piégée qui essaie d'appeler Jobmind, la session, un nouvel
-//! onglet, un téléchargement) ; jamais un vrai site. `panneau.demande` (une adresse) ouvre le panneau sur cette page ;
-//! le titre de chaque page du panneau est noté au journal.
+//! Étape 5 (et 5 bis) : la vue des sites n'affiche que ce même faux serveur, qui imite les quatre sites (une adresse
+//! `https://www.linkedin.com/...` est changée pour la page qui l'imite, `http://127.0.0.1:<port>/site/...`) : leurs
+//! listes de résultats, leurs offres, leurs pages de connexion (avec un mail et un mot de passe inventés, et des
+//! cookies de session factices), un captcha ; et les pages des essais de la vue (`/essai/...` : la page piégée qui
+//! essaie d'appeler Jobmind, la session, un nouvel onglet, un téléchargement) ; jamais un vrai site. `voir.demande`
+//! (une adresse) ouvre la petite fenêtre du site sur cette page ; `sites.essai` (« captcha » ou « casse ») change la
+//! prochaine liste demandée, une seule fois ; `connexion.demande` (le site, le mail et le mot de passe inventés, en
+//! JSON) remplit la carte de connexion de Jobmind comme Jordan, sans rien en écrire au journal ; le titre de chaque
+//! page de la vue des sites est noté au journal.
 
 use std::path::{Path, PathBuf};
 
@@ -315,15 +319,22 @@ pub fn lire() -> Result<Essai, String> {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Étape 5 : le panneau des sites de l'essai, sur le faux serveur local (jamais un vrai site)
+// Étapes 5 et 5 bis : la vue des sites de l'essai, sur le faux serveur local (jamais un vrai site)
 // ---------------------------------------------------------------------------------------------------------------
 
-/// Ce fichier (une adresse) ouvre le panneau sur cette page, comme « Voir sur le site » : une adresse d'un site
-/// (`https://www.linkedin.com/...`, changée pour la page qui l'imite sur le faux serveur) ou une page d'essai du faux
-/// serveur (`/essai/piege-ipc`).
-pub const PANNEAU_DEMANDE: &str = "panneau.demande";
+/// Ce fichier (une adresse) ouvre la petite fenêtre du site sur cette page, comme « Voir sur le site » : une adresse
+/// d'un site (`https://www.linkedin.com/...`, changée pour la page qui l'imite sur le faux serveur) ou une page d'essai
+/// du faux serveur (`/essai/piege-ipc`).
+pub const VOIR_DEMANDE: &str = "voir.demande";
+/// Ce fichier (« captcha » ou « casse ») change la prochaine liste demandée à un site imité, une seule fois : il est
+/// lu puis supprimé au prochain chargement.
+pub const SITES: &str = "sites.essai";
+/// Ce fichier (`{ "site", "mail", "mdp", "envoyer" }`, des identifiants inventés) remplit la carte de connexion de
+/// Jobmind comme Jordan le ferait (et clique « Me connecter » si `envoyer`) ; il est supprimé aussitôt lu, et rien de
+/// son contenu ne va au journal.
+pub const CONNEXION_DEMANDE: &str = "connexion.demande";
 
-/// L'essai n'affiche dans le panneau que son faux serveur local (`base` : « http://127.0.0.1:<port> »), et la page
+/// L'essai n'affiche dans la vue des sites que son faux serveur local (`base` : « http://127.0.0.1:<port> »), et la page
 /// vide : jamais internet, jamais une page de Jobmind.
 pub fn adresse_essai_permise(base: &str, u: &tauri::Url) -> bool {
     if u.as_str() == "about:blank" {
@@ -364,7 +375,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn adresses_du_panneau_d_essai() {
+    fn adresses_de_la_vue_des_sites_d_essai() {
         let base = "http://127.0.0.1:5123";
         let u = |a: &str| a.parse::<tauri::Url>().unwrap();
         assert!(adresse_essai_permise(base, &u("http://127.0.0.1:5123/site/www.linkedin.com/jobs/")));
