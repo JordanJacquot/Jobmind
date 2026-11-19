@@ -4,7 +4,7 @@
 # ni le faux serveur d'Adzuna et Jooble et ses offres inventées (reseau.essai, étape 4), ni le panneau ouvert par
 # l'essai et les pages d'exemple des sites (panneau.demande, étape 5), ni les quatre sites imités, leurs identifiants
 # inventés et les demandes de l'essai des sites en coulisse (voir.demande, connexion.demande, sites.essai, étape 5 bis), ni le faux
-# Claude et sa clé inventée (claude.essai, cle-claude.demande, étape 8).
+# Claude et sa clé inventée (claude.essai, cle-claude.demande, étape 8), ni le faux serveur d'envoi (smtp.essai, étape 10).
 # Le test cherche
 # ces noms dans l'exe, en texte simple et en UTF-16 (sans rien lancer). Repris de Mindcare.
 #
@@ -28,7 +28,9 @@ $noms = 'JOBMIND_DONNEES', 'JOBMIND_ESSAI_LOCAL', 'JOBMIND_ESSAI_NOM', 'capture.
     # (étape 7 : la fausse boîte Gmail de l'essai, son mot de passe inventé et ses réponses inventées)
     'boite.demande', 'essaiessaiessaii', 'entretien-1@netea',
     # (étape 8 : le faux Claude local, sa phrase inventée exprès, la clé inventée et les fichiers de l'essai)
-    'claude.essai', 'cle-claude.demande', 'faux-claude', 'de six personnes', 'sk-ant-essai'
+    'claude.essai', 'cle-claude.demande', 'faux-claude', 'de six personnes', 'sk-ant-essai',
+    # (étape 10 : le faux serveur d'envoi local et le fichier qui change ce qu'il fait)
+    'smtp.essai', 'faux-smtp', 'smtp.faux.invalid'
 $trouves = @()
 foreach ($n in $noms) {
     $large = ($n.ToCharArray() | ForEach-Object { "$_`0" }) -join ''

@@ -706,3 +706,69 @@ mark.jm-verif { background: color-mix(in srgb, var(--jm) 13%, transparent); colo
   .jm-st-ajout { grid-template-columns: minmax(0, 1fr); }
 }
 .jm-score-t small { font-size: 11.5px; font-weight: 650; letter-spacing: 0.3px; color: var(--pale); }
+/* Étape 10 : l'envoi par mail (maquette C : « Envoyer ma candidature », un cadre sous les onglets ; de, à, objet, la
+   lettre, le CV joint ; en bas, le cadenas, « Copier » et « Envoyer ») ; « Ce que j'ai envoyé » avec le contenu exact */
+.jm-envoi-bar { display: flex; flex-direction: column; align-items: stretch; gap: 8px; margin: 2px 0 22px; }
+.jm-envoi-bar > .jm-bt { justify-content: center; }
+.jm-envoi-bar .jm-petit { margin: 0; text-align: center; }
+.jm-envoi-fait { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 12px; font-size: 13.5px; font-weight: 600; color: var(--vert); background: color-mix(in srgb, var(--vert) 9%, transparent); }
+.jm-envoi-fait svg { width: 16px; height: 16px; flex: none; }
+.jm-envoi-zone { flex: 1; min-height: 0; display: flex; padding: 18px 34px 20px; box-sizing: border-box; }
+.jm-envoi { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-radius: 20px; overflow: hidden; background: var(--fond2); border: 1px solid color-mix(in srgb, var(--jm) 28%, var(--ligne)); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45); }
+.jm-envoi.entree { animation: jm-entree 320ms var(--jm-anim); }
+.jm-e-haut { flex: none; display: flex; align-items: center; gap: 14px; padding: 14px 18px 14px 22px; border-bottom: 1px solid color-mix(in srgb, var(--ligne) 70%, transparent); }
+.jm-e-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.jm-e-t b { font-size: 17px; font-weight: 800; }
+.jm-e-t span { font-size: 13.5px; color: var(--pale); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jm-e-facon { display: inline-flex; align-items: center; gap: 7px; flex: none; padding: 7px 14px; border-radius: 99px; font-size: 13.5px; font-weight: 650; color: var(--jm); background: color-mix(in srgb, var(--jm) 14%, transparent); }
+.jm-e-facon svg { width: 15px; height: 15px; }
+.jm-e-corps { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--ligne) transparent; }
+.jm-mail { max-width: 820px; margin: 0 auto; padding: 18px 30px 22px; box-sizing: border-box; }
+.jm-e-ann { margin-bottom: 12px; font-size: 13.5px; }
+.jm-e-ann .jm-btns { margin-top: 8px; }
+.jm-m-ch { display: flex; align-items: center; gap: 14px; min-height: 44px; border-bottom: 1px solid color-mix(in srgb, var(--ligne) 70%, transparent); font-size: 15px; }
+.jm-m-ch > span { width: 64px; flex: none; color: var(--pale); font-size: 13.5px; }
+.jm-m-ch > b { font-weight: 500; color: var(--doux); overflow-wrap: anywhere; }
+.jm-m-ch input { flex: 1; min-width: 0; height: 36px; margin: 4px 0; padding: 0 10px; border-radius: 9px; border: 1px solid transparent; background: transparent; color: var(--texte); font: inherit; font-size: 15px; outline: none; }
+.jm-m-ch input:hover { background: rgba(255, 255, 255, 0.03); }
+.jm-m-ch input:focus { background: rgba(255, 255, 255, 0.055); border-color: color-mix(in srgb, var(--jm) 50%, transparent); }
+.jm-m-ch input::placeholder { color: var(--pale); }
+.jm-m-lue { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0 2px 78px; font-size: 12.5px; line-height: 1.45; color: var(--pale); }
+.jm-m-lue svg { width: 14px; height: 14px; flex: none; margin-top: 1px; color: var(--jm); }
+.jm-m-lue b { font-weight: 650; color: var(--doux); }
+.jm-m-txt { margin-top: 16px; padding: 4px 2px; font-size: 15px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--texte); }
+.jm-m-garde { margin-top: 6px; }
+.jm-pj { display: inline-flex; align-items: center; gap: 10px; margin: 6px 0; padding: 7px 13px; border-radius: 12px; background: rgba(255, 255, 255, 0.05); font-size: 14px; }
+.jm-pj svg { width: 17px; height: 17px; color: #FF8A7A; }
+.jm-pj small { color: var(--pale); font-size: 12.5px; }
+.jm-mail .jm-attente { margin-top: 14px; }
+.jm-e-bas { flex: none; display: flex; align-items: center; gap: 12px; padding: 12px 18px 12px 22px; border-top: 1px solid color-mix(in srgb, var(--ligne) 70%, transparent); font-size: 13.5px; color: var(--doux); }
+.jm-e-bas > svg { width: 17px; height: 17px; flex: none; color: var(--jm); }
+.jm-e-bas > span { flex: 1; min-width: 0; }
+.jm-e-bas .jm-bt.principal { min-width: 132px; justify-content: center; }
+.jm-e-bas .jm-bt[disabled] { opacity: 0.45; }
+.jm-e-fini { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 30px; box-sizing: border-box; text-align: center; }
+.jm-e-fini b { font-size: 20px; font-weight: 800; }
+.jm-e-fini p { margin: 0 0 8px; max-width: 520px; font-size: 14.5px; line-height: 1.55; color: var(--doux); }
+.jm-e-rond { width: 64px; height: 64px; display: grid; place-items: center; border-radius: 50%; color: var(--vert); background: color-mix(in srgb, var(--vert) 14%, transparent); border: 2px solid color-mix(in srgb, var(--vert) 55%, transparent); }
+.jm-e-rond svg { width: 30px; height: 30px; }
+.jm-envoye-m + .jm-envoye-m { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--ligne); }
+.jm-envoye-l { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 5px 12px; max-width: 720px; margin: 4px 0 12px; font-size: 13.5px; }
+.jm-envoye-l span { color: var(--pale); }
+.jm-envoye-l b { font-weight: 550; color: var(--texte); overflow-wrap: anywhere; }
+.jm-envoye-id { overflow-wrap: anywhere; }
+@media (max-width: 1040px) {
+  .jm-envoi-zone { padding: 12px 16px 14px; }
+  .jm-mail { padding: 14px 18px 18px; }
+  .jm-e-bas { flex-wrap: wrap; }
+  .jm-e-bas > span { flex-basis: calc(100% - 30px); }
+  .jm-e-bas .jm-bt.discret { margin-left: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jm-envoi.entree { animation: none; }
+}
+.jm-e-q { display: block; margin-top: 6px; font-size: 13.5px; color: var(--texte); quotes: "« " " »"; }
+.jm-m-ch > .jm-pj { width: auto; flex: none; max-width: calc(100% - 78px); color: var(--texte); font-size: 14px; }
+.jm-pj > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jm-pj svg { flex: none; }
+.jm-pj small { white-space: nowrap; }

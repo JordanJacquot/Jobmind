@@ -361,6 +361,24 @@ try {
             Ordre '{"kit":"accueil","cliquer":"pr:styler"}'
             Verifier (Attendre { (& $finsStyle) -gt $finsStyleAvant } 30000) '« styler » : la lettre dans mon style est faite (journal)'
         }
+        # Étape 10 : l'envoi par mail, contre le faux serveur d'envoi local (127.0.0.1 : il garde ce qu'il reçoit, AUCUN
+        # mail ne part, jamais Gmail) : « smtp:<mode> » change ce qu'il fera au prochain envoi (normal, refus,
+        # destinataire, message, incertain, coupe, lent ; sans capture), « envoi:ouvrir » ouvre le récapitulatif de
+        # l'offre ouverte, « envoi-a:<adresse> » y tape une adresse, « envoyer-mail » clique « Envoyer » et attend la fin
+        # au journal (parti, pas parti ou incertain)
+        elseif ($v -match '^smtp:(normal|refus|destinataire|message|incertain|coupe|lent)$') {
+            [IO.File]::WriteAllText((Join-Path $donnees 'smtp.essai'), $Matches[1], $sansBom)
+            Ok "faux serveur d'envoi : $($Matches[1])"
+            continue
+        }
+        elseif ($v -eq 'envoi:ouvrir') { Ordre '{"kit":"accueil","envoi":"ouvrir"}' }
+        elseif ($v -match '^envoi-a:([A-Za-z0-9.@_+-]{0,120})$') { Ordre ([ordered]@{ kit = 'accueil'; envoi_a = $Matches[1] } | ConvertTo-Json -Compress) }
+        elseif ($v -eq 'envoyer-mail') {
+            $finsEnvoi = { (Compter 'Envoi : envoi ') + (Compter 'Envoi : refusé') }
+            $finsEnvoiAvant = & $finsEnvoi
+            Ordre '{"kit":"accueil","cliquer":"en:envoyer"}'
+            Verifier (Attendre { (& $finsEnvoi) -gt $finsEnvoiAvant } 30000) '« Envoyer » : l''envoi est fini (journal)'
+        }
         elseif ($v -match '^consigne:([\w ,''éèàêç-]{0,60})$') { Ordre ([ordered]@{ kit = 'accueil'; prep_consigne = $Matches[1] } | ConvertTo-Json -Compress) }
         elseif ($v -eq 'prep:voir') { Ordre '{"kit":"accueil","preparation":"voir"}' }        elseif ($v -match '^mail:(\d{1,6})$') { Ordre ('{"kit":"accueil","mail":' + $Matches[1] + '}') }
         elseif ($v -eq 'mails-ranger') { Ordre '{"kit":"accueil","mails":"ranger"}' }

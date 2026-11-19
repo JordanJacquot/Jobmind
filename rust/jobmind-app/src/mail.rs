@@ -57,6 +57,16 @@ pub const JOURS_PREMIERE: i64 = 30;
 /// Les mails flous lus par Claude au plus, par relève.
 pub const IA_PAR_RELEVE: usize = 8;
 
+/// Ce que dit « Essayer » quand la boîte se lit mais que l'envoi ne marche pas.
+pub fn texte_essai_envoi(e: &jobmind_mail::smtp::ErreurEnvoi) -> String {
+    match e {
+        jobmind_mail::smtp::ErreurEnvoi::Identifiants => "Jobmind lit ta boîte, mais Gmail refuse l'envoi avec ce mot de \
+                                                          passe d'application. Crée-en un nouveau, puis rebranche ta boîte."
+            .into(),
+        _ => "Jobmind lit ta boîte, mais n'arrive pas à joindre le serveur d'envoi de Gmail. Réessaie plus tard.".into(),
+    }
+}
+
 /// Les adresses des pages de Google pour le guide (à copier, comme celles de Mes clés).
 pub const PAGE_DEUX_ETAPES: &str = "https://myaccount.google.com/signinoptions/twosv";
 pub const PAGE_MOTS_DE_PASSE: &str = "https://myaccount.google.com/apppasswords";
@@ -79,6 +89,8 @@ pub enum Resultat {
 pub struct Retour {
     pub jeton: u64,
     pub resultat: Resultat,
+    /// Étape 10 : « Essayer » essaie aussi le serveur d'envoi (connexion et mot de passe, SANS envoyer de mail)
+    pub envoi: Option<Result<(), jobmind_mail::smtp::ErreurEnvoi>>,
 }
 
 /// Des réponses floues à faire lire par Claude, sur un fil à part (sans la clé).
@@ -400,14 +412,22 @@ impl Boite {
         self.en_cours = None;
         match r.resultat {
             Resultat::Essai(Ok(n)) => {
-                self.annonce = Some(Annonce {
-                    texte: "Ça marche : Jobmind lit ta boîte Gmail, sans rien y changer.".into(),
-                    genre: "ok",
-                });
+                let (texte, genre, envoi) = match &r.envoi {
+                    Some(Ok(())) => (
+                        "Ça marche : Jobmind lit ta boîte Gmail, sans rien y changer, et peut envoyer tes candidatures \
+                         quand tu cliques sur Envoyer."
+                            .to_string(),
+                        "ok",
+                        ", envoi possible".to_string(),
+                    ),
+                    Some(Err(e)) => (texte_essai_envoi(e), "attention", format!(", envoi refusé ({})", e.code())),
+                    None => ("Ça marche : Jobmind lit ta boîte Gmail, sans rien y changer.".to_string(), "ok", String::new()),
+                };
+                self.annonce = Some(Annonce { texte, genre });
                 let mut f = Fait {
                     message: Some("Ça marche : ta boîte Gmail est branchée.".into()),
                     bravo: true,
-                    journal: Some(format!("Mail : essai réussi ({n} mails dans la boîte)")),
+                    journal: Some(format!("Mail : essai réussi ({n} mails dans la boîte{envoi})")),
                     change: true,
                     ..Fait::default()
                 };

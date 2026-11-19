@@ -20,6 +20,8 @@
 //!   Jordan, les phrases à vérifier) et les demandes du jour ; étape 9 : la version dans le style de Jordan et la
 //!   lettre qu'il garde ;
 //! - [`style`] (étape 9) : ce que Jordan change aux règles du style, la longueur des phrases, l'intensité ;
+//! - [`envois`] (étape 10) : chaque envoi par mail tenté puis fini (parti, pas parti, incertain), le contenu exact
+//!   parti et son Message-ID, la candidature entrée dans le suivi, le rythme des envois ;
 //! - [`dossier`] : le dossier de données et suite.json (copie gérée ou non, dossier de travail) ;
 //! - [`donnees`] : tout réuni ;
 //! - [`valeurs`] : les règles de PowerShell suivies (champs sans majuscules, vrai ou faux).
@@ -34,6 +36,7 @@ pub mod carte;
 pub mod cles;
 pub mod donnees;
 pub mod dossier;
+pub mod envois;
 pub mod fichiers;
 pub mod journal;
 pub mod lecture;

@@ -27,10 +27,13 @@
 //!   étape 9 : une phrase réécrite dans le style de Jordan vérifiée de la même façon (aucun nombre, nom ou fait
 //!   nouveau) ;
 //! - [`style`] (étape 9) : l'intensité de la réécriture, la longueur des phrases et les expressions à éviter de Jordan,
-//!   vérifiées.
+//!   vérifiées ;
+//! - [`envoi`] (étape 10) : l'adresse pour postuler lue dans une offre, l'adresse tapée et l'objet vérifiés, le rythme
+//!   des envois (un à la fois, une minute entre deux, 20 par jour au plus).
 
 pub mod candidature;
 pub mod cle;
+pub mod envoi;
 pub mod jour;
 pub mod lecture;
 pub mod lieux;

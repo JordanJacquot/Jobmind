@@ -16,6 +16,8 @@
 //!   maintenant » sur un fil à part, favoris, « J'ai postulé », « Voir sur le site »), puis ce que l'écran en montre ;
 //! - [`mail`] (étape 7) : la boîte Gmail : son branchement (Mon profil, « Ma boîte mail »), la relève sur un fil à part,
 //!   les alertes d'offres ajoutées seules, les réponses des recruteurs rangées (ou « Mails à ranger »), le statut proposé ;
+//! - [`envoi`] (étape 10) : l'envoi d'une candidature par mail depuis le Gmail de Jordan : le récapitulatif relu,
+//!   l'envoi sur un fil à part après son clic, la candidature entrée dans le suivi avec le contenu exact ;
 //! - [`coulisse`] : les sites en coulisse (étape 5 bis) : LinkedIn, Indeed, Welcome to the Jungle et France Travail
 //!   lus par la vue des sites, chargée mais invisible, et montrés dans le design de Jobmind (la liste des résultats,
 //!   l'offre, « Ajouter à Jobmind ») ; la connexion par une carte de Jobmind (le mot de passe tapé une fois, jamais
@@ -37,6 +39,7 @@
 pub mod commandes;
 pub mod coulisse;
 pub mod ecran;
+pub mod envoi;
 #[cfg(feature = "essai")]
 pub mod essai;
 pub mod fenetre;

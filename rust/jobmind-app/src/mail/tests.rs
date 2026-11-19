@@ -62,9 +62,11 @@ fn tourner(faux: &FauxImap, cles: &Cles, t: Tache) -> Retour {
     let (adresse, mdp) = identifiants(cles).unwrap();
     let acces = faux.acces(&adresse, &mdp);
     match t {
-        Tache::Essayer { jeton } => Retour { jeton, resultat: Resultat::Essai(jobmind_mail::essayer(&acces)) },
+        Tache::Essayer { jeton } => {
+            Retour { jeton, resultat: Resultat::Essai(jobmind_mail::essayer(&acces)), envoi: None }
+        }
         Tache::Relever { jeton, reperes } => {
-            Retour { jeton, resultat: Resultat::Releve(jobmind_mail::relever(&acces, &reperes)) }
+            Retour { jeton, resultat: Resultat::Releve(jobmind_mail::relever(&acces, &reperes)), envoi: None }
         }
     }
 }

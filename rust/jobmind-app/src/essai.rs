@@ -61,6 +61,10 @@ pub const RESEAU: &str = "reseau.essai";
 /// Étape 8 : ce fichier change la réponse du faux Claude local à la prochaine candidature demandée (« refus »,
 /// « quota », « cle », « surcharge », « abime », « lent », « coupe » : personne n'écoute ; autre chose : normale).
 pub const CLAUDE: &str = "claude.essai";
+/// Étape 10 : ce fichier change ce que fait le faux serveur d'envoi local au prochain envoi (« refus » : mot de passe
+/// refusé, « destinataire » : adresse refusée, « message » : mail refusé après la fin, « incertain » : coupure juste
+/// après la fin, « coupe » : coupure avant, « lent » : il ne répond plus ; autre chose : normal).
+pub const SMTP: &str = "smtp.essai";
 /// Étape 8 : ce fichier donne la clé Claude inventée ci-dessous (le profil d'exemple n'a pas de clé Claude).
 pub const CLE_CLAUDE_DEMANDE: &str = "cle-claude.demande";
 /// Une clé Claude inventée, de la bonne forme ; elle ne part que vers le faux Claude local de l'essai.
@@ -405,6 +409,34 @@ pub fn fausse_boite(journal: &Journal) -> Option<jobmind_mail::faux::FauxImap> {
             journal.ecrire(&format!("Essai : fausse boîte Gmail non lancée ({e})"));
             None
         }
+    }
+}
+
+/// Étape 10 : le faux serveur d'envoi local (127.0.0.1, jamais Gmail) : il garde ce qu'il reçoit, rien ne part.
+pub fn faux_smtp(journal: &Journal) -> Option<jobmind_mail::faux_smtp::FauxSmtp> {
+    match jobmind_mail::faux_smtp::FauxSmtp::demarrer(BOITE_ADRESSE, BOITE_MDP) {
+        Ok(f) => {
+            journal.ecrire("Essai : faux serveur d'envoi prêt (127.0.0.1, aucun mail ne part)");
+            Some(f)
+        }
+        Err(e) => {
+            journal.ecrire(&format!("Essai : faux serveur d'envoi non lancé ({e})"));
+            None
+        }
+    }
+}
+
+/// Le mode du faux serveur d'envoi d'après `smtp.essai`.
+pub fn mode_smtp(t: &str) -> jobmind_mail::faux_smtp::ModeSmtp {
+    use jobmind_mail::faux_smtp::ModeSmtp;
+    match t.trim_start_matches('\u{feff}').trim() {
+        "refus" => ModeSmtp::MauvaisMotDePasse,
+        "destinataire" => ModeSmtp::DestinataireRefuse,
+        "message" => ModeSmtp::MessageRefuse,
+        "incertain" => ModeSmtp::CoupeApresFin,
+        "coupe" => ModeSmtp::CoupeAvant,
+        "lent" => ModeSmtp::Lent,
+        _ => ModeSmtp::Normal,
     }
 }
 

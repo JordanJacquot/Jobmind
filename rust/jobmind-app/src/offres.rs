@@ -1083,6 +1083,31 @@ fn voir(base: &Base, v: &Value) -> rusqlite::Result<Fait> {
     }
 }
 
+/// La candidature d'une offre, comme la page l'enverrait (« J'ai postulé », et l'envoi par mail de l'étape 10 avec
+/// la lettre partie et le CV joint) : l'entreprise, le poste, la ville, la source et le lien de l'offre.
+pub(crate) fn saisie_de(o: &OffreComplete, moyen: &str, maintenant: Moment, envoye: &str, cv: &str) -> Saisie {
+    let ville = o.offre.lieu.split([',', '(']).next().unwrap_or_default().trim().to_string();
+    let sources: Vec<&str> = o.offre.sources.iter().map(|s| nom_source(s)).collect();
+    let lien = o.liens.iter().map(|l| l.url.clone()).find(|u| lien_ouvrable(u) && u.chars().count() <= LIEN_MAX);
+    let entreprise = if o.offre.entreprise.trim().is_empty() {
+        "Entreprise non précisée".to_string()
+    } else {
+        o.offre.entreprise.clone()
+    };
+    Saisie {
+        entreprise: coupe(&entreprise, ENTREPRISE_MAX),
+        poste: coupe(&o.offre.titre, POSTE_MAX),
+        ville: coupe(&ville, VILLE_MAX),
+        date: maintenant.jour().saisie(),
+        moyen: moyen.into(),
+        source: coupe(&offre::noms_sources(&sources), SOURCE_MAX),
+        lien: lien.unwrap_or_default(),
+        envoye: envoye.chars().take(jobmind_core::candidature::ENVOYE_MAX).collect(),
+        cv: coupe(cv, jobmind_core::candidature::CV_MAX),
+        notes: String::new(),
+    }
+}
+
 /// « J'ai postulé » : une candidature du suivi, liée à l'offre (la même ouverte si elle existe déjà).
 fn postule(base: &Base, v: &Value, maintenant: Moment) -> rusqlite::Result<Fait> {
     let Some(id) = numero(v) else { return Ok(Fait::default()) };
@@ -1096,26 +1121,7 @@ fn postule(base: &Base, v: &Value, maintenant: Moment) -> rusqlite::Result<Fait>
             ..Fait::default()
         });
     }
-    let ville = o.offre.lieu.split([',', '(']).next().unwrap_or_default().trim().to_string();
-    let sources: Vec<&str> = o.offre.sources.iter().map(|s| nom_source(s)).collect();
-    let lien = o.liens.iter().map(|l| l.url.clone()).find(|u| lien_ouvrable(u) && u.chars().count() <= LIEN_MAX);
-    let entreprise = if o.offre.entreprise.trim().is_empty() {
-        "Entreprise non précisée".to_string()
-    } else {
-        o.offre.entreprise.clone()
-    };
-    let s = Saisie {
-        entreprise: coupe(&entreprise, ENTREPRISE_MAX),
-        poste: coupe(&o.offre.titre, POSTE_MAX),
-        ville: coupe(&ville, VILLE_MAX),
-        date: maintenant.jour().saisie(),
-        moyen: "site".into(),
-        source: coupe(&offre::noms_sources(&sources), SOURCE_MAX),
-        lien: lien.unwrap_or_default(),
-        envoye: String::new(),
-        cv: String::new(),
-        notes: String::new(),
-    };
+    let s = saisie_de(&o, "site", maintenant, "", "");
     let f = match verifier_candidature(&s, maintenant.jour()) {
         Ok(f) => f,
         Err(r) => return Ok(Fait::refus(r, format!("Offres : candidature de l'offre {id} refusée"))),

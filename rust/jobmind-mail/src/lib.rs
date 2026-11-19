@@ -1,5 +1,5 @@
 //! Le Gmail de Jordan dans Jobmind (étapes 7 et 10 du plan) : IMAP pour lire les alertes d'offres (LinkedIn, Indeed,
-//! Welcome to the Jungle, France Travail) et les réponses des recruteurs, SMTP (plus tard) pour envoyer une
+//! Welcome to the Jungle, France Travail) et les réponses des recruteurs, SMTP (étape 10, [`smtp`]) pour envoyer une
 //! candidature, toujours sur un clic de Jordan. Branchement par un mot de passe d'application Google, gardé chiffré sur
 //! le PC (DPAPI), jamais dans la base.
 //!
@@ -9,17 +9,23 @@
 //!
 //! - [`imap`] : le client IMAP, sur n'importe quel flux (TLS vers Gmail, TCP simple vers le faux serveur local) ;
 //! - [`mime`] : la lecture d'un mail (RFC 5322 et MIME) en texte, qui ne panique et ne refuse jamais ;
+//! - [`smtp`] (étape 10) : le mail composé (MIME, UTF-8, pièce jointe) et envoyé à UN destinataire, sur un clic ;
+//!   « Essayer » vérifie la connexion et le mot de passe sans rien envoyer ;
 //! - `faux` (les tests, et l'option « faux » de la construction d'essai) : un faux serveur IMAP local qui sert une
 //!   boîte de mails inventés, et note chaque commande reçue (les tests vérifient que rien n'a été écrit).
+//! - `faux_smtp` : un faux serveur SMTP local qui garde ce qu'il reçoit (aucun mail ne part) et imite les pannes.
 //!
 //! Le mot de passe n'est jamais écrit dans une erreur, le journal ou un `Debug` ; il est effacé de la mémoire dès que
 //! l'accès est lâché.
 
 pub mod imap;
 pub mod mime;
+pub mod smtp;
 
 #[cfg(any(test, feature = "faux"))]
 pub mod faux;
+#[cfg(any(test, feature = "faux"))]
+pub mod faux_smtp;
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
@@ -683,7 +689,16 @@ mod tests {
         let dossier = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut fichiers = vec![dossier.join("Cargo.toml")];
         if let Ok(l) = std::fs::read_dir(dossier.join("src")) {
-            fichiers.extend(l.flatten().map(|e| e.path()));
+            for e in l.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    if let Ok(s) = std::fs::read_dir(&p) {
+                        fichiers.extend(s.flatten().map(|x| x.path()).filter(|x| x.is_file()));
+                    }
+                } else {
+                    fichiers.push(p);
+                }
+            }
         }
         assert!(fichiers.len() >= 5);
         for f in fichiers {

@@ -429,7 +429,7 @@ pub const JOOBLE: [InventeeJooble; 7] = [
         "Intérim",
         "",
         13,
-        "Mission d'intérim, chargement des semi-remorques, équipe du matin.",
+        "Mission d'intérim, chargement des semi-remorques, équipe du matin. Pour postuler, envoyez CV et lettre à recrutement@seille-express-exemple.fr.",
     ),
     (
         "-7100000000000000005",

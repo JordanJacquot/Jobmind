@@ -120,6 +120,11 @@ struct Etat {
     /// Construction d'essai : la fausse boîte Gmail (un faux serveur IMAP local, jamais Gmail)
     #[cfg(feature = "essai")]
     faux_imap: Option<jobmind_mail::faux::FauxImap>,
+    /// Étape 10 : l'envoi par mail (le récapitulatif ouvert, l'envoi en cours)
+    envoi: crate::envoi::Envoi,
+    /// Construction d'essai (étape 10) : le faux serveur d'envoi (local, il garde ce qu'il reçoit, rien ne part)
+    #[cfg(feature = "essai")]
+    faux_smtp: Option<jobmind_mail::faux_smtp::FauxSmtp>,
     /// La lecture du fichier de CV choisi a commencé à ce moment
     lecture_depuis: Option<Instant>,
     /// L'onglet Offres : l'offre ouverte, les filtres, la recherche en cours
@@ -334,6 +339,16 @@ pub fn lancer() -> ! {
     // d'essai)
     #[cfg(feature = "essai")]
     crate::essai::exemples_demandes(&l.dossier_donnees, d.base.as_ref(), &mut cles, heure::maintenant(), &journal);
+    // (étape 10 : un envoi par mail resté en cours quand Jobmind s'est arrêtée devient « incertain »)
+    if let Some(b) = d.base.as_ref() {
+        match jobmind_storage::envois::reprendre(b.connexion()) {
+            Ok(0) => {}
+            Ok(n) => {
+                journal.ecrire(&format!("Envoi : {n} envoi(s) interrompu(s) par l'arrêt de Jobmind, notés incertains"))
+            }
+            Err(e) => journal.ecrire(&format!("Envoi : reprise impossible ({e})")),
+        }
+    }
     // L'état de départ : le suivi et le profil d'après la base
     // (construction d'essai : le faux serveur local d'Adzuna et Jooble ; aucune demande de l'essai ne sort du PC)
     #[cfg(feature = "essai")]
@@ -427,6 +442,9 @@ pub fn lancer() -> ! {
             prochaine_releve: Instant::now() + PREMIERE_RELEVE,
             #[cfg(feature = "essai")]
             faux_imap: crate::essai::fausse_boite(&journal),
+            envoi: crate::envoi::Envoi::default(),
+            #[cfg(feature = "essai")]
+            faux_smtp: crate::essai::faux_smtp(&journal),
             lecture_depuis: None,
             offres,
             reseau_depuis: None,
@@ -1213,6 +1231,7 @@ impl Etat {
                     || offres::est_geste(id)
                     || coulisse::est_geste(id)
                     || crate::mail::est_geste(id)
+                    || crate::envoi::est_geste(id)
                     || crate::preparation::est_geste(id)
                     || crate::style::est_geste(id) =>
             {
@@ -1252,6 +1271,18 @@ impl Etat {
                 self.journal.ecrire(&r);
             }
             perso.insert("preparation".into(), p);
+            // (étape 10 : l'envoi par mail de l'offre ouverte)
+            let (v, raison) = self.envoi.vue(
+                d.base.as_ref(),
+                Some(&self.cles),
+                d.dossier(),
+                self.offres.ouverte,
+                heure::maintenant(),
+            );
+            if let Some(r) = raison {
+                self.journal.ecrire(&r);
+            }
+            perso.insert("envoi".into(), v);
         }
         // (étape 8 : le dossier d'une candidature liée à une offre propose sa candidature préparée)
         if let Some(k) = self.suivi.ouverte
@@ -1264,6 +1295,8 @@ impl Etat {
             && f.get("id").and_then(Value::as_i64) == Some(k)
         {
             f.insert("preparer".into(), crate::preparation::pour_dossier(d.base.as_ref(), k));
+            // (étape 10 : les mails partis, avec le contenu exact)
+            f.insert("envois".into(), crate::envoi::pour_dossier(d.base.as_ref(), k, self.jour));
         }
         e
     }
@@ -1316,6 +1349,9 @@ impl Etat {
         if let Some(t) = fait.preparation {
             self.lancer_preparation(app, t);
         }
+        if let Some(t) = fait.envoi {
+            self.lancer_envoi(app, t);
+        }
         for o in fait.coulisse {
             self.programmer(o);
         }
@@ -1357,6 +1393,16 @@ impl Etat {
             if crate::preparation::est_geste(id) {
                 let ctx = crate::preparation::Contexte { base: d.base.as_ref(), cles: Some(&etat.cles) };
                 return etat.preparation.geste(&ctx, id, valeur, maintenant);
+            }
+            if crate::envoi::est_geste(id) {
+                let dossier = d.dossier().to_path_buf();
+                let ctx = crate::envoi::Contexte {
+                    base: d.base.as_ref(),
+                    cles: Some(&etat.cles),
+                    dossier: &dossier,
+                    decalage_minutes: heure::decalage_minutes(),
+                };
+                return etat.envoi.geste(&ctx, id, valeur, maintenant);
             }
             if crate::style::est_geste(id) {
                 return crate::style::geste(d.base.as_ref(), id, valeur);
@@ -1623,6 +1669,73 @@ impl Etat {
         }
     }
 
+    /// Étape 10 : envoie UN mail de candidature sur un fil à part. Le mot de passe d'application est lu ici, au
+    /// dernier moment, donné seulement à ce fil et effacé de la mémoire avec l'accès. Aucun abandon pour lenteur :
+    /// les délais de la connexion (30 s par échange) bornent l'envoi, et le résultat dit toujours ce qui est parti.
+    fn lancer_envoi(&mut self, app: &AppHandle, t: crate::envoi::Tache) {
+        let jeton = t.jeton;
+        let Some((adresse, mdp)) = crate::mail::identifiants(&self.cles) else {
+            self.journal.ecrire("Envoi : boîte illisible sur ce PC, rien envoyé");
+            let r = crate::envoi::Retour { jeton, resultat: Err(jobmind_mail::smtp::ErreurEnvoi::Identifiants) };
+            rapporter_vers(app, r, Etat::retour_envoi);
+            return;
+        };
+        let mut mdp = mdp;
+        let acces = self.acces_envoi(&adresse, &mdp);
+        coulisse::effacer(&mut mdp);
+        let a = app.clone();
+        let r = std::thread::Builder::new().name("envoi-mail".into()).spawn(move || {
+            let resultat = jobmind_mail::smtp::envoyer(&acces, &t.brouillon);
+            drop(acces);
+            rapporter_vers(&a, crate::envoi::Retour { jeton, resultat }, Etat::retour_envoi);
+        });
+        if let Err(e) = r {
+            self.journal.ecrire(&format!("Envoi : fil de l'envoi non lancé ({e})"));
+            let resultat = Err(jobmind_mail::smtp::ErreurEnvoi::Connexion(jobmind_mail::ErreurMail::Reseau(
+                "fil non lancé".into(),
+            )));
+            rapporter_vers(app, crate::envoi::Retour { jeton, resultat }, Etat::retour_envoi);
+        }
+    }
+
+    /// L'accès au vrai serveur d'envoi : smtp.gmail.com, port 465, TLS.
+    #[cfg(not(feature = "essai"))]
+    fn acces_envoi(&self, adresse: &str, mdp: &str) -> jobmind_mail::Acces {
+        jobmind_mail::Acces::gmail_envoi(adresse, mdp)
+    }
+
+    /// Construction d'essai : le faux serveur d'envoi local (127.0.0.1), jamais Gmail ; `smtp.essai` dans le dossier
+    /// de données change ce qu'il fait (crate::essai::mode_smtp) ; sans lui, le port 9 (personne).
+    #[cfg(feature = "essai")]
+    fn acces_envoi(&self, adresse: &str, mdp: &str) -> jobmind_mail::Acces {
+        let voulu = std::fs::read_to_string(self.dossier.join(crate::essai::SMTP)).unwrap_or_default();
+        self.journal.ecrire(&format!(
+            "Essai : envoi demandé au faux serveur d'envoi local ({})",
+            if voulu.trim().is_empty() { "normal" } else { voulu.trim() }
+        ));
+        match &self.faux_smtp {
+            Some(f) => {
+                f.regler(crate::essai::mode_smtp(&voulu));
+                let mut a = f.acces(adresse, mdp);
+                a.delai = Duration::from_secs(3);
+                a
+            }
+            None => jobmind_mail::Acces {
+                hote: "127.0.0.1".into(),
+                port: 9,
+                tls: false,
+                adresse: adresse.into(),
+                mdp: mdp.into(),
+                delai: Duration::from_secs(5),
+            },
+        }
+    }
+
+    /// Étape 10 : ce qu'a donné l'envoi.
+    fn retour_envoi(&mut self, app: &AppHandle, r: crate::envoi::Retour) {
+        self.faire(app, |etat, d| etat.envoi.fini(d.base.as_ref(), r, heure::maintenant()));
+    }
+
     /// Étape 8 : ce que Claude a rendu pour la candidature.
     fn retour_preparation(&mut self, app: &AppHandle, r: crate::preparation::Retour) {
         if self.preparation.jeton_en_cours() == Some(r.jeton) {
@@ -1706,6 +1819,7 @@ impl Etat {
             let r = crate::mail::Retour {
                 jeton,
                 resultat: crate::mail::Resultat::Essai(Err(jobmind_mail::ErreurMail::Identifiants)),
+                envoi: None,
             };
             self.journal.ecrire("Mail : boîte illisible sur ce PC, rien lancé");
             rapporter_vers(app, r, Etat::retour_mail);
@@ -1713,17 +1827,29 @@ impl Etat {
         };
         let mut mdp = mdp;
         let acces = self.acces_mail(&adresse, &mdp);
+        // (étape 10 : « Essayer » essaie aussi le serveur d'envoi, sans envoyer de mail)
+        let acces_envoi = matches!(t, crate::mail::Tache::Essayer { .. }).then(|| self.acces_envoi(&adresse, &mdp));
         coulisse::effacer(&mut mdp);
         let a = app.clone();
         let r = std::thread::Builder::new().name("boite-mail".into()).spawn(move || {
+            let mut envoi = None;
             let resultat = match t {
-                crate::mail::Tache::Essayer { .. } => crate::mail::Resultat::Essai(jobmind_mail::essayer(&acces)),
+                crate::mail::Tache::Essayer { .. } => {
+                    let r = jobmind_mail::essayer(&acces);
+                    if r.is_ok()
+                        && let Some(x) = &acces_envoi
+                    {
+                        envoi = Some(jobmind_mail::smtp::essayer_envoi(x));
+                    }
+                    crate::mail::Resultat::Essai(r)
+                }
                 crate::mail::Tache::Relever { reperes, .. } => {
                     crate::mail::Resultat::Releve(jobmind_mail::relever(&acces, &reperes))
                 }
             };
             drop(acces);
-            rapporter_vers(&a, crate::mail::Retour { jeton, resultat }, Etat::retour_mail);
+            drop(acces_envoi);
+            rapporter_vers(&a, crate::mail::Retour { jeton, resultat, envoi }, Etat::retour_mail);
         });
         match r {
             Ok(_) => self.mail_depuis = Some(Instant::now()),

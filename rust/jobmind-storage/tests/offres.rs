@@ -34,7 +34,7 @@ fn migration_4_sur_une_base_de_l_etape_3() {
             [],
         )
         .unwrap();
-    assert_eq!(b.migrer_tout(m(9)).unwrap(), vec![4, 5, 6, 7, 8, 9]);
+    assert_eq!(b.migrer_tout(m(9)).unwrap(), vec![4, 5, 6, 7, 8, 9, 10]);
     let c = b.connexion();
     let sources: Vec<String> = c
         .prepare("SELECT code FROM sources ORDER BY id")

@@ -1,7 +1,7 @@
 [package]
 name = "jobmind-mail"
 version = "0.1.0"
-description = "Le Gmail de Jordan dans Jobmind : lire la boîte en IMAP sur TLS, en lecture seule (EXAMINE et BODY.PEEK : rien n'est jamais marqué lu, déplacé ni effacé), et chaque mail (MIME) en texte, par un client IMAP et une lecture MIME écrits ici. Plus tard, l'envoi (SMTP) des candidatures. Sans écran"
+description = "Le Gmail de Jordan dans Jobmind : lire la boîte en IMAP sur TLS, en lecture seule (EXAMINE et BODY.PEEK : rien n'est jamais marqué lu, déplacé ni effacé), et chaque mail (MIME) en texte, par un client IMAP et une lecture MIME écrits ici. Étape 10 : l'envoi (SMTP) d'une candidature à un seul destinataire, sur un clic. Sans écran"
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
