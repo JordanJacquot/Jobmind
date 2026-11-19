@@ -1835,9 +1835,11 @@ dependencies = [
 name = "jobmind-storage"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
  "jobmind-core",
  "jobmind-humanizer",
  "jobmind-sources",
+ "miniz_oxide 0.8.9",
  "rusqlite",
  "serde_json",
  "suite-commun",

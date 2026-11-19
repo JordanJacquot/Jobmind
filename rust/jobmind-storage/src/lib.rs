@@ -48,12 +48,14 @@ pub mod moment;
 pub mod offres;
 pub mod preparations;
 pub mod profil;
+pub mod rafraichir;
 pub mod reglages;
+pub mod sauvegarde;
 pub mod style;
 pub mod valeurs;
 
 pub use base::{Base, ErreurBase};
-pub use carte::{Carte, EtatMindset, etat_carte, etat_carte_avec};
+pub use carte::{Carte, EtatMindset, etat_carte, etat_carte_avec, etat_carte_complete};
 pub use donnees::Donnees;
 pub use fichiers::{FichierRelu, Fichiers};
 pub use journal::{Horloge, Journal, horloge_figee};

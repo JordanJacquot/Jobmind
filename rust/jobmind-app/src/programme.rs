@@ -88,6 +88,11 @@ const PREP_MAX: Duration = Duration::from_secs(300);
 /// (chaque lecture a déjà son délai de 30 s).
 const PREMIERE_RELEVE: Duration = Duration::from_secs(12);
 const MAIL_MAX: Duration = Duration::from_secs(180);
+/// Étape 12 : le rafraîchissement automatique des recherches, regardé une première fois peu après le démarrage, puis
+/// toutes les minutes (il ne part que si son rythme est passé : toutes les 6 heures au départ).
+#[cfg_attr(feature = "essai", allow(dead_code))]
+const PREMIER_RAFRAICHI: Duration = Duration::from_secs(90);
+const RAFRAICHI_VERIF: Duration = Duration::from_secs(60);
 
 /// Tout ce que l'appli garde pendant qu'elle tourne, sur le fil de la fenêtre.
 struct Etat {
@@ -183,6 +188,9 @@ struct Etat {
     /// Le dossier de données (construction d'essai : la demande de capture)
     #[cfg(feature = "essai")]
     dossier: PathBuf,
+    /// Étape 12 : le tableau de bord, les exports, la sauvegarde ; la prochaine vérification du rafraîchissement
+    bord: crate::bord::Bord,
+    prochain_rafraichi: Instant,
 }
 
 thread_local! {
@@ -312,9 +320,17 @@ pub fn lancer() -> ! {
         Depart::OuverteDansMindset | Depart::DejaOuverte => std::process::exit(0),
     };
 
+    // (étape 12 : une remise de sauvegarde interrompue par un arrêt de Jobmind : tout est remis comme avant)
+    let reprise = jobmind_storage::sauvegarde::en_attente(&l.dossier_donnees)
+        .then(|| jobmind_storage::sauvegarde::annuler(&l.dossier_donnees));
     // Les données et le thème (celui de la suite pour une copie gérée, sinon le réglage)
     let d = Donnees::ouvrir(&l.dossier_donnees, horloge, l.gere);
     let journal = d.journal().clone();
+    match reprise {
+        None => {}
+        Some(Ok(())) => journal.ecrire("Sauvegarde : remise interrompue par un arrêt, tout est remis comme avant"),
+        Some(Err(e)) => journal.ecrire(&format!("Sauvegarde : remise interrompue, retour en arrière raté ({e})")),
+    }
     let reglage = match d.reglages.lire("Theme", json!("neon")) {
         Value::String(t) => t,
         _ => "neon".to_string(),
@@ -355,6 +371,15 @@ pub fn lancer() -> ! {
                 "Site : {n} envoi(s) sur un site interrompu(s) par l'arrêt de Jobmind, notés incertains"
             )),
             Err(e) => journal.ecrire(&format!("Site : reprise impossible ({e})")),
+        }
+        // (étape 12 : une sauvegarde toute seule par jour, les 7 dernières gardées dans le dossier des données)
+        match jobmind_storage::sauvegarde::automatique(b, &l.dossier_donnees, heure::maintenant()) {
+            Ok(Some(p)) => journal.ecrire(&format!(
+                "Sauvegarde : copie du jour faite ({})",
+                p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+            )),
+            Ok(None) => {}
+            Err(e) => journal.ecrire(&format!("Sauvegarde : copie du jour pas faite ({e})")),
         }
     }
     // L'état de départ : le suivi et le profil d'après la base
@@ -484,6 +509,12 @@ pub fn lancer() -> ! {
             verification: Instant::now(),
             #[cfg(feature = "essai")]
             dossier: l.dossier_donnees.clone(),
+            bord: crate::bord::Bord::default(),
+            // (construction d'essai : seulement sur demande, rafraichir.demande ; jamais au milieu d'un autre essai)
+            #[cfg(not(feature = "essai"))]
+            prochain_rafraichi: Instant::now() + PREMIER_RAFRAICHI,
+            #[cfg(feature = "essai")]
+            prochain_rafraichi: Instant::now() + Duration::from_secs(365 * 86_400),
         })
     });
 
@@ -605,6 +636,7 @@ fn tour(app: &AppHandle) {
             etat.ia_trop_longue(app);
             etat.releve_due(app);
             etat.mail_trop_long(app);
+            etat.rafraichir_du(app);
             etat.evenements_des_sites(app);
             etat.minuteries_des_sites(app);
         }
@@ -619,6 +651,7 @@ fn tour(app: &AppHandle) {
             boite_demande(etat, app);
             cle_claude_demande(etat, app);
             offres_site_demande(etat, app);
+            rafraichir_demande(etat);
         }
         etat.fin = fin;
         fin
@@ -1407,10 +1440,16 @@ impl Etat {
                     || crate::envoi::est_geste(id)
                     || crate::postuler::est_geste(id)
                     || crate::preparation::est_geste(id)
-                    || crate::style::est_geste(id) =>
+                    || crate::style::est_geste(id)
+                    || crate::bord::est_geste(id) =>
             {
                 self.geste(id, valeur);
                 return;
+            }
+            // (étape 12 : l'onglet Offres montré : les nouvelles offres trouvées toutes seules sont vues)
+            MessagePage::Action { ref id, ref valeur, .. } if id == "onglet" && valeur.as_str() == Some("offres") => {
+                self.offres_vues();
+                crate::pont::ligne_journal(&m)
             }
             ref m => crate::pont::ligne_journal(m),
         };
@@ -1459,6 +1498,37 @@ impl Etat {
             perso.insert("envoi".into(), v);
             // (étape 11 : la candidature sur le site de l'offre ouverte)
             perso.insert("postuler".into(), self.coulisse.po_vue(d.base.as_ref(), self.offres.ouverte, self.jour));
+        }
+        // (étape 12 : le tableau de bord dans l'onglet Candidatures, les exports, la sauvegarde et le rafraîchissement
+        // dans Réglages)
+        if let Some(l) = e.pointer_mut("/accueil/perso/onglets").and_then(Value::as_array_mut) {
+            for o in l.iter_mut() {
+                let id = o.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
+                if id == crate::ecran::CANDIDATURES
+                    && let Some(s) = o.get_mut("suivi").and_then(Value::as_object_mut)
+                    && let Some(b) = d.base.as_ref()
+                {
+                    match crate::bord::tableau_de(b, self.jour) {
+                        Ok(t) => {
+                            s.insert("tableau".into(), crate::bord::vue_tableau(&t));
+                        }
+                        Err(r) => self.journal.ecrire(&format!("Bilan : base illisible ({r})")),
+                    }
+                }
+                if id == crate::ecran::PROFIL
+                    && let Some(r) = o
+                        .get_mut("rubriques")
+                        .and_then(Value::as_array_mut)
+                        .and_then(|r| r.iter_mut().find(|x| x.get("id").and_then(Value::as_str) == Some("reglages")))
+                        .and_then(|r| r.get_mut("dossier"))
+                        .and_then(Value::as_object_mut)
+                {
+                    r.insert(
+                        "bord".into(),
+                        crate::bord::vue_reglages(&self.bord, d.base.as_ref(), d.dossier(), heure::maintenant()),
+                    );
+                }
+            }
         }
         // (étape 8 : le dossier d'une candidature liée à une offre propose sa candidature préparée)
         if let Some(k) = self.suivi.ouverte
@@ -1528,6 +1598,9 @@ impl Etat {
         if let Some(t) = fait.envoi {
             self.lancer_envoi(app, t);
         }
+        if let Some(f) = fait.fichier {
+            self.lancer_fichier(app, d.dossier().to_path_buf(), f);
+        }
         for o in fait.coulisse {
             self.programmer(o);
         }
@@ -1590,6 +1663,19 @@ impl Etat {
             }
             if crate::style::est_geste(id) {
                 return crate::style::geste(d.base.as_ref(), id, valeur);
+            }
+            if id == crate::bord::OUI {
+                let occupee = etat.occupee();
+                let f = etat.bord.restaurer(d, occupee, maintenant);
+                if f.bravo {
+                    etat.apres_remise();
+                }
+                return f;
+            }
+            if crate::bord::est_geste(id) {
+                let dossier = d.dossier().to_path_buf();
+                let ctx = crate::bord::Contexte { base: d.base.as_ref(), dossier: &dossier };
+                return etat.bord.geste(&ctx, id, valeur, maintenant);
             }
             if crate::mail::est_geste(id) {
                 return etat.boite.geste(d.base.as_ref(), Some(&mut etat.cles), id, valeur, maintenant);
@@ -1735,7 +1821,12 @@ impl Etat {
         }
         self.faire(app, |etat, d| {
             let maintenant = heure::maintenant();
+            // (étape 12 : une recherche refaite toute seule ne donne rien à Claude : aucune dépense sans Jordan)
+            let auto = etat.offres.auto_en_cours() && etat.offres.jeton_en_cours() == Some(r.jeton);
             let mut f = etat.offres.fini(d.base.as_ref(), r, maintenant);
+            if auto {
+                return f;
+            }
             // (étape 6 : les nouvelles offres floues données à Claude, s'il a sa clé ; sinon rien)
             let ctx = offres::Contexte { base: d.base.as_ref(), cles: Some(&etat.cles) };
             let ia = etat.offres.lire_floues(&ctx, None, true, maintenant);
@@ -2432,6 +2523,15 @@ impl Etat {
                 self.afficher();
                 self.ouvrir_bulle(app, cible);
             }
+            Demande::Offres => {
+                self.afficher();
+                self.offres_vues();
+                self.renvoyer(app);
+                let page = app.state::<Page>();
+                page.ordre(json!({ "kit": "aller", "ecran": "accueil" }));
+                page.ordre(json!({ "kit": "accueil", "onglet": crate::ecran::OFFRES }));
+                self.journal.ecrire("Bulle : onglet Offres ouvert");
+            }
         }
     }
 
@@ -2462,6 +2562,157 @@ impl Etat {
                 self.journal.ecrire("Bulle : liste des candidatures ouverte");
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Étape 12 : le tableau de bord, les exports, la sauvegarde, le rafraîchissement automatique
+// ---------------------------------------------------------------------------------------------------------------
+
+impl Etat {
+    /// Ce qui tourne encore et empêche de remettre une sauvegarde (en mots simples), ou rien.
+    fn occupee(&self) -> Option<&'static str> {
+        if self.offres.en_cours.is_some() || self.reseau_depuis.is_some() {
+            Some("la recherche d'offres")
+        } else if self.ia_depuis.is_some() || self.mail_ia_depuis.is_some() {
+            Some("la lecture par Claude")
+        } else if self.prep_depuis.is_some() || self.style_depuis.is_some() {
+            Some("la préparation de ta candidature")
+        } else if self.mail_depuis.is_some() {
+            Some("la relève de ta boîte mail")
+        } else if self.envoi.jeton_en_cours().is_some() {
+            Some("l'envoi de ta candidature")
+        } else if self.lecture_depuis.is_some() {
+            Some("l'import de ton CV")
+        } else if self.attente_vue.is_some() || self.connexion_vue.is_some() {
+            Some("ce que Jobmind fait sur le site")
+        } else {
+            None
+        }
+    }
+
+    /// Une sauvegarde vient d'être remise : ce qui était ouvert à l'écran ne veut plus rien dire.
+    fn apres_remise(&mut self) {
+        self.suivi = Suivi::default();
+        self.profil = Profil::default();
+        self.offres = Offres::default();
+        self.preparation = crate::preparation::Preparation::default();
+        self.envoi = crate::envoi::Envoi::default();
+    }
+
+    /// L'onglet Offres est montré : les nouvelles offres trouvées toutes seules sont vues (la carte de Mindset suit).
+    fn offres_vues(&mut self) {
+        let Ok(mut d) = self.donnees.try_borrow_mut() else { return };
+        let Some(d) = d.as_mut() else { return };
+        let Some(b) = d.base.as_ref() else { return };
+        if jobmind_storage::rafraichir::vues(b.connexion()).unwrap_or(false) {
+            d.ecrire_etat();
+        }
+    }
+
+    /// Le rafraîchissement automatique, regardé toutes les minutes : il part seulement si son rythme est passé, que rien
+    /// d'autre ne cherche, et qu'une clé Adzuna ou Jooble est prête. Jamais un site.
+    fn rafraichir_du(&mut self, app: &AppHandle) {
+        let ici = Instant::now();
+        if ici < self.prochain_rafraichi {
+            return;
+        }
+        self.prochain_rafraichi = ici + RAFRAICHI_VERIF;
+        if self.offres.en_cours.is_some() || self.offres.tour_en_cours() || self.reseau_depuis.is_some() {
+            return;
+        }
+        let maintenant = heure::maintenant();
+        let du = {
+            let Ok(d) = self.donnees.try_borrow() else { return };
+            let Some(b) = d.as_ref().and_then(|d| d.base.as_ref()) else { return };
+            let c = b.connexion();
+            let r = jobmind_storage::rafraichir::rythme(c).unwrap_or(0);
+            jobmind_storage::rafraichir::est_du(r, jobmind_storage::rafraichir::dernier(c).ok().flatten(), maintenant)
+        };
+        if du {
+            self.faire(app, |etat, d| match d.base.as_ref() {
+                Some(b) => etat.offres.rafraichir(b, Some(&etat.cles), maintenant),
+                None => Fait::default(),
+            });
+        }
+    }
+
+    /// Ouvre la boîte de Windows demandée sur un fil à part (posée sur la fenêtre de Jobmind), puis écrit ou lit le
+    /// fichier sur ce même fil ; le résultat revient au fil de la fenêtre ([`crate::bord::Bord::retour`]).
+    fn lancer_fichier(&mut self, app: &AppHandle, dossier: PathBuf, f: crate::bord::Fichier) {
+        let h = self.fenetre.as_ref().map_or(0, FenetreTauri::hwnd);
+        let essai = self.chemin_essai();
+        let a = app.clone();
+        let r = std::thread::Builder::new().name("boite-fichier".into()).spawn(move || {
+            let r = fil_fichier(h, &dossier, f, essai);
+            rapporter_vers(&a, r, |etat, app, r| etat.faire(app, |e, _| e.bord.retour(r)));
+        });
+        if let Err(e) = r {
+            self.journal.ecrire(&format!("Bord : fil de la boîte non lancé ({e})"));
+            self.bord.boite = false;
+        }
+    }
+
+    /// Le chemin que la construction d'essai donne à la place de la boîte (`fichier.essai`), lu une fois.
+    #[cfg(feature = "essai")]
+    fn chemin_essai(&self) -> Option<PathBuf> {
+        let f = self.dossier.join(crate::essai::FICHIER_ESSAI);
+        let t = std::fs::read_to_string(&f).ok()?;
+        let _ = std::fs::remove_file(&f);
+        let t = t.trim_start_matches('\u{feff}').trim();
+        (!t.is_empty()).then(|| PathBuf::from(t))
+    }
+
+    #[cfg(not(feature = "essai"))]
+    fn chemin_essai(&self) -> Option<PathBuf> {
+        None
+    }
+}
+
+/// Le fil d'une boîte de fichier : la boîte (ou le chemin de l'essai), puis l'écriture (à côté puis renommé) ou la
+/// lecture vérifiée d'une sauvegarde.
+fn fil_fichier(
+    h: usize,
+    dossier: &Path,
+    f: crate::bord::Fichier,
+    essai: Option<PathBuf>,
+) -> crate::bord::RetourFichier {
+    use crate::bord::{Fichier, Genre, RetourFichier};
+    use crate::windows::dialogue::Genre as G;
+    let choix = |genre: Option<(Genre, &str)>| -> Result<Choix, String> {
+        if let Some(c) = essai.clone() {
+            return Ok(Choix::Fichier(c));
+        }
+        match genre {
+            Some((g, nom)) => {
+                let g = match g {
+                    Genre::Csv => G::Csv,
+                    Genre::Pdf => G::Pdf,
+                    Genre::Zip => G::Zip,
+                };
+                dialogue::enregistrer(h, g, nom)
+            }
+            None => dialogue::choisir_sauvegarde(h),
+        }
+    };
+    let nom_de = |c: &Path| c.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    match f {
+        Fichier::Enregistrer { genre, nom, octets } => match choix(Some((genre, &nom))) {
+            Ok(Choix::Annule) => RetourFichier::Annule,
+            Err(e) => RetourFichier::Erreur(e),
+            Ok(Choix::Fichier(c)) => match jobmind_storage::sauvegarde::ecrire(&c, &octets) {
+                Ok(()) => RetourFichier::Enregistre { genre, nom: nom_de(&c) },
+                Err(e) => RetourFichier::Erreur(format!("écriture ({})", e.kind())),
+            },
+        },
+        Fichier::Ouvrir => match choix(None) {
+            Ok(Choix::Annule) => RetourFichier::Annule,
+            Err(e) => RetourFichier::Erreur(e),
+            Ok(Choix::Fichier(c)) => RetourFichier::Lu {
+                nom: nom_de(&c),
+                contenu: jobmind_storage::sauvegarde::lire_fichier(&c, dossier).map(Box::new),
+            },
+        },
     }
 }
 
@@ -2585,6 +2836,24 @@ fn import_demande(etat: &mut Etat, app: &AppHandle) {
         }
         f
     });
+}
+
+/// Construction d'essai (étape 12) : un fichier `rafraichir.demande` fait partir tout de suite le rafraîchissement
+/// automatique (la dernière fois oubliée), contre le faux serveur local d'Adzuna et Jooble.
+#[cfg(feature = "essai")]
+fn rafraichir_demande(etat: &mut Etat) {
+    let demande = etat.dossier.join(crate::essai::RAFRAICHIR_DEMANDE);
+    if !demande.is_file() {
+        return;
+    }
+    let _ = std::fs::remove_file(&demande);
+    if let Ok(d) = etat.donnees.try_borrow()
+        && let Some(b) = d.as_ref().and_then(|d| d.base.as_ref())
+    {
+        let _ = b.connexion().execute("DELETE FROM parametres WHERE cle = 'rafraichi_le'", []);
+    }
+    etat.prochain_rafraichi = Instant::now();
+    etat.journal.ecrire("Essai : rafraîchissement automatique demandé");
 }
 
 /// Construction d'essai (étapes 5 et 5 bis) : un fichier `voir.demande` (une adresse) ouvre la petite fenêtre du site

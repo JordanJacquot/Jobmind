@@ -27,6 +27,8 @@
 //!   gardé) ; la petite fenêtre du site, seulement quand le site demande une personne ou que Jordan veut voir la page.
 //!   La vue des sites elle-même est créée par [`fenetre::creer_vue_sites`], dans la fenêtre « principale », sans aucun
 //!   accès aux commandes ;
+//! - [`bord`] (étape 12) : le tableau de bord, l'export CSV et PDF, la sauvegarde et sa remise, le réglage du
+//!   rafraîchissement automatique des recherches ;
 //! - [`pont`] : les messages du kit vérifiés, l'habillage du thème, le retour à la console de Mindset ;
 //! - [`pack`] : la réponse du protocole `pack` (les images et polices du thème, règle 6), par suite-commun ;
 //! - [`preparer`] et [`contexte`] : ce que le programme et les tests donnent à Tauri ;
@@ -39,6 +41,7 @@
 
 #![deny(unsafe_code)]
 
+pub mod bord;
 pub mod commandes;
 pub mod coulisse;
 pub mod ecran;

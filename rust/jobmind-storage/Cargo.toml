@@ -25,6 +25,11 @@ jobmind-core = { path = "../jobmind-core" }
 jobmind-humanizer = { path = "../jobmind-humanizer" }
 # Les offres telles que les sources les donnent (étape 4), archivées ici
 jobmind-sources = { path = "../jobmind-sources" }
+# Étape 12 : la sauvegarde est un .zip écrit et relu ici ; ses parties compressées par miniz_oxide (MIT, Zlib ou
+# Apache-2.0, déjà tiré par Tauri et jobmind-lecture), décompressées avec une taille limite (un zip piégé ne remplit pas
+# la mémoire), et vérifiées par leur somme de contrôle (crc32fast, MIT ou Apache-2.0, déjà tiré par Tauri).
+miniz_oxide = "=0.8.9"
+crc32fast = "=1.5.3"
 
 [dev-dependencies]
 # Les tests : les réponses inventées d'Adzuna et de Jooble (le faux serveur de jobmind-sources)

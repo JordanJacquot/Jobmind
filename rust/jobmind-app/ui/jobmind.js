@@ -160,7 +160,7 @@
     const groupes = Array.isArray(s.groupes) ? s.groupes : [];
     const ouverte = vueC === 'dossier' ? (choisie ?? s.ouverte) : null;
     let h = `<div class="jm-liste-tete"><span class="jm-liste-t">${esc(texteSur(o.liste))}</span>
-      <button type="button" class="jm-ajout f" data-perso="ajouter" data-k="c:ajouter" title="${esc(T('ajouter'))}">${icone('plus')}<span>${esc(T('ajouter_court'))}</span></button></div>`;
+      <span class="jm-liste-bts">${bilanDe().titre ? `<button type="button" class="jm-rond f${vueC === 'bilan' ? ' on' : ''}" data-perso="bilan" data-k="c:bilanh" title="${esc(texteSur(bilanDe().titre))}" aria-label="${esc(texteSur(bilanDe().titre))}">${icone('cible')}</button>` : ''}<button type="button" class="jm-ajout f" data-perso="ajouter" data-k="c:ajouter" title="${esc(T('ajouter'))}">${icone('plus')}<span>${esc(T('ajouter_court'))}</span></button></span></div>`;
     // (étape 7 : les mails que Jobmind n'a pas su ranger, en tête)
     const mx = mailsDe(), tm = tx(mx), ar = liste(mx.a_ranger).filter((x) => numSur(x?.id));
     if (ar.length) {
@@ -185,8 +185,40 @@
     }
     if (!groupes.length && !ar.length && o.vide) h += `<p class="jm-vide-l">${esc(texteSur(o.vide))}</p>`;
     const bilan = Array.isArray(s.bilan) ? s.bilan.filter((t) => typeof t === 'string') : [];
-    if (bilan.length) h += `<div class="jm-bilan">${bilan.map((t, i) => (i ? `<span>${esc(t)}</span>` : `<b>${esc(t)}</b>`)).join('')}</div>`;
+    // (étape 12 : le petit bilan ouvre « Mon bilan », le tableau de bord, à droite)
+    if (bilan.length) {
+      const sel = vueC === 'bilan';
+      h += `<button type="button" class="jm-bilan f${sel ? ' sel' : ''}" data-perso="bilan" data-k="c:bilan" aria-current="${sel}">${bilan.map((t, i) => (i ? `<span>${esc(t)}</span>` : `<b>${esc(t)}</b>`)).join('')}<em>${icone('cible')}${esc(T('voir_bilan') || 'Voir mon bilan')}</em></button>`;
+    }
     return h;
+  }
+
+  // ---------------------------------------------------------------- Mon bilan (étape 12)
+  // Le tableau de bord, dessiné ici en HTML simple d'après les chiffres que Rust a calculés (src\bord.rs) : six
+  // chiffres, les envois des huit dernières semaines en barres, la part de chaque statut, les offres nouvelles par
+  // source, et l'export. Aucune bibliothèque de dessin.
+  const bilanDe = () => objet(suiviDe()?.tableau);
+  function bilanHTML() {
+    const { esc } = O, b = bilanDe();
+    const nb = (x) => (Number.isInteger(x) && x >= 0 ? x : 0);
+    const part = (x, max) => Math.max(0, Math.min(max, nb(x)));
+    const cartes = liste(b.cartes).map((c) => `<div class="jm-bc${['bien', 'attention'].includes(c?.ton) ? ` ${c.ton}` : ''}"><b>${esc(texteSur(c?.nombre))}</b><span>${esc(texteSur(c?.texte))}</span></div>`).join('');
+    const barres = liste(b.barres).map((x) => `<div class="jm-bb" title="${esc(texteSur(x?.texte))} : ${nb(x?.nombre)}"><div class="jm-bb-p"><span class="jm-bb-n">${nb(x?.nombre) || ''}</span><i style="height:${Math.max(part(x?.part, 100) * 0.8, nb(x?.nombre) ? 4 : 0)}%"></i></div><span class="jm-bb-t">${esc(texteSur(x?.texte))}</span></div>`).join('');
+    const st = liste(b.statuts).filter((x) => codeSur(x?.id));
+    const bande = st.map((x) => `<i style="width:${part(x.part, 1000) / 10}%;--c:${couleurStatut(x.id)}"></i>`).join('');
+    const legende = st.map((x) => `<span><i style="--c:${couleurStatut(x.id)}"></i>${esc(texteSur(x.nom))} <b>${nb(x.nombre)}</b></span>`).join('');
+    const sources = liste(b.sources).map((x) => `<div class="jm-bs"><span>${esc(texteSur(x?.nom))}</span><i><u style="width:${part(x?.part, 100)}%"></u></i><b>${nb(x?.nombre)}</b></div>`).join('');
+    return `<div class="jm-d jm-bilan-d${anime()}"><h1>${esc(texteSur(b.titre))}</h1><div class="jm-d-sous">${esc(texteSur(b.sous))}</div>
+      <div class="jm-bcs">${cartes}</div>
+      <div class="jm-h2">${esc(texteSur(b.barres_titre))}</div><div class="jm-bbs" role="img" aria-label="${esc(texteSur(b.barres_titre))}">${barres}</div>
+      ${st.length ? `<div class="jm-h2">${esc(texteSur(b.statuts_titre))}</div><div class="jm-bande" role="img" aria-label="${esc(texteSur(b.statuts_titre))}">${bande}</div><div class="jm-legende">${legende}</div>` : ''}
+      <div class="jm-h2">${esc(texteSur(b.offres_titre))}</div><p class="jm-petit jm-b-of">${esc(texteSur(b.offres_texte))}</p>${sources ? `<div class="jm-bss">${sources}</div>` : ''}
+      <div class="jm-btns jm-b-bas">${bouton('bx-csv', 'bx:csv', texteSur(b.csv), 'importer', 'second')}${bouton('bx-pdf', 'bx:pdf', texteSur(b.pdf), 'cv', 'second')}${bouton('bilan-fermer', 'bx:fermer', texteSur(b.fermer), 'gauche', 'discret')}</div></div>`;
+  }
+  function ouvrirBilan() {
+    if (vueC !== 'bilan') O.anime = !reduit();
+    vueC = 'bilan'; menu = false; rdv = null; confirme = false; cal = null;
+    dessinerTout('c:bilan');
   }
 
   function dossierVideHTML(d, avecAjout) {
@@ -433,6 +465,7 @@
 
   function droiteCandidatures(o, s) {
     if (vueC === 'formulaire' && form) return formulaireHTML(s);
+    if (vueC === 'bilan' && bilanDe().titre) return bilanHTML();
     if (vueC === 'mail') {
       const m = objet(mailsDe().ouvert);
       if (numSur(m.id)) return mailRangerHTML(m);
@@ -457,8 +490,34 @@
           <span class="jm-r-n" aria-live="polite"><b>${v}</b> ${esc(texteSur(r.unite))}</span>
           <button type="button" class="jm-r-pm f" data-perso="delai" data-v="${v + 1}" data-k="g:plus" aria-label="${esc(texteSur(r.plus))}"${v >= max ? ' disabled' : ''}>+</button></div>
           <div class="jm-puces">${choix.map((n) => `<button type="button" class="jm-puce f${n === v ? ' oui' : ''}" data-perso="delai" data-v="${n}" data-k="g:${n}" aria-pressed="${n === v}">${n} ${esc(texteSur(r.unite))}</button>`).join('')}</div></div></div>
+      ${bordReglagesHTML(objet(d.bord))}
       ${sitesReglageHTML(d.sites)}
       ${d.note ? `<p class="jm-note gauche">${esc(texteSur(d.note))}</p>` : ''}</div>`;
+  }
+
+  // Réglages (étape 12) : chercher de nouvelles offres toute seule (le rythme), exporter, sauvegarder et remettre une
+  // sauvegarde (jamais au premier clic : Rust lit et vérifie le fichier, puis la question)
+  function bordReglagesHTML(b) {
+    const { esc } = O;
+    if (!b.rafraichir) return '';
+    const r = objet(b.rafraichir), x = objet(b.export), s = objet(b.sauvegarde), a = objet(s.attente), boite = b.boite === true;
+    const v = Number.isInteger(r.valeur) ? r.valeur : 6;
+    const choix = liste(r.choix).filter((c) => Number.isInteger(c?.heures)).map((c) => `<button type="button" class="jm-puce f${c.heures === v ? ' oui' : ''}" data-perso="rythme" data-v="${c.heures}" data-k="rr:${c.heures}" aria-pressed="${c.heures === v}">${esc(texteSur(c.texte))}</button>`).join('');
+    const an = objet(b.annonce);
+    const annonce = texteSur(an.texte) ? `<div class="jm-annonce ${an.genre === 'erreur' ? 'erreur' : 'ok'}">${icone(an.genre === 'erreur' ? 'attention' : 'coche')}<span>${esc(texteSur(an.texte))}</span></div>` : '';
+    const question = texteSur(a.titre)
+      ? `<div class="jm-suppr jm-rs-q"><p><b>${esc(texteSur(a.titre))}</b></p><p class="jm-rs-f">${esc(texteSur(a.fichier))}. ${esc(texteSur(a.detail))}</p><p>${esc(texteSur(a.texte))}</p>
+          <div class="jm-btns">${bouton('rs-oui', 'rs:oui', texteSur(a.oui), 'coche', 'danger')}${bouton('rs-non', 'rs:non', texteSur(a.non), '', 'second')}</div></div>`
+      : '';
+    const off = boite ? ' disabled' : '';
+    return `<div class="jm-carte-r"><div class="jm-r-tete"><span class="jm-a-ic">${icone('recharger')}</span><div><b>${esc(texteSur(r.titre))}</b><p>${esc(texteSur(r.texte))}</p></div></div>
+        <div class="jm-r-reglage"><div class="jm-puces">${choix}</div>${r.dernier ? `<p class="jm-petit">${esc(texteSur(r.dernier))}</p>` : ''}</div></div>
+      <div class="jm-carte-r"><div class="jm-r-tete"><span class="jm-a-ic">${icone('cv')}</span><div><b>${esc(texteSur(x.titre))}</b><p>${esc(texteSur(x.texte))}</p></div></div>
+        <div class="jm-btns jm-r-bt">${bouton('rx-csv', 'rx:csv', texteSur(x.csv), 'importer', 'second', off)}${bouton('rx-pdf', 'rx:pdf', texteSur(x.pdf), 'cv', 'second', off)}</div></div>
+      <div class="jm-carte-r"><div class="jm-r-tete"><span class="jm-a-ic">${icone('dossier')}</span><div><b>${esc(texteSur(s.titre))}</b><p>${esc(texteSur(s.texte))}</p></div></div>
+        <p class="jm-r-cles">${icone('cadenas')}<span>${esc(texteSur(s.cles))}</span></p>
+        <div class="jm-btns jm-r-bt">${bouton('rs-sauver', 'rs:sauver', texteSur(s.sauver), 'importer', 'principal', off)}${bouton('rs-restaurer', 'rs:restaurer', texteSur(s.restaurer), 'relance', 'second', off)}</div>
+        ${question}${annonce ? `<div class="jm-r-an">${annonce}</div>` : ''}<p class="jm-petit jm-r-auto">${esc(texteSur(s.auto))}</p></div>`;
   }
 
   // Réglages (étapes 5 et 5 bis) : la session des sites, et « Me déconnecter de tous les sites » (jamais au premier
@@ -1006,6 +1065,17 @@
     switch (d.perso) {
       case 'cand': { const id = Number(d.id); if (numSur(id)) { O.son?.ok?.(); ouvrirCandidature(id); } return true; }
       case 'ajouter': O.son?.ok?.(); ouvrirFormulaire(null); return true;
+      // Étape 12 : Mon bilan, l'export
+      case 'bilan': O.son?.ok?.(); ouvrirBilan(); return true;
+      case 'bilan-fermer': O.son?.retour?.(); vueC = 'dossier'; dessinerTout('c:bilan'); return true;
+      case 'bx-csv': case 'bx-pdf': case 'rx-csv': case 'rx-pdf':
+        if (!el.disabled) { O.son?.ok?.(); O.action(d.perso.endsWith('csv') ? 'x-csv' : 'x-pdf'); }
+        return true;
+      case 'rythme': { const h = Number(d.v); if (Number.isInteger(h) && h >= 0 && h <= 24) { O.son?.bascule?.(); O.action('r-rythme', { heures: h }); } return true; }
+      case 'rs-sauver': if (!el.disabled) { O.son?.ok?.(); O.action('s-sauver'); } return true;
+      case 'rs-restaurer': if (!el.disabled) { O.son?.ok?.(); O.action('s-restaurer'); } return true;
+      case 'rs-oui': if (!el.disabled) { el.disabled = true; O.son?.ok?.(); O.action('s-oui'); } return true;
+      case 'rs-non': O.son?.retour?.(); O.action('s-non'); return true;
       case 'champ': {   // (Entrée dans un champ d'une ligne : le champ suivant)
         if (el.tagName !== 'INPUT') return true;
         const els = [...hote.querySelectorAll('.jm-form .f')], i = els.indexOf(el);
@@ -2663,6 +2733,8 @@
       if (confirme) { confirme = false; dessinerTout('d:supprimer'); return true; }
       if (vueC === 'formulaire') { fermerFormulaire(true); return true; }
       if (vueC === 'mail') { vueC = 'dossier'; mailVu = null; dessinerTout(); return true; }
+      if (vueC === 'bilan' && onglet === 'candidatures') { vueC = 'dossier'; dessinerTout('c:bilan'); return true; }
+      if (rubriqueOuverte('reglages') && objet(objet(objet(rubriqueDe(ongletDe('profil'))?.dossier).bord).sauvegarde).attente) { O.son?.retour?.(); O.action('s-non'); return true; }
       if (retourProfil()) return true;
       if (retourOffres()) return true;
       const premier = onglets()[0];
@@ -2739,6 +2811,14 @@
       if (numSur(o.mail)) { if (onglet !== 'candidatures') montrer('candidatures'); ouvrirMail(o.mail); return; }
       if (o.mails === 'ranger') { const m = liste(mailsDe().a_ranger).find((x) => numSur(x?.id)); if (onglet !== 'candidatures') montrer('candidatures'); if (m) ouvrirMail(m.id); return; }
       if (numSur(o.mail_range)) { if (onglet === 'candidatures') dessinerTout(); return; }
+      // (étape 12) Mon bilan ouvert (pour les captures) ; la question de la sauvegarde à remettre
+      if (o.bilan === true) { if (onglet !== 'candidatures') montrer('candidatures'); ouvrirBilan(); return; }
+      if (o.sauvegarde === 'question') {
+        if (!rubriqueOuverte('reglages')) { montrer('profil'); ouvrirRubrique('reglages'); }
+        dessinerTout('rs:oui');
+        hote.querySelector('[data-k="rs:oui"]')?.scrollIntoView({ block: 'center' });
+        return;
+      }
       if (idSur(o.onglet)) montrer(o.onglet);
     },
   });

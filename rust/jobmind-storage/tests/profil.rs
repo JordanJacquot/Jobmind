@@ -123,7 +123,7 @@ fn une_base_de_l_etape_2_est_migree() {
     b.connexion()
         .execute("INSERT INTO cv (nom, type_fichier, texte, importe_le, principal) VALUES ('CV', 'texte', 'x', '2026-11-01T10:00:00', 1)", [])
         .unwrap();
-    assert_eq!(b.migrer_tout(m(9)).unwrap(), vec![3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    assert_eq!(b.migrer_tout(m(9)).unwrap(), vec![3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     assert_eq!(jobmind_storage::candidatures::lister(b.connexion()).unwrap().0.len(), 1);
     let l = profil::lister_cv(b.connexion()).unwrap();
     assert_eq!((l.len(), l[0].principal, l[0].change_le, l[0].taille), (1, true, None, None));

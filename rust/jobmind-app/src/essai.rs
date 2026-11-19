@@ -65,6 +65,11 @@ pub const CLAUDE: &str = "claude.essai";
 /// refusé, « destinataire » : adresse refusée, « message » : mail refusé après la fin, « incertain » : coupure juste
 /// après la fin, « coupe » : coupure avant, « lent » : il ne répond plus ; autre chose : normal).
 pub const SMTP: &str = "smtp.essai";
+/// Étape 12 : ce fichier (un chemin dans le dossier d'essai) remplace la prochaine boîte « Enregistrer sous » ou
+/// « Ouvrir » de Windows (un export, une sauvegarde, une sauvegarde à remettre) ; lu une fois, puis effacé.
+pub const FICHIER_ESSAI: &str = "fichier.essai";
+/// Étape 12 : ce fichier fait partir tout de suite le rafraîchissement automatique des recherches (faux serveur local).
+pub const RAFRAICHIR_DEMANDE: &str = "rafraichir.demande";
 /// Étape 8 : ce fichier donne la clé Claude inventée ci-dessous (le profil d'exemple n'a pas de clé Claude).
 pub const CLE_CLAUDE_DEMANDE: &str = "cle-claude.demande";
 /// Une clé Claude inventée, de la bonne forme ; elle ne part que vers le faux Claude local de l'essai.

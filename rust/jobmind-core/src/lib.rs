@@ -36,6 +36,7 @@
 pub mod candidature;
 pub mod cle;
 pub mod envoi;
+pub mod export;
 pub mod jour;
 pub mod lecture;
 pub mod lieux;
@@ -50,6 +51,7 @@ pub mod recherches;
 pub mod statut;
 pub mod style;
 pub mod suivi;
+pub mod tableau;
 
 pub use candidature::{Candidature, Entretien, Evenement, Moyen};
 pub use jour::{Heure, Jour};

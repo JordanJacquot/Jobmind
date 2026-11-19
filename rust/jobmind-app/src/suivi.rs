@@ -79,6 +79,9 @@ pub struct Fait {
     pub style: Option<crate::preparation::TacheStyle>,
     /// Étape 10 : le mail de candidature à envoyer, sur un fil à part (sans le mot de passe)
     pub envoi: Option<crate::envoi::Tache>,
+    /// Étape 12 : une boîte de Windows à ouvrir sur un fil à part (« Enregistrer sous » un export ou une sauvegarde,
+    /// « Ouvrir » une sauvegarde)
+    pub fichier: Option<crate::bord::Fichier>,
 }
 
 impl Fait {

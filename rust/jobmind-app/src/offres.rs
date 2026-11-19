@@ -40,6 +40,7 @@ use jobmind_sources::{ErreurSource, OffreTrouvee, Recherche};
 use jobmind_storage::cles::{Cles, EtatCle};
 use jobmind_storage::lecture::{self as base_lecture, ResultatIa};
 use jobmind_storage::offres::{self as base_offres, Bilan, Marque, OffreComplete, RechercheGardee};
+use jobmind_storage::rafraichir::{self, EtatTour};
 use jobmind_storage::rusqlite;
 use jobmind_storage::{Base, Moment, candidatures, profil};
 use serde_json::{Value, json};
@@ -92,6 +93,8 @@ pub fn est_geste(id: &str) -> bool {
 /// Les demandes par jour que Jobmind s'autorise, par source.
 pub const LIMITE_ADZUNA: u32 = 100;
 pub const LIMITE_JOOBLE: u32 = 50;
+/// La phrase quand les demandes du jour sont toutes faites.
+pub const PLAFOND: &str = "Tu as déjà fait beaucoup de recherches aujourd'hui. Réessaie demain.";
 /// Une même recherche ne repart pas avant ce nombre de secondes.
 pub const PAUSE_SECONDES: i64 = 60;
 /// La liste montre au plus ce nombre d'offres (les filtres resserrent).
@@ -229,6 +232,20 @@ pub struct EnCours {
     pub jeton: u64,
     pub recherche_id: Option<i64>,
     pub texte: String,
+    /// Étape 12 : refaite toute seule (le rafraîchissement automatique), sans bulle de l'écran
+    pub auto: bool,
+}
+
+/// Étape 12 : un tour du rafraîchissement automatique : les recherches qui restent à refaire, son moment, ce qu'il a
+/// trouvé jusqu'ici.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Tour {
+    pub file: Vec<i64>,
+    pub le: Moment,
+    pub nouvelles: usize,
+    pub erreurs: usize,
+    /// Les sources dont la clé était prête au début du tour (aucune clé ici)
+    pub services: Vec<Service>,
 }
 
 /// Ce que l'écran montre de l'onglet Offres, lu dans la base.
@@ -295,6 +312,8 @@ pub struct Offres {
     /// Étape 6 : la lecture par Claude en cours (son jeton, le nombre d'offres), et ce qu'a donné la dernière
     pub ia: Option<(u64, usize)>,
     pub ia_annonce: Option<Annonce>,
+    /// Étape 12 : le tour du rafraîchissement automatique en cours
+    pub tour: Option<Tour>,
 }
 
 impl Default for Offres {
@@ -310,6 +329,7 @@ impl Default for Offres {
             jetons: 0,
             ia: None,
             ia_annonce: None,
+            tour: None,
         }
     }
 }
@@ -451,7 +471,7 @@ impl Offres {
                 self.recherche = numero(valeur);
                 Ok(Fait { change: true, ..Fait::default() })
             }
-            CHERCHER => self.chercher(base, ctx.cles, valeur, maintenant),
+            CHERCHER => self.chercher(base, ctx.cles, valeur, maintenant, false),
             RECHERCHE => self.enregistrer_recherche(base, valeur, maintenant),
             RECHERCHE_SUPPRIMER => supprimer_recherche(base, valeur),
             DEPUIS_PROFIL => self.depuis_profil(base, maintenant),
@@ -500,7 +520,14 @@ impl Offres {
     }
 
     /// « Chercher maintenant » : la tâche du fil des recherches, si une clé est prête et les limites le permettent.
-    fn chercher(&mut self, base: &Base, cles: Option<&Cles>, v: &Value, maintenant: Moment) -> rusqlite::Result<Fait> {
+    fn chercher(
+        &mut self,
+        base: &Base,
+        cles: Option<&Cles>,
+        v: &Value,
+        maintenant: Moment,
+        auto: bool,
+    ) -> rusqlite::Result<Fait> {
         let c = base.connexion();
         if self.en_cours.is_some() {
             return Ok(message("Une recherche est déjà en cours : attends sa fin."));
@@ -509,11 +536,17 @@ impl Offres {
         let Some(r) = base_offres::lister_recherches(c)?.into_iter().find(|r| Some(r.id) == rid) else {
             return Ok(message("Choisis d'abord une recherche."));
         };
-        let prets: Vec<Service> =
-            [Service::Adzuna, Service::Jooble].into_iter().filter(|s| cle_prete(cles, *s)).collect();
+        // (étape 12 : refaite toute seule, les sources prêtes au début du tour)
+        let prets: Vec<Service> = match (&self.tour, auto) {
+            (Some(t), true) => t.services.clone(),
+            _ => [Service::Adzuna, Service::Jooble].into_iter().filter(|s| cle_prete(cles, *s)).collect(),
+        };
         if prets.is_empty() {
             let t = "Pour chercher des offres, Jobmind a besoin de ta clé Adzuna ou Jooble. Donne-la dans Mon profil, \
                      rubrique Mes clés.";
+            if auto {
+                return Ok(message(t));
+            }
             self.annonce = Some(Annonce { texte: t.into(), genre: "erreur", cles: true });
             return Ok(Fait {
                 message: Some(t.into()),
@@ -537,17 +570,24 @@ impl Offres {
             }
         }
         if services.is_empty() {
-            return Ok(message("Tu as déjà fait beaucoup de recherches aujourd'hui. Réessaie demain."));
+            return Ok(message(PLAFOND));
         }
         self.parties.push((r.id, s));
         self.jetons += 1;
         let (lieu, rayon) = recherches::lieu_pour_source(&r.lieu);
         let noms = offre::noms_sources(&services.iter().map(|x| nom_source(x.code())).collect::<Vec<_>>());
-        self.recherche = Some(r.id);
+        if !auto {
+            self.recherche = Some(r.id);
+        }
         self.en_cours = Some(EnCours {
             jeton: self.jetons,
             recherche_id: Some(r.id),
-            texte: format!("Recherche « {} » en cours sur {noms}...", r.nom),
+            texte: if auto {
+                format!("Jobmind refait toute seule la recherche « {} » sur {noms}...", r.nom)
+            } else {
+                format!("Recherche « {} » en cours sur {noms}...", r.nom)
+            },
+            auto,
         });
         Ok(Fait {
             reseau: Some(Tache::Chercher {
@@ -600,6 +640,7 @@ impl Offres {
             jeton: self.jetons,
             recherche_id: None,
             texte: format!("Essai de la clé {nom} en cours..."),
+            auto: false,
         });
         Fait {
             message: Some(format!("Essai de la clé {nom} en cours...")),
@@ -690,9 +731,33 @@ impl Offres {
             (true, false) => "erreur",
         };
         let cles = erreurs.iter().any(ErreurSource::vient_de_la_cle);
-        self.annonce = Some(Annonce { texte: texte.clone(), genre, cles });
         let nombre = i64::try_from(trouvees).unwrap_or(i64::MAX);
         let _ = base_offres::noter_recherche(base.connexion(), rid, maintenant, nombre, &texte);
+        // (étape 12 : refaite toute seule : notée, sans bulle de l'écran ; puis la recherche suivante du tour)
+        if en_cours.auto {
+            let nouvelles = bilan.nouvelles.saturating_sub(bilan.fusionnees);
+            let etat = if ok.is_empty() { EtatTour::Erreur } else { EtatTour::Ok };
+            let _ = rafraichir::noter(base.connexion(), maintenant, Some(rid), trouvees, nouvelles, etat, &texte);
+            let journal = format!("Offres : recherche {rid} refaite toute seule ({})", journal.join(" ; "));
+            let Some(tour) = self.tour.as_mut() else {
+                return Fait { journal: Some(journal), change: true, ..Fait::default() };
+            };
+            tour.nouvelles += nouvelles;
+            if ok.is_empty() {
+                // (aucune source n'a répondu : le réseau ou les clés ; le tour s'arrête là, rien n'est redemandé)
+                tour.erreurs += 1;
+                tour.file.clear();
+            }
+            let mut f = self.suivante(base, maintenant);
+            // (la suite d'abord : la fin du tour, ou la recherche suivante, se lit au journal même coupé)
+            f.journal = Some(match f.journal {
+                Some(j) => format!("{j} ; {journal}"),
+                None => journal,
+            });
+            f.change = true;
+            return f;
+        }
+        self.annonce = Some(Annonce { texte: texte.clone(), genre, cles });
         Fait {
             message: Some(texte),
             bravo: bilan.nouvelles > bilan.fusionnees,
@@ -702,8 +767,126 @@ impl Offres {
         }
     }
 
+    /// Étape 12 : le rafraîchissement automatique (le programme l'appelle quand un tour est dû) : chaque recherche
+    /// gardée refaite chez Adzuna et Jooble seulement, l'une après l'autre, dans les mêmes limites que « Chercher
+    /// maintenant » (une à la fois, pas deux fois la même dans la minute, les demandes du jour comptées) ; jamais un
+    /// site (LinkedIn, Indeed, Welcome to the Jungle, France Travail). Rien ne part si une recherche est déjà en cours,
+    /// ou sans clé.
+    pub fn rafraichir(&mut self, base: &Base, cles: Option<&Cles>, maintenant: Moment) -> Fait {
+        if self.en_cours.is_some() || self.tour.is_some() {
+            return Fait::default();
+        }
+        let services: Vec<Service> =
+            [Service::Adzuna, Service::Jooble].into_iter().filter(|s| cle_prete(cles, *s)).collect();
+        let c = base.connexion();
+        if let Err(e) = rafraichir::commencer(c, maintenant) {
+            return Fait { journal: Some(format!("Offres : rafraîchissement non noté ({e})")), ..Fait::default() };
+        }
+        if services.is_empty() {
+            return Fait {
+                journal: Some("Offres : rafraîchissement automatique laissé (aucune clé Adzuna ni Jooble)".into()),
+                ..Fait::default()
+            };
+        }
+        let file: Vec<i64> = match base_offres::lister_recherches(c) {
+            Ok(l) => l.into_iter().map(|r| r.id).collect(),
+            Err(e) => {
+                return Fait {
+                    journal: Some(format!("Offres : rafraîchissement impossible ({e})")),
+                    ..Fait::default()
+                };
+            }
+        };
+        if file.is_empty() {
+            return Fait {
+                journal: Some("Offres : rafraîchissement automatique laissé (aucune recherche gardée)".into()),
+                ..Fait::default()
+            };
+        }
+        let n = file.len();
+        self.tour = Some(Tour { file, le: maintenant, nouvelles: 0, erreurs: 0, services });
+        let mut f = self.suivante(base, maintenant);
+        let debut = format!("Offres : rafraîchissement automatique ({n} recherche{})", if n > 1 { "s" } else { "" });
+        f.journal = Some(match f.journal {
+            Some(j) => format!("{debut} ; {j}"),
+            None => debut,
+        });
+        f
+    }
+
+    /// Étape 12 : la recherche suivante du tour (une recherche disparue ou faite il y a moins d'une minute est
+    /// passée ; le plafond du jour atteint arrête le tour), ou la fin du tour.
+    fn suivante(&mut self, base: &Base, maintenant: Moment) -> Fait {
+        loop {
+            let Some(tour) = self.tour.as_mut() else { return Fait::default() };
+            if tour.file.is_empty() {
+                return self.finir_tour(base);
+            }
+            let rid = tour.file.remove(0);
+            match self.chercher(base, None, &json!({ "id": rid }), maintenant, true) {
+                Ok(f) if f.reseau.is_some() => return Fait { message: None, bravo: false, ..f },
+                Ok(f) if f.message.as_deref() == Some(PLAFOND) => {
+                    let _ =
+                        rafraichir::noter(base.connexion(), maintenant, Some(rid), 0, 0, EtatTour::Plafond, PLAFOND);
+                    if let Some(t) = self.tour.as_mut() {
+                        t.file.clear();
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    let _ = rafraichir::noter(base.connexion(), maintenant, Some(rid), 0, 0, EtatTour::Erreur, "base");
+                    if let Some(t) = self.tour.as_mut() {
+                        t.file.clear();
+                        t.erreurs += 1;
+                    }
+                    let mut f = self.finir_tour(base);
+                    f.journal = Some(format!("{} (base : {e})", f.journal.unwrap_or_default()));
+                    return f;
+                }
+            }
+        }
+    }
+
+    /// Étape 12 : la fin d'un tour : les nouvelles offres comptées pour la carte de Mindset, et la bulle « 5 nouvelles
+    /// offres », une seule fois.
+    fn finir_tour(&mut self, base: &Base) -> Fait {
+        let Some(tour) = self.tour.take() else { return Fait::default() };
+        let c = base.connexion();
+        let _ = rafraichir::ajouter_nouvelles(c, tour.nouvelles);
+        let bulle = jobmind_storage::bulles::retenir_offres(c, tour.nouvelles, tour.le).ok().flatten();
+        Fait {
+            journal: Some(format!(
+                "Offres : rafraîchissement automatique fini ({} nouvelle(s) offre(s){}{})",
+                tour.nouvelles,
+                if tour.erreurs > 0 { ", une source n'a pas répondu" } else { "" },
+                if bulle.is_some() { ", bulle mise en attente" } else { "" }
+            )),
+            change: true,
+            ..Fait::default()
+        }
+    }
+
+    /// Étape 12 : un tour du rafraîchissement automatique est en cours.
+    pub fn tour_en_cours(&self) -> bool {
+        self.tour.is_some()
+    }
+
+    /// Étape 12 : la recherche en cours est refaite toute seule.
+    pub fn auto_en_cours(&self) -> bool {
+        self.en_cours.as_ref().is_some_and(|e| e.auto)
+    }
+
     /// La recherche a duré trop longtemps : abandonnée (un résultat qui arriverait ensuite est laissé).
     pub fn trop_long(&mut self) -> Fait {
+        // (étape 12 : refaite toute seule : le tour s'arrête sans rien dire à l'écran)
+        if self.en_cours.take().is_some_and(|e| e.auto) {
+            self.tour = None;
+            return Fait {
+                journal: Some("Offres : recherche refaite toute seule trop longue, tour arrêté".into()),
+                change: true,
+                ..Fait::default()
+            };
+        }
         self.en_cours = None;
         let t = "La recherche a pris trop de temps. Vérifie ta connexion à internet, puis réessaie.";
         self.annonce = Some(Annonce { texte: t.into(), genre: "erreur", cles: false });
@@ -1392,6 +1575,100 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    /// Étape 12 : le rafraîchissement automatique : chaque recherche gardée refaite l'une après l'autre chez Adzuna et
+    /// Jooble seulement (jamais un site), sans bulle de l'écran ; les doublons ne comptent pas ; la bulle de Mindset
+    /// une seule fois par tour ; le réseau coupé arrête le tour ; le plafond du jour aussi ; sans clé, rien ne part.
+    #[test]
+    fn rafraichissement_automatique() {
+        let d = essai("offres-auto");
+        let (b, _) = Base::en_memoire(m(9, 0)).unwrap();
+        let (mut cles, _) = Cles::ouvrir(&d, Box::new(Faux));
+        let mut o = Offres::default();
+        // Sans clé : rien ne part, mais le tour est noté (pas de nouvel essai toutes les 30 s)
+        let ctx = Contexte { base: Some(&b), cles: Some(&cles) };
+        o.geste(&ctx, RECHERCHE, &json!({ "mots": "cariste", "lieu": "partout" }), m(9, 0));
+        o.geste(&ctx, RECHERCHE, &json!({ "mots": "agent de quai", "lieu": "partout" }), m(9, 0));
+        let choisie = o.recherche;
+        let f = o.rafraichir(&b, Some(&cles), m(9, 30));
+        assert!(f.reseau.is_none() && o.tour.is_none());
+        assert_eq!(rafraichir::dernier(b.connexion()).unwrap(), Some(m(9, 30)));
+        cles.garder_plusieurs(&[(Cle::AdzunaId, "1a2b3c4d"), (Cle::AdzunaCle, "0123456789abcdef0123456789abcdef")])
+            .unwrap();
+        cles.garder(Cle::Jooble, "aaaabbbb-cccc-dddd-eeee-ffff00001111").unwrap();
+        let ctx = Contexte { base: Some(&b), cles: Some(&cles) };
+        // Le tour : la première recherche part, sans message à l'écran, sans rien charger des sites
+        let f = o.rafraichir(&b, Some(&cles), m(10, 0));
+        let Some(Tache::Chercher { jeton, services, recherche_id, .. }) = f.reseau.clone() else { panic!("{f:?}") };
+        assert_eq!(services, [Service::Adzuna, Service::Jooble]);
+        assert!(f.message.is_none() && f.coulisse.is_empty() && f.voir.is_none(), "{f:?}");
+        assert!(o.auto_en_cours() && o.tour_en_cours());
+        assert_eq!(o.recherche, choisie, "le choix de Jordan ne bouge pas");
+        // Pendant ce temps, « Chercher maintenant » attend
+        assert_eq!(
+            o.geste(&ctx, CHERCHER, &json!({}), m(10, 0)).message.as_deref(),
+            Some("Une recherche est déjà en cours : attends sa fin.")
+        );
+        // Un second tour demandé pendant le premier : rien
+        assert!(o.rafraichir(&b, Some(&cles), m(10, 0)).reseau.is_none());
+        // La première revient : 17 nouvelles, puis la seconde part
+        let f = o.fini(Some(&b), Retour { jeton, resultats: reponses() }, m(10, 1));
+        assert!(f.message.is_none() && !f.bravo);
+        let Some(Tache::Chercher { jeton: j2, recherche_id: r2, .. }) = f.reseau.clone() else { panic!("{f:?}") };
+        assert_ne!(r2, recherche_id);
+        assert!(f.journal.unwrap().contains("refaite toute seule"));
+        // La seconde ne trouve que les mêmes offres (des doublons) : le tour finit, 17 nouvelles en tout
+        let f = o.fini(Some(&b), Retour { jeton: j2, resultats: reponses() }, m(10, 2));
+        assert!(f.reseau.is_none() && f.message.is_none());
+        assert!(f.journal.unwrap().contains("fini (17 nouvelle(s) offre(s), bulle mise en attente)"));
+        assert!(!o.tour_en_cours() && o.en_cours.is_none());
+        assert_eq!(rafraichir::nouvelles(b.connexion()).unwrap(), 17);
+        let t = rafraichir::dernier_tour(b.connexion()).unwrap().unwrap();
+        assert_eq!((t.le, t.nouvelles, t.erreurs, t.plafond), (m(10, 0), 17, 0, false));
+        let bulles: Vec<String> = b
+            .connexion()
+            .prepare("SELECT titre FROM bulles WHERE onglet = 'offres'")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(bulles, ["17 nouvelles offres"]);
+        assert_eq!(base_offres::appels(b.connexion(), m(10, 0).jour(), "adzuna").unwrap(), 2);
+        // Le réseau coupé : le tour s'arrête à la première, rien de plus n'est demandé, aucune bulle
+        let f = o.rafraichir(&b, Some(&cles), m(16, 0));
+        let Some(Tache::Chercher { jeton, .. }) = f.reseau else { panic!() };
+        let coupe = |s: &str| Err(ErreurSource::Reseau(s.into(), "connexion impossible".into()));
+        let f = o.fini(
+            Some(&b),
+            Retour { jeton, resultats: vec![(Service::Adzuna, coupe("Adzuna")), (Service::Jooble, coupe("Jooble"))] },
+            m(16, 1),
+        );
+        assert!(f.reseau.is_none() && f.message.is_none());
+        let t = rafraichir::dernier_tour(b.connexion()).unwrap().unwrap();
+        assert_eq!((t.nouvelles, t.erreurs), (0, 1));
+        assert_eq!(base_offres::appels(b.connexion(), m(10, 0).jour(), "adzuna").unwrap(), 3);
+        let n: i64 = b.connexion().query_row("SELECT COUNT(*) FROM bulles", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1);
+        // Trop long : le tour s'arrête sans bulle de l'écran
+        let f = o.rafraichir(&b, Some(&cles), m(17, 0));
+        assert!(f.reseau.is_some());
+        let f = o.trop_long();
+        assert!(f.message.is_none() && !o.tour_en_cours() && o.en_cours.is_none());
+        // Le plafond du jour atteint : rien ne part
+        for s in ["adzuna", "jooble"] {
+            while base_offres::appels(b.connexion(), m(9, 0).jour(), s).unwrap()
+                < limite(Service::depuis_code(s).unwrap())
+            {
+                base_offres::compter_appel(b.connexion(), m(9, 0).jour(), s).unwrap();
+            }
+        }
+        let f = o.rafraichir(&b, Some(&cles), m(22, 0));
+        assert!(f.reseau.is_none() && f.message.is_none());
+        assert!(rafraichir::dernier_tour(b.connexion()).unwrap().unwrap().plafond);
+        assert!(!o.tour_en_cours());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     /// Le même souci chez les deux sources : une seule phrase, au pluriel.
     #[test]
     fn meme_souci_une_phrase() {
@@ -1403,7 +1680,7 @@ mod tests {
             &json!({ "mots": "cariste", "lieu": "partout" }),
             m(9, 0),
         );
-        o.en_cours = Some(EnCours { jeton: 7, recherche_id: o.recherche, texte: String::new() });
+        o.en_cours = Some(EnCours { jeton: 7, recherche_id: o.recherche, texte: String::new(), auto: false });
         let reseau = |n: &str| Err(ErreurSource::Reseau(n.into(), "connexion impossible".into()));
         let f = o.fini(
             Some(&b),

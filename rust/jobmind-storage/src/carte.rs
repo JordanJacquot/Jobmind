@@ -59,7 +59,28 @@ pub fn etat_carte(liste: &[Candidature], aujourdhui: Jour, delai: u32) -> Carte 
 /// [`etat_carte`], avec les réponses reçues qui attendent Jordan (étape 7 : un mail à ranger, un statut proposé) : une
 /// ligne en tête (« 2 réponses reçues à voir »), la carte gardant ses 3 lignes au plus.
 pub fn etat_carte_avec(liste: &[Candidature], aujourdhui: Jour, delai: u32, a_voir: usize) -> Carte {
+    etat_carte_complete(liste, aujourdhui, delai, a_voir, 0)
+}
+
+/// [`etat_carte_avec`], avec les nouvelles offres trouvées par le rafraîchissement automatique et pas encore vues
+/// (étape 12 : « 5 nouvelles offres », avant la ligne des envois du mois ; la carte garde ses 3 lignes au plus).
+pub fn etat_carte_complete(
+    liste: &[Candidature],
+    aujourdhui: Jour,
+    delai: u32,
+    a_voir: usize,
+    nouvelles: usize,
+) -> Carte {
     let mut c = carte_seule(liste, aujourdhui, delai);
+    if nouvelles > 0 {
+        let t = if nouvelles == 1 { "1 nouvelle offre".to_string() } else { format!("{nouvelles} nouvelles offres") };
+        if c.lignes.len() == 1 && c.lignes[0].texte == AUCUN {
+            c.lignes.clear();
+        }
+        // (avant la dernière ligne, celle des envois du mois, quand il y a des candidatures)
+        let i = if liste.is_empty() { c.lignes.len() } else { c.lignes.len().saturating_sub(1) };
+        c.lignes.insert(i, ligne(&t, "info"));
+    }
     if a_voir > 0 {
         let t = if a_voir == 1 {
             "1 réponse reçue à voir".to_string()
@@ -70,8 +91,8 @@ pub fn etat_carte_avec(liste: &[Candidature], aujourdhui: Jour, delai: u32, a_vo
             c.lignes.clear();
         }
         c.lignes.insert(0, ligne(&t, "attention"));
-        c.lignes.truncate(3);
     }
+    c.lignes.truncate(3);
     c
 }
 
@@ -236,5 +257,28 @@ mod tests {
             c.lignes.iter().map(|x| x.texte.as_str()).collect::<Vec<_>>(),
             ["Aucune relance à faire", "2 envois en novembre"]
         );
+    }
+
+    /// Étape 12 : les nouvelles offres trouvées toutes seules, sur la carte.
+    #[test]
+    fn les_nouvelles_offres() {
+        let auj = j(2026, 11, 18);
+        let l = [cand(2, "Netéa Services", Statut::Envoyee, j(2026, 11, 16))];
+        let c = etat_carte_complete(&l, auj, 14, 0, 5);
+        verifier_limites(&c);
+        assert_eq!(
+            c.lignes.iter().map(|x| x.texte.as_str()).collect::<Vec<_>>(),
+            ["Aucune relance à faire", "5 nouvelles offres", "1 envoi en novembre"]
+        );
+        let c = etat_carte_complete(&[], auj, 14, 0, 1);
+        assert_eq!(c.lignes.iter().map(|x| x.texte.as_str()).collect::<Vec<_>>(), ["1 nouvelle offre"]);
+        // Avec une réponse à voir : 3 lignes au plus, les envois du mois partent
+        let c = etat_carte_complete(&l, auj, 14, 2, 5);
+        verifier_limites(&c);
+        assert_eq!(
+            c.lignes.iter().map(|x| x.texte.as_str()).collect::<Vec<_>>(),
+            ["2 réponses reçues à voir", "Aucune relance à faire", "5 nouvelles offres"]
+        );
+        assert_eq!(etat_carte_complete(&l, auj, 14, 0, 0), etat_carte(&l, auj, 14));
     }
 }

@@ -412,6 +412,46 @@ try {
         }
         elseif ($v -match '^consigne:([\w ,''éèàêç-]{0,60})$') { Ordre ([ordered]@{ kit = 'accueil'; prep_consigne = $Matches[1] } | ConvertTo-Json -Compress) }
         elseif ($v -eq 'prep:voir') { Ordre '{"kit":"accueil","preparation":"voir"}' }        elseif ($v -match '^mail:(\d{1,6})$') { Ordre ('{"kit":"accueil","mail":' + $Matches[1] + '}') }
+        # Étape 12 : « bilan » ouvre Mon bilan (le tableau de bord) ; « sauver:<chemin> » (ou « csv:<chemin> »,
+        # « pdf:<chemin> ») clique le bouton de Réglages et enregistre à ce chemin du dossier d'essai à la place de la
+        # boîte « Enregistrer sous » (fichier.essai, lu seulement par la construction d'essai) ; « restaurer:<chemin> »
+        # choisit cette sauvegarde à la place de la boîte « Ouvrir » et attend la question ; « remettre » répond oui et
+        # attend la remise ; « rafraichir » fait partir le rafraîchissement automatique et attend sa fin (journal), puis
+        # copie la bulle demandée à Mindset (notification.demande) dans <Prefixe>-bulle.json
+        elseif ($v -eq 'bilan') { Ordre '{"kit":"accueil","bilan":true}' }
+        elseif ($v -match '^(sauver|csv|pdf|restaurer):(.+)$') {
+            # (« {essai} » : le dossier de cet essai)
+            $quoi = $Matches[1]; $chemin = $Matches[2].Replace('{essai}', $racine)
+            $nom = $quoi
+            [IO.File]::WriteAllText((Join-Path $donnees 'fichier.essai'), $chemin, $sansBom)
+            $k = @{ sauver = 'rs:sauver'; csv = 'rx:csv'; pdf = 'rx:pdf'; restaurer = 'rs:restaurer' }[$quoi]
+            $genre = @{ sauver = 'Zip'; csv = 'Csv'; pdf = 'Pdf'; restaurer = '' }[$quoi]
+            $avantB = (Compter "Bord : $genre enregistré") + (Compter 'Bord : fichier non écrit')
+            Ordre '{"kit":"accueil","rubrique":"reglages"}'
+            [void](Attendre { $false } 500)
+            Ordre ('{"kit":"accueil","cliquer":"' + $k + '"}')
+            if ($quoi -eq 'restaurer') {
+                Verifier (Attendre { ((Compter 'Jordan doit confirmer') + (Compter 'Sauvegarde : fichier refusé')) -gt 0 -and -not (Test-Path -LiteralPath (Join-Path $donnees 'fichier.essai')) } 20000) "sauvegarde $chemin lue (journal)"
+            } else {
+                Verifier (Attendre { ((Compter "Bord : $genre enregistré") + (Compter 'Bord : fichier non écrit')) -gt $avantB } 20000) "$quoi : fini (journal)"
+                Verifier (Test-Path -LiteralPath $chemin) "$quoi enregistré dans $chemin"
+                if (Test-Path -LiteralPath $chemin) { Copy-Item -LiteralPath $chemin -Destination (Join-Path $Resultats ("$Prefixe-$quoi" + [IO.Path]::GetExtension($chemin))) -Force }
+            }
+        }
+        elseif ($v -eq 'remettre') {
+            Ordre '{"kit":"accueil","cliquer":"rs:oui"}'
+            Verifier (Attendre { (Compter 'Sauvegarde : remise ;') -gt 0 } 20000) 'la sauvegarde est remise (journal)'
+        }
+        elseif ($v -eq 'rafraichir') {
+            $notif = Join-Path $donnees 'notification.demande'
+            [IO.File]::WriteAllText((Join-Path $donnees 'rafraichir.demande'), '1', $sansBom)
+            Verifier (Attendre { (Compter 'rafraîchissement automatique fini') -gt 0 } 60000) 'rafraîchissement automatique fini (journal)'
+            # (Mindset n'est pas là pour lire les bulles : celles d'avant, une relance par exemple, sont lues ici à sa place)
+            if (Attendre { if ((Test-Path -LiteralPath $notif) -and -not ([IO.File]::ReadAllText($notif) -match 'offre')) { Remove-Item -LiteralPath $notif -Force }; (Test-Path -LiteralPath $notif) } 30000) {
+                Copy-Item -LiteralPath $notif -Destination (Join-Path $Resultats "$Prefixe-bulle.json") -Force
+                Ok "bulle demandée à Mindset : $([IO.File]::ReadAllText($notif))"
+            } else { Echec 'aucune bulle demandée à Mindset (notification.demande)' }
+        }
         elseif ($v -eq 'mails-ranger') { Ordre '{"kit":"accueil","mails":"ranger"}' }
         elseif ($v -eq 'calendrier') { Ordre '{"kit":"accueil","calendrier":true}' }
         elseif ($v -match '^jour:(\d{1,2})$') { Ordre ('{"kit":"accueil","cliquer":"cal:' + (Get-Date -Day ([int]$Matches[1]) -Format 'yyyy-MM-dd') + '"}') }

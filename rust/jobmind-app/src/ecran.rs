@@ -117,14 +117,14 @@ fn rubrique_reglages(delai: u32) -> Value {
                 "oui": "Oui, me déconnecter",
                 "non": "Annuler",
             },
-            "note": "La sauvegarde et les exports viendront ici. Ta boîte Gmail se branche dans « Ma boîte mail ».",
+            "note": "Ta boîte Gmail se branche dans « Ma boîte mail ».",
         },
     })
 }
 
 /// Les textes du formulaire et du dossier (la page les pose tels quels).
 fn textes(aujourdhui: Jour) -> Value {
-    let paires: [(&str, &str); 47] = [
+    let paires: [(&str, &str); 48] = [
         ("ajouter", "Ajouter une candidature"),
         ("ajouter_court", "Ajouter"),
         ("nouvelle", "Nouvelle candidature"),
@@ -172,6 +172,7 @@ fn textes(aujourdhui: Jour) -> Value {
         ("i_heure", "9 h 30"),
         ("i_lieu", "L'adresse, ou « au téléphone »"),
         ("choisir", "Choisis une candidature à gauche."),
+        ("voir_bilan", "Voir mon bilan"),
     ];
     let mut m: serde_json::Map<String, Value> = paires.iter().map(|(k, v)| ((*k).to_string(), json!(v))).collect();
     m.insert("aujourdhui".into(), json!(aujourdhui.saisie()));

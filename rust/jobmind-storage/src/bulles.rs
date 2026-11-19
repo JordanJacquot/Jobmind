@@ -75,6 +75,8 @@ pub enum Demande {
     Montrer,
     /// Un clic sur une de nos bulles : ouvrir ce qu'elle annonçait (une candidature, ou la liste)
     Ouvrir(Option<i64>),
+    /// Étape 12 : un clic sur la bulle des nouvelles offres : ouvrir l'onglet Offres
+    Offres,
 }
 
 /// Note ces événements comme déjà vus, sans bulle (Jordan vient de taper la candidature : il les voit à l'écran).
@@ -177,6 +179,45 @@ pub fn retenir_reponse(
     Ok(Some(b))
 }
 
+/// Étape 12 : la bulle des nouvelles offres trouvées par le rafraîchissement automatique (« 5 nouvelles offres »), une
+/// seule fois par tour (clé « offres:<moment du tour> »), même après un redémarrage ; un clic dessus ouvre l'onglet
+/// Offres. Rend la bulle mise en attente (rien : aucune nouvelle offre, ou déjà annoncée).
+pub fn retenir_offres(c: &Connection, nouvelles: usize, tour: Moment) -> rusqlite::Result<Option<Bulle>> {
+    if nouvelles == 0 {
+        return Ok(None);
+    }
+    let cle = format!("offres:{}", tour.iso());
+    if c.query_row("SELECT 1 FROM bulles_cles WHERE cle = ?1", [&cle], |_| Ok(())).optional()?.is_some() {
+        return Ok(None);
+    }
+    let (titre, texte) = if nouvelles == 1 {
+        ("1 nouvelle offre".to_string(), "Jobmind a trouvé une nouvelle offre pour tes recherches.".to_string())
+    } else {
+        (
+            format!("{nouvelles} nouvelles offres"),
+            format!("Jobmind a trouvé {nouvelles} nouvelles offres pour tes recherches."),
+        )
+    };
+    let b = Bulle {
+        id: nouvel_id(tour.secondes(), nouvelles),
+        titre: jobmind_core::suivi::couper(&titre, 63),
+        texte: jobmind_core::suivi::couper(&texte, 250),
+        candidature: None,
+    };
+    let t = c.unchecked_transaction()?;
+    t.execute(
+        "INSERT INTO bulles (id, titre, texte, candidature_id, etat, cree_le, onglet) \
+         VALUES (?1, ?2, ?3, NULL, 'attente', ?4, 'offres')",
+        params![b.id, b.titre, b.texte, tour.iso()],
+    )?;
+    t.execute(
+        "INSERT OR IGNORE INTO bulles_cles (cle, bulle_id, vue_le) VALUES (?1, ?2, ?3)",
+        params![cle, b.id, tour.iso()],
+    )?;
+    t.commit()?;
+    Ok(Some(b))
+}
+
 /// L'envoi des bulles à Mindset : le dossier de données, et le moment de la dernière bulle écrite.
 #[derive(Debug, Clone)]
 pub struct Envoi {
@@ -267,13 +308,19 @@ impl Envoi {
         if let Some(id) = t.strip_prefix("notif:")
             && id_bulle_valable(id)
         {
-            let trouvee: rusqlite::Result<Option<Option<i64>>> = c
-                .query_row("SELECT b.candidature_id FROM bulles b WHERE b.id = ?1 AND b.etat = 'envoyee'", [id], |r| {
-                    r.get::<_, Option<i64>>(0)
-                })
+            let trouvee: rusqlite::Result<Option<(Option<i64>, Option<String>)>> = c
+                .query_row(
+                    "SELECT b.candidature_id, b.onglet FROM bulles b WHERE b.id = ?1 AND b.etat = 'envoyee'",
+                    [id],
+                    |r| Ok((r.get::<_, Option<i64>>(0)?, r.get::<_, Option<String>>(1)?)),
+                )
                 .optional();
             return match trouvee {
-                Ok(Some(cible)) => {
+                Ok(Some((_, Some(onglet)))) if onglet == "offres" => {
+                    journal.ecrire(&format!("Bulle ouverte : {id}"));
+                    Demande::Offres
+                }
+                Ok(Some((cible, _))) => {
                     let existe = cible.filter(|n| {
                         c.query_row("SELECT 1 FROM candidatures WHERE id = ?1", [n], |_| Ok(()))
                             .optional()
