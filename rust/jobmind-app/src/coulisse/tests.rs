@@ -181,6 +181,12 @@ fn liste_offre_et_ajout() {
     assert_eq!(v["liste"]["suivante"], true);
     assert_eq!(v["sites"][0]["etat"], "Pas connecté à LinkedIn");
     assert!(v["attente"].is_null());
+    // (la liste déroulante « Où chercher » : « Chercher sur Adzuna et Jooble » pour les offres gardées)
+    assert_eq!(v["textes"]["ou_t"], "Où chercher");
+    assert_eq!(
+        v["textes"]["chercher"].as_str().unwrap().replace("{site}", v["textes"]["mes_offres"].as_str().unwrap()),
+        "Chercher sur Adzuna et Jooble"
+    );
     sans_tiret_long(&v);
     // Un résultat ouvert : son offre lue en coulisse, montrée dans le design de Jobmind
     let f = c.geste(Some(&b), OUVRIR, &json!({ "i": 1 }), m(9, 2));

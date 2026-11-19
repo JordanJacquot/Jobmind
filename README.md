@@ -50,8 +50,10 @@ l'étape 13.
   Jobmind ; il n'existe plus). La vue des sites de l'étape 5 reste (même sécurité, même session `panneau-sites`), mais
   chargée en coulisse : posée hors de la place visible de la fenêtre, elle charge ses pages sans se voir. Jobmind
   montre tout dans son propre design (`src\coulisse.rs`, `jobmind-sources\src\sites.rs`) :
-  - onglet Offres : la source en haut de la liste (« Mes offres », LinkedIn, Indeed, Welcome to the Jungle, France
-    Travail, avec un point vert quand Jordan y est connecté) ; un site choisi, sa recherche (celles de Mes recherches)
+  - onglet Offres : la source choisie en haut de la liste, dans la liste déroulante « Où chercher » (« Chercher sur
+    LinkedIn », « Chercher sur France Travail », « Chercher sur Indeed », « Chercher sur Welcome to the Jungle »,
+    « Chercher sur Adzuna et Jooble » avec les offres gardées ; un point vert et « Connecté » quand Jordan y est
+    connecté ; flèches, Entrée et Échap au clavier comme à la manette) ; le gros bouton suit le choix ; un site choisi, sa recherche (celles de Mes recherches)
     et « Chercher sur LinkedIn » : Jobmind construit l'adresse de la page de résultats du site (mots et lieu encodés ;
     France Travail : le département ou la région par leur code), la charge en coulisse, la lit (les blocs de chaque
     site, sinon les liens qui mènent à une offre : titre, entreprise, lieu, date, lien, candidats) et la montre comme

@@ -421,6 +421,7 @@ try {
         # (les recherches d'exemple sont là : celles du profil inventé)
         Envoyer-Ordre '{"kit":"accueil","onglet":"offres"}'
         [void](Attendre { $false } 1000)
+        Cliquer 'cs:ou'
         Cliquer 'cs:s1'
         Verifier (Attendre { (Compter 'Sites : source linkedin') -ge 1 } 4000) 'la source LinkedIn est choisie (journal)'
         [void](Attendre { $false } 800)
@@ -460,12 +461,14 @@ try {
         [void](Attendre { $false } 800)
         Capturer-Vue 'sites-connecte'
         # Indeed, en deux écrans (le mail, puis le mot de passe)
+        Cliquer 'cs:ou'
         Cliquer 'cs:s2'
         [void](Attendre { $false } 600)
         Connexion-Demande 'indeed' $true
         Verifier (Attendre { (Compter 'Sites : connecté à indeed') -ge 1 } 30000) 'connecté à Indeed en deux écrans (journal)'
         Verifier ((Compter 'Sites : saisie du mail sur la page de connexion de indeed') -eq 1 -and (Compter 'Sites : saisie du mot de passe sur la page de connexion de indeed') -eq 1) 'Indeed : le mail puis le mot de passe, chacun une fois (journal)'
         # e. Un captcha : la petite fenêtre s'ouvre, puis se referme seule quand la page redevient normale
+        Cliquer 'cs:ou'
         Cliquer 'cs:s1'
         [void](Attendre { $false } 600)
         Mode-Sites 'captcha'

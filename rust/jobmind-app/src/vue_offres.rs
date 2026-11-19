@@ -195,8 +195,8 @@ fn vide(v: &VueOffres) -> Value {
         (
             "loupe",
             AUCUNE_OFFRE.into(),
-            "Choisis une recherche à gauche, puis « Chercher maintenant ». Jobmind demande les offres à Adzuna et à \
-             Jooble, et garde chacune sur ce PC.",
+            "Choisis une recherche à gauche, puis « Chercher sur Adzuna et Jooble ». Jobmind leur demande les \
+             offres, et garde chacune sur ce PC.",
             "chercher",
             "Chaque offre gardée reste lisible ici, même si elle disparaît du site.",
         )
@@ -357,6 +357,7 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
                 ("mes_recherches", "Ma recherche"),
                 ("gerer", "Gérer mes recherches"),
                 ("chercher", "Chercher maintenant"),
+                ("chercher_aj", "Chercher sur Adzuna et Jooble"),
                 ("liste_t", "Les plus récentes en haut"),
                 ("vide_l", "Aucune offre avec ces filtres."),
                 ("sans_recherche", "Crée une recherche pour commencer."),

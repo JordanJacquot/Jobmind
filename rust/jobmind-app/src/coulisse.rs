@@ -1245,7 +1245,10 @@ impl Coulisse {
             "connexion": connexion,
             "petite": petite,
             "textes": {
-                "mes_offres": "Mes offres",
+                "mes_offres": "Adzuna et Jooble",
+                "mes_offres_note": "Avec mes offres gardées",
+                "ou_t": "Où chercher",
+                "connecte": "Connecté",
                 "chercher": "Chercher sur {site}",
                 "suivante": "Page suivante",
                 "voir": "Voir la page du site",

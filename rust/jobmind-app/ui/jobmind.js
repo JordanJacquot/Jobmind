@@ -28,8 +28,9 @@
 //   ('o-chercher' : Rust interroge Adzuna et Jooble sur un fil à part), la liste ('o-ouvrir'), l'offre ouverte
 //   (favori, plus tard, « Pas pour moi », « Voir sur le site », la mention « Adzuna », « J'ai postulé »), Mes recherches
 //   ('o-recherche', 'o-recherche-supprimer', 'o-depuis-profil') ; Mes clés : « Essayer la clé » ('cle-essayer') ;
-// - les sites en coulisse (étape 5 bis) : en haut de la liste des offres, la source (« Mes offres », LinkedIn, Indeed,
-//   Welcome to the Jungle, France Travail : 'cs-source') ; un site choisi, « Chercher sur LinkedIn » ('cs-chercher'),
+// - les sites en coulisse (étape 5 bis) : en haut de la liste des offres, la liste déroulante « Où chercher »
+//   (LinkedIn, France Travail, Indeed, Welcome to the Jungle, ou Adzuna et Jooble avec mes offres gardées :
+//   'cs-source') ; un site choisi, « Chercher sur LinkedIn » ('cs-chercher'),
 //   ses résultats lus par Rust en coulisse ('cs-ouvrir', « Page suivante » : 'cs-suivante'), l'offre ouverte
 //   (« Ajouter à Jobmind » : 'cs-ajouter', « Voir la page du site » : 'cs-voir') ; la carte de connexion de Jobmind
 //   ('cs-connecter') ; la petite fenêtre du site, où Rust pose la vraie page (sa place : 'cs-zone') ; Réglages :
@@ -434,17 +435,60 @@
   const sourceSite = () => (codeSurP(cs().source) ? siteDe(cs().source) : null);
   const petiteOuverte = () => !!(cs().petite && typeof cs().petite === 'object');
 
-  // Les sources de l'onglet Offres : mes offres gardées, ou un des quatre sites
+  // « Où chercher » : la liste déroulante des sources de l'onglet Offres, en haut de la colonne de gauche. Fermée, elle
+  // montre le choix (et son point vert s'il est connecté) ; ouverte (srcMenu), ses cinq choix « Chercher sur ... » :
+  // les quatre sites (LinkedIn, France Travail, Indeed, Welcome to the Jungle), puis Adzuna et Jooble (mes offres
+  // gardées). Les flèches choisissent dans la liste, Entrée (A) prend le choix, Échap (B) la referme sans rien changer.
+  // (le data-k de chaque choix garde le rang de Rust : « cs:s0 » Adzuna et Jooble, « cs:s1 » LinkedIn, etc.)
+  let srcMenu = false;
+  const ORDRE_SITES = ['linkedin', 'francetravail', 'indeed', 'wttj'];
+  function sourcesListe() {
+    const t = tC(), sites = liste(cs().sites).filter((s) => codeSurP(s?.id));
+    if (!sites.length) return [];
+    const l = sites.map((s, i) => ({ id: s.id, nom: texteSur(s.nom), connecte: s.connecte === true, k: `cs:s${i + 1}` }));
+    const rang = (s) => { const r = ORDRE_SITES.indexOf(s.id); return r < 0 ? 99 : r; };
+    l.sort((a, b) => rang(a) - rang(b));
+    return [...l, { id: '', nom: t('mes_offres'), connecte: false, k: 'cs:s0', note: t('mes_offres_note') }];
+  }
   function sourcesHTML() {
-    const { esc } = O, t = tC(), src = cs().source || '';
-    const sites = liste(cs().sites).filter((s) => codeSurP(s?.id));
-    if (!sites.length) return '';
-    const l = [{ id: '', nom: t('mes_offres') }, ...sites];
-    return `<div class="jm-sources" role="radiogroup" aria-label="${esc(t('sites_t'))}">${l.map((s, i) => {
-      const oui = (s.id || '') === src;
-      const point = s.connecte === true ? '<i class="jm-point ok" aria-hidden="true"></i>' : '';
-      return `<button type="button" role="radio" aria-checked="${oui}" class="jm-puce petite f${oui ? ' oui' : ''}" data-perso="cs-source" data-id="${s.id || ''}" data-k="cs:s${i}">${point}${esc(texteSur(s.nom))}</button>`;
-    }).join('')}</div>`;
+    const { esc } = O, t = tC(), src = cs().source || '', l = sourcesListe();
+    if (!l.length) return '';
+    const ici = l.find((s) => s.id === src) || l[l.length - 1];
+    const point = (s) => `<i class="jm-point${s.connecte ? ' ok' : ''}" aria-hidden="true"></i>`;
+    const menuH = srcMenu
+      ? `<div class="jm-srcs-m" role="listbox" aria-label="${esc(t('ou_t'))}">${l.map((s) => {
+        const oui = s === ici;
+        const droite = s.connecte ? `<span class="jm-srcs-cx">${point(s)}${esc(t('connecte'))}</span>` : '';
+        const note = s.note ? `<small>${esc(s.note)}</small>` : '';
+        return `<button type="button" role="option" aria-selected="${oui}" class="jm-srcs-l f${oui ? ' ici' : ''}" data-perso="cs-source" data-id="${s.id}" data-k="${s.k}">${icone(oui ? 'coche' : 'loupe')}<span class="jm-srcs-n">${esc(t('chercher', s.nom))}${note}</span>${droite}</button>`;
+      }).join('')}</div>`
+      : '';
+    return `<div class="jm-srcs"><span class="jm-srcs-t">${esc(t('ou_t'))}</span>
+      <button type="button" class="jm-srcs-b f${srcMenu ? ' on' : ''}" data-perso="cs-ou" data-k="cs:ou" aria-haspopup="listbox" aria-expanded="${srcMenu}">${ici.id ? point(ici) : icone('loupe')}<span class="jm-srcs-n">${esc(ici.nom)}</span>${ici.connecte ? `<span class="jm-srcs-cx">${esc(t('connecte'))}</span>` : ''}${icone('bas')}</button>${menuH}</div>`;
+  }
+  // Ouvre ou ferme « Où chercher » ; ouverte, la main va au choix en cours
+  function basculerSources(ouvrir) {
+    srcMenu = ouvrir;
+    O.son?.tic?.();
+    const ici = sourcesListe().find((s) => s.id === (cs().source || '')) || sourcesListe().at(-1);
+    dessinerTout(ouvrir && ici ? ici.k : 'cs:ou');
+  }
+  // Dans « Où chercher » ouverte : haut et bas passent d'un choix à l'autre (sans en sortir), gauche et droite ne font rien
+  function toucheSources(e) {
+    if (!srcMenu || !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+    const els = [...hote.querySelectorAll('.jm-srcs-m .jm-srcs-l')];
+    if (!els.length) return;
+    const i = els.indexOf(document.activeElement);
+    if (i < 0 && e.target?.dataset?.perso !== 'cs-ou') return;
+    e.preventDefault(); e.stopPropagation();
+    let j = i;
+    if (e.key === 'ArrowDown') j = i < 0 ? 0 : (i + 1) % els.length;
+    else if (e.key === 'ArrowUp') j = i < 0 ? els.length - 1 : (i - 1 + els.length) % els.length;
+    else if (e.key === 'Home') j = 0;
+    else if (e.key === 'End') j = els.length - 1;
+    else return;
+    els[j].focus({ preventScroll: true });
+    els[j].scrollIntoView({ block: 'nearest' });
   }
 
   // Une phrase de Rust (une erreur, une lecture qui casse, une connexion faite), avec son bouton
@@ -461,7 +505,7 @@
   function listeSitesHTML(x, s) {
     const { esc } = O, t = tC(), c = cs(), to = tO(x);
     const recherches = liste(x.recherches).filter((r) => numSur(r?.id));
-    let h = `${sourcesHTML()}<div class="jm-rch">`;
+    let h = `<div class="jm-rch">${sourcesHTML()}`;
     if (recherches.length) {
       h += `<div class="jm-rch-l"><label class="jm-rch-choix"><span>${esc(to('mes_recherches'))}</span><select class="f" data-perso="of-recherche" data-k="or:choix">${recherches.map((r) => `<option value="${r.id}"${r.id === x.recherche ? ' selected' : ''}>${esc(texteSur(r.nom))}</option>`).join('')}</select></label></div>`;
       if (x.recherche_sous) h += `<p class="jm-rch-sous">${esc(texteSur(x.recherche_sous))}</p>`;
@@ -630,7 +674,14 @@
   // Un élément des sites (ou des réglages de leur session) ; vrai s'il en était un
   function validerSites(el, d) {
     switch (d.perso) {
-      case 'cs-source': if (d.id === '' || codeSurP(d.id)) { O.son?.bascule?.(); O.anime = !reduit(); O.action('cs-source', { site: d.id || '' }); } return true;
+      case 'cs-ou': basculerSources(!srcMenu); return true;
+      case 'cs-source': {
+        if (d.id !== '' && !codeSurP(d.id)) return true;
+        srcMenu = false;
+        if ((d.id || '') === (cs().source || '')) { O.son?.retour?.(); dessinerTout('cs:ou'); return true; }
+        O.son?.bascule?.(); dessinerTout('cs:ou'); O.anime = !reduit(); O.action('cs-source', { site: d.id || '' });
+        return true;
+      }
       case 'cs-chercher': {
         if (el.disabled || !codeSurP(d.id)) return true;
         const x = offresDe();
@@ -742,6 +793,7 @@
   function montrer(id, focusK) {
     const o = ongletDe(id);
     if (!o) return;
+    srcMenu = false;   // (« Où chercher » se referme)
     if (o.id !== onglet) {
       onglet = o.id;
       O.anime = !reduit();
@@ -958,6 +1010,7 @@
   // Dans une zone de texte, les flèches, Entrée et Retour arrière restent à la zone (le kit les prendrait pour la
   // manette) ; Échap garde son sens (Retour). Pendant qu'on tape, la souris ne déplace pas le choix.
   function surTouche(e) {
+    toucheSources(e);
     if (e.target.tagName === 'TEXTAREA' && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'Backspace', 'Home', 'End'].includes(e.key)) e.stopPropagation();
     // (une liste à choisir : ses flèches choisissent dans la liste)
     if (e.target.tagName === 'SELECT' && ['ArrowUp', 'ArrowDown', 'Home', 'End', 'Enter', 'Backspace'].includes(e.key)) e.stopPropagation();
@@ -984,6 +1037,8 @@
     h.addEventListener('input', surSaisie);
     h.addEventListener('keydown', surTouche);
     h.addEventListener('pointerover', surSurvol);
+    // (« Où chercher » ouverte : un clic à côté la referme)
+    h.addEventListener('pointerdown', (e) => { if (srcMenu && !e.target.closest?.('.jm-srcs')) { srcMenu = false; dessinerTout('cs:ou'); } });
     h.addEventListener('focusout', surSortie);
     h.addEventListener('submit', (e) => e.preventDefault());
   }
@@ -1453,12 +1508,12 @@
     const recherches = liste(x.recherches).filter((r) => numSur(r?.id));
     const enCours = typeof x.en_cours === 'string' && x.en_cours;
     // (étape 5 bis : la source, mes offres ou un des quatre sites, en haut de la liste)
-    let h = `${sourcesHTML()}<div class="jm-rch">`;
+    let h = `<div class="jm-rch">${sourcesHTML()}`;
     if (recherches.length) {
       h += `<div class="jm-rch-l"><label class="jm-rch-choix"><span>${esc(t('mes_recherches'))}</span><select class="f" data-perso="of-recherche" data-k="or:choix">${recherches.map((r) => `<option value="${r.id}"${r.id === x.recherche ? ' selected' : ''}>${esc(texteSur(r.nom))}</option>`).join('')}</select></label>
           <button type="button" class="jm-rond f${ofVue === 'recherches' ? ' on' : ''}" data-perso="of-gerer" data-k="or:gerer" title="${esc(t('gerer'))}" aria-label="${esc(t('gerer'))}">${icone('reglages')}</button></div>`;
       if (x.recherche_sous) h += `<p class="jm-rch-sous">${esc(texteSur(x.recherche_sous))}</p>`;
-      h += `<button type="button" class="jm-bt principal jm-rch-go f" data-perso="of-chercher" data-k="or:chercher"${enCours ? ' disabled' : ''}>${icone('loupe')}<span>${esc(t('chercher'))}</span></button>`;
+      h += `<button type="button" class="jm-bt principal jm-rch-go f" data-perso="of-chercher" data-k="or:chercher"${enCours ? ' disabled' : ''}>${icone('loupe')}<span>${esc(t('chercher_aj'))}</span></button>`;
       if (enCours) h += `<div class="jm-attente petite" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(enCours)}</span></div>`;
       // (ce qu'a donné la dernière fois : l'annonce le dit déjà quand elle est là)
       else if (x.recherche_fois && !texteSur(x.annonce?.texte)) h += `<p class="jm-rch-fois">${esc(texteSur(x.recherche_fois))}</p>`;
@@ -1520,7 +1575,7 @@
   function videOffresHTML(x) {
     const { esc } = O, t = tO(x), v = objet(x.vide);
     const b = { cles: ['of-cles', 'ov:cles', t('ouvrir_cles'), 'cle'], profil: ['of-profil', 'ov:profil', t('depuis_profil'), 'cible'],
-      nouvelle: ['of-nouvelle', 'ov:nouvelle', t('nouvelle'), 'plus'], chercher: ['of-chercher', 'ov:chercher', t('chercher'), 'loupe'],
+      nouvelle: ['of-nouvelle', 'ov:nouvelle', t('nouvelle'), 'plus'], chercher: ['of-chercher', 'ov:chercher', t('chercher_aj'), 'loupe'],
       filtres: ['of-retirer', 'ov:retirer', t('retirer'), 'reglages'] }[v.bouton];
     const enCours = typeof x.en_cours === 'string' && x.en_cours;
     return `<div class="jm-vide${anime()}"><div class="jm-v-ic plasma-bord">${icone(v.icone)}</div><h1>${esc(texteSur(v.titre))}</h1>
@@ -1761,6 +1816,7 @@
       if (petiteOuverte()) { O.action('cs-fermer'); return true; }
       if (cnx) { fermerConnexion(); return true; }
       if (sitesConfirme) { sitesConfirme = false; dessinerTout('pn:decon'); return true; }
+      if (srcMenu) { srcMenu = false; dessinerTout('cs:ou'); return true; }
       if (cal && calOuvert(cal.ou)) { fermerCal(); return true; }
       if (menu) { menu = false; dessinerTout('d:statut'); return true; }
       if (rdv) { rdv = null; dessinerTout('d:statut'); return true; }

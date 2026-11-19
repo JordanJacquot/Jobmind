@@ -31,7 +31,8 @@
 # voir.demande, lu seulement par la construction d'essai ; une adresse d'un site est changée pour la page qui l'imite ;
 # attendre que sa page soit chargée ; capture <Prefixe>-voir-<nom>.png), « ajouter-page » (« Ajouter à Jobmind » dans
 # la petite fenêtre, puis attendre la lecture au journal), « site:<mes|linkedin|indeed|wttj|francetravail> » (la
-# source de l'onglet Offres), « chercher-site » (« Chercher sur le site », puis attendre la lecture en coulisse),
+# source de l'onglet Offres, choisie dans la liste « Où chercher » ; « mes » : Adzuna et Jooble), « clic:cs:ou » (la
+# liste « Où chercher » ouverte), « chercher-site » (« Chercher sur le site », puis attendre la lecture en coulisse),
 # « resultat:<n> » (le résultat n ouvert), « connexion:<site> » (la carte de connexion remplie avec les identifiants
 # inventés, sans l'envoyer), « connecter:<site> » (remplie et envoyée, puis attendre la connexion), « sites:<captcha|
 # casse> » (la prochaine liste des sites imités ; sans capture), « pause:<s> » (attendre s secondes, sans capture) ;
@@ -279,6 +280,9 @@ try {
             $i = @{ mes = 0; linkedin = 1; indeed = 2; wttj = 3; francetravail = 4 }[$Matches[1]]
             Ordre '{"kit":"accueil","onglet":"offres"}'
             [void](Attendre { $false } 700)
+            # (la liste déroulante « Où chercher » ouverte, puis le choix cliqué)
+            Ordre '{"kit":"accueil","cliquer":"cs:ou"}'
+            [void](Attendre { $false } 300)
             Ordre ('{"kit":"accueil","cliquer":"cs:s' + $i + '"}')
         }
         elseif ($v -match '^pause:(\d{1,2})$') {
