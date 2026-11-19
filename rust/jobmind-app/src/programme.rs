@@ -741,19 +741,28 @@ const CONNEXION_MAX: Duration = Duration::from_secs(180);
 /// La réponse de la page lue, au plus (en octets).
 const LECTURE_MAX_OCTETS: usize = 8_000_000;
 
-/// Le petit script qui lit la page affichée par la vue des sites : son adresse, son HTML (une copie sans scripts,
+/// Le petit script qui lit la page affichée par la vue des sites : son adresse, son HTML (une copie, avec le contenu
+/// des zones cachées des blocs à part (shadow DOM ouvert, comme l'offre de France Travail depuis novembre 2026)
+/// recopié dans un `div data-jm-ombre` au bout de leur bloc ; sans scripts,
 /// styles, images ni vidéos ; les cadres et les cases des formulaires gardés sans leur contenu, la valeur d'une case
 /// de mot de passe retirée ; coupée à 3 millions de caractères) et si la page se croit visible. Il ne change rien à
 /// la page. Ce qu'il rend est une donnée non fiable (la page peut avoir changé ses propres fonctions) : vérifié,
 /// borné, lu comme du texte par jobmind-sources, jamais exécuté ni réinjecté en HTML.
 const SCRIPT_LECTURE: &str = "(function () { try { var d = document.documentElement; if (!d) { return null; } \
-    var c = d.cloneNode(true); var q = c.querySelectorAll('script:not([type=\"application/ld+json\"]),style,svg,\
+    var c = d.cloneNode(true); \
+    var om = function (s, t, p) { if (p > 6) { return; } var a = s.querySelectorAll('*'), b = t.querySelectorAll('*'); \
+      if (a.length !== b.length) { return; } for (var o = 0; o < a.length; o++) { var r = a[o].shadowRoot; if (!r) { continue; } \
+      var w = document.createElement('div'); w.setAttribute('data-jm-ombre', '1'); \
+      for (var z = r.firstChild; z; z = z.nextSibling) { w.appendChild(z.cloneNode(true)); } \
+      om(r, w, p + 1); b[o].appendChild(w); } }; om(d, c, 0); \
+    var q = c.querySelectorAll('script:not([type=\"application/ld+json\"]),style,svg,\
     noscript,template,link,img,video,audio,canvas,picture,source,code[id^=\"bpr-guid\"]'); \
     for (var i = 0; i < q.length; i++) { q[i].remove(); } \
     var f = c.querySelectorAll('iframe'); for (var j = 0; j < f.length; j++) { f[j].removeAttribute('srcdoc'); } \
     var m = c.querySelectorAll('input'); for (var k = 0; k < m.length; k++) { \
     if (String(m[k].type || '').toLowerCase() === 'password') { m[k].removeAttribute('value'); } } \
-    var S = 'input,textarea,select,button'; var vv = document.querySelectorAll(S); var cc = c.querySelectorAll(S); \
+    var S = 'input,textarea,select,button'; var vv = document.querySelectorAll(S); \
+    var cc = Array.prototype.filter.call(c.querySelectorAll(S), function (x) { return !x.closest('[data-jm-ombre]'); }); \
     for (var n = 0; n < cc.length; n++) { cc[n].removeAttribute('data-jm-valeur'); cc[n].removeAttribute('data-jm-coche'); \
       cc[n].removeAttribute('data-jm-cache'); cc[n].removeAttribute('data-jm-i'); cc[n].removeAttribute('data-jm-cible'); } \
     if (vv.length === cc.length) { for (var n2 = 0; n2 < vv.length && n2 < 3000; n2++) { var e = vv[n2], x = cc[n2]; \

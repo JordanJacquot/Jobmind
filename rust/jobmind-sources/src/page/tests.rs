@@ -240,3 +240,38 @@ fn le_faux_serveur_sert_chaque_exemple() {
     assert!(repondre("/essai/piege-ipc").corps.contains("__TAURI_INTERNALS__"));
     assert_eq!(repondre("/essai/rien").statut, 404);
 }
+
+/// France Travail depuis novembre 2026 : le texte de l'offre dans son bloc à part (rempli après le chargement, parfois
+/// dans une zone cachée de la page, recopiée par le script de lecture dans un `div data-jm-ombre`), les autres offres
+/// en dessous ; le titre et la ville d'après le titre de la page.
+#[test]
+fn france_travail_bloc_descriptif() {
+    let adresse = "https://candidat.francetravail.fr/offres/recherche/detail/216LVQT";
+    let autres = "<div class=\"block-other-offers with-header results\"><ul class=\"result-list\">\
+        <li data-id-offre=\"216FLJC\" class=\"result\"><a href=\"/offres/recherche/detail/216FLJC\">\
+        <h2 class=\"t4 media-heading\">Serveur (H/F)</h2><p class=\"description\">Vous accueillez</p></a></li></ul></div>";
+    let page = |bloc: &str| {
+        format!(
+            "<html><head><title>Offre d'emploi R&eacute;ceptionniste de nuit (H/F) - 57 - SARREBOURG - 216LVQT | \
+            France Travail</title></head><body><div itemtype=\"http://schema.org/JobPosting\" itemscope=\"\" \
+            class=\"modal-body\"><descriptif-offre id-offre=\"216LVQT\" id=\"webco-descriptif-offre\">{bloc}\
+            </descriptif-offre>{autres}</div></body></html>"
+        )
+    };
+    // Le bloc pas encore rempli : pas une offre (la page est relue un peu plus tard)
+    assert_eq!(lire(adresse, &page("")), Err(PageRefusee::PasUneOffre(Site::FranceTravail)));
+    // Rempli (ici dans la zone cachée recopiée)
+    let p = lue(
+        adresse,
+        &page(
+            "<div data-jm-ombre=\"1\"><h1>R\u{e9}ceptionniste de nuit (H/F)</h1><p>Accueil des clients de nuit, \
+            check-in et check-out.</p><p>Horaires : 22h - 7h</p></div>",
+        ),
+    );
+    propre(&p);
+    assert_eq!(p.site, Site::FranceTravail);
+    assert_eq!(p.offre.titre, "Réceptionniste de nuit (H/F)");
+    assert_eq!(p.offre.lieu, "Sarrebourg (57)");
+    assert!(p.offre.description.contains("Accueil des clients de nuit"), "{}", p.offre.description);
+    assert!(!p.offre.description.contains("Vous accueillez"));
+}

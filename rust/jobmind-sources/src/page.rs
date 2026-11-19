@@ -767,6 +767,33 @@ fn champs_microdonnees(d: &Document) -> Option<Champs> {
     (!c.titre.is_empty()).then_some(c)
 }
 
+/// France Travail (novembre 2026) : l'offre est dessinée par un bloc à part (`<descriptif-offre
+/// id="webco-descriptif-offre">`, rempli après le chargement), sans les repères d'avant. Le titre et la ville viennent
+/// du titre de la page (« Offre d'emploi Réceptionniste de nuit (H/F) - 57 - SARREBOURG - 216LVQT | France Travail »,
+/// avec l'identifiant de l'adresse), le texte vient du bloc une fois rempli (vide : pas encore, la page est relue).
+fn champs_france_travail(d: &Document, id: &str) -> Option<Champs> {
+    let t = ligne(&d.titre());
+    let t = t.trim();
+    let t = t.strip_suffix("France Travail").map_or(t, |x| x.trim_end().trim_end_matches('|').trim_end());
+    let t = t.strip_prefix("Offre d'emploi ").or_else(|| t.strip_prefix("Offre d\u{2019}emploi ")).unwrap_or(t);
+    let reste = t.strip_suffix(id)?.trim_end().strip_suffix('-')?.trim_end();
+    let (avant, ville) = reste.rsplit_once(" - ")?;
+    let (titre, dep) = avant.rsplit_once(" - ")?;
+    let titre = ligne(titre);
+    let i = d.trouver("#webco-descriptif-offre")?;
+    let description = d.texte_lignes(i, DESCRIPTION_MAX);
+    if titre.is_empty() || description.trim().is_empty() {
+        return None;
+    }
+    Some(Champs {
+        titre,
+        lieu: ville_propre(&format!("{} - {}", dep.trim(), ville.trim())),
+        description,
+        plage_description: Some((i, d.fin(i))),
+        ..Champs::default()
+    })
+}
+
 /// Le titre et le texte principal de la page (un autre site).
 fn champs_texte(d: &Document) -> Champs {
     let titre = d
@@ -1019,6 +1046,15 @@ pub fn lire(adresse: &str, html: &str) -> Result<PageLue, PageRefusee> {
         if lu_par.is_none() {
             lu_par = Some(LuPar::Donnees);
         }
+        c.completer(x, true);
+    }
+    // 3 bis. France Travail depuis novembre 2026 : l'offre dessinée par son bloc à part (champs_france_travail)
+    if lu_par.is_none()
+        && site == Site::FranceTravail
+        && let Some((id, _)) = identifiant(site, &a)
+        && let Some(x) = champs_france_travail(&d, &id)
+    {
+        lu_par = Some(LuPar::Regles);
         c.completer(x, true);
     }
     // 4. Le texte de la page (un autre site seulement : les pages des sites connus qui ne sont pas une offre sont

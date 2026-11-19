@@ -609,6 +609,171 @@
     els[j].scrollIntoView({ block: 'nearest' });
   }
 
+  // ---------------------------------------------------------------- les listes déroulantes
+  // Chaque liste à choisir de l'écran (un <select class="f"> dans le HTML dessiné) s'ouvre comme « Où chercher », avec
+  // ses classes (.jm-srcs-b, .jm-srcs-m, .jm-srcs-l) : après chaque dessin, habillerMenus() pose à sa place un bouton
+  // (le choix en cours et sa flèche) et garde le <select> caché à côté, gardien de la valeur. Ouverte, la liste montre
+  // ses choix par-dessus l'écran (la coche sur le choix en cours), sous le bouton, ou au-dessus s'il n'y a pas la place
+  // en bas ; longue, elle défile. Haut et bas (en boucle), Début, Fin, Page haut et Page bas passent d'un choix à
+  // l'autre ; un chiffre ou une lettre va au premier choix qui commence ainsi (sauf A et B, les boutons de la
+  // manette) ; Entrée (A) prend le choix ; Échap (B) ou un clic à côté la referme sans rien changer, et la main revient
+  // sur le bouton. Le choix pris est posé dans le <select> caché, puis ses événements « input » et « change » partent
+  // comme si Jordan l'avait choisi là : ceux qui l'écoutent ne voient pas la différence. Le bouton reprend le data-k
+  // du <select> (et le précède, pour que la main y revienne après un redessin) ; chaque choix a le sien,
+  // « <data-k du bouton>~<rang> ». Un redessin pendant que la liste est ouverte la rouvre si la main y était.
+  let menuOuvert = null;              // le data-k de la liste ouverte
+  let menuFrappe = '', menuFrappeA = 0;
+  const menuDe = (k) => (k && hote ? hote.querySelector(`.jm-der[data-menu="${CSS.escape(k)}"]`) : null);
+  const texteChoix = (o) => (o ? o.textContent.replace(/\s+/g, ' ').trim() : '');
+  const sansAccent = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  function habillerMenus(garder) {
+    hote.querySelectorAll('select.f').forEach((s, n) => {
+      const k = s.dataset.k || `menu:${n}`;
+      const w = document.createElement('span');
+      w.className = ['jm-der', ...[...s.classList].filter((c) => c !== 'f').map((c) => `${c}-der`)].join(' ');
+      w.dataset.menu = k;
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'jm-srcs-b jm-der-b f';
+      b.dataset.perso = 'menu';
+      b.dataset.k = k;
+      b.setAttribute('aria-haspopup', 'listbox');
+      b.setAttribute('aria-expanded', 'false');
+      if (s.hasAttribute('aria-label')) b.setAttribute('aria-label', s.getAttribute('aria-label'));
+      b.disabled = s.disabled;
+      b.innerHTML = `<span class="jm-srcs-n">${O.esc(texteChoix(s.options[s.selectedIndex]))}</span>${icone('bas')}`;
+      s.replaceWith(w);
+      s.classList.remove('f');
+      s.classList.add('jm-der-s');
+      s.hidden = true;
+      s.tabIndex = -1;
+      s.setAttribute('aria-hidden', 'true');
+      w.append(b, s);
+      if (garder === k) ouvrirMenu(w, false);
+    });
+  }
+  // Ouvre une liste ; la main va au choix en cours (sauf au redessin : dessinerTout la rend lui-même)
+  function ouvrirMenu(w, main) {
+    fermerMenu(false);
+    const s = w?.querySelector('select'), b = w?.querySelector('.jm-der-b'), k = w?.dataset.menu;
+    if (!s || !b || b.disabled) return;
+    const m = document.createElement('div');
+    m.className = 'jm-srcs-m jm-der-m';
+    m.setAttribute('role', 'listbox');
+    const nom = b.getAttribute('aria-label') || texteChoix(w.closest('label, .jm-champ')?.querySelector('span'));
+    if (nom) m.setAttribute('aria-label', nom);
+    m.innerHTML = [...s.options].map((o, i) => {
+      const oui = i === s.selectedIndex;
+      return `<button type="button" role="option" aria-selected="${oui}" class="jm-srcs-l jm-der-l f${oui ? ' ici' : ''}" data-perso="menu-choix" data-i="${i}" data-k="${O.esc(`${k}~${i}`)}"${o.disabled ? ' disabled' : ''}>${oui ? icone('coche') : '<i aria-hidden="true"></i>'}<span class="jm-srcs-n">${O.esc(texteChoix(o))}</span></button>`;
+    }).join('');
+    w.append(m);
+    menuOuvert = k;
+    b.classList.add('on');
+    b.setAttribute('aria-expanded', 'true');
+    // (au redessin, dessinerTout la place une fois la colonne revenue à sa place)
+    if (main) {
+      placerMenu();
+      const ici = m.querySelector('.jm-der-l.ici') || m.querySelector('.jm-der-l:not(:disabled)');
+      ici?.focus({ preventScroll: true });
+      // (une liste longue s'ouvre avec le choix en cours au milieu)
+      if (ici && m.scrollHeight > m.clientHeight) m.scrollTop = Math.max(0, ici.offsetTop - (m.clientHeight - ici.offsetHeight) / 2);
+    }
+  }
+  // Referme la liste ouverte (rendre : la main revient sur son bouton)
+  function fermerMenu(rendre) {
+    const w = menuDe(menuOuvert);
+    menuOuvert = null;
+    hote?.querySelectorAll('.jm-der-m').forEach((m) => m.remove());
+    const b = w?.querySelector('.jm-der-b');
+    if (!b) return;
+    b.classList.remove('on');
+    b.setAttribute('aria-expanded', 'false');
+    if (rendre) b.focus({ preventScroll: true });
+  }
+  function basculerMenu(b) {
+    const w = b.closest('.jm-der');
+    if (!w) return;
+    O.son?.tic?.();
+    if (menuOuvert && menuDe(menuOuvert) === w) fermerMenu(true); else ouvrirMenu(w, true);
+  }
+  // Un choix pris : posé dans le <select> caché, qui prévient ceux qui l'écoutent
+  function choisirMenu(el) {
+    const w = el.closest('.jm-der'), s = w?.querySelector('select'), i = Number(el.dataset.i);
+    if (!s || el.disabled || !Number.isInteger(i) || i < 0 || i >= s.options.length) return;
+    fermerMenu(true);
+    if (i === s.selectedIndex) { O.son?.retour?.(); return; }
+    s.selectedIndex = i;
+    const n = w.querySelector('.jm-der-b .jm-srcs-n');
+    if (n) n.textContent = texteChoix(s.options[i]);
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    s.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  // La liste ouverte, posée sous son bouton (ou au-dessus s'il manque la place en bas), dans l'écran
+  function placerMenu() {
+    const w = menuDe(menuOuvert), m = w?.querySelector('.jm-der-m'), b = w?.querySelector('.jm-der-b');
+    if (!m || !b) return;
+    const r = b.getBoundingClientRect();
+    // (le bouton parti hors de sa colonne en la faisant défiler : la liste se referme)
+    const zone = b.closest('.jm-liste, .jm-dossier, .jm-e-corps, .jm-modale-boite')?.getBoundingClientRect();
+    if (zone && (r.bottom < zone.top || r.top > zone.bottom)) { fermerMenu(false); return; }
+    const H = innerHeight, L = innerWidth, marge = 8, ecart = 6;
+    m.style.minWidth = `${Math.round(r.width)}px`;
+    m.style.maxHeight = 'none';
+    const voulu = Math.min(m.offsetHeight, 380);
+    const bas = H - r.bottom - ecart - marge, haut = r.top - ecart - marge;
+    const dessous = voulu <= bas || bas >= haut;
+    const h = Math.max(96, Math.min(voulu, dessous ? bas : haut));
+    m.style.maxHeight = `${Math.round(h)}px`;
+    m.classList.toggle('dessus', !dessous);
+    const vrai = Math.min(m.offsetHeight, h);
+    m.style.top = `${Math.round(dessous ? r.bottom + ecart : Math.max(marge, r.top - ecart - vrai))}px`;
+    m.style.left = `${Math.round(Math.max(marge, Math.min(r.left, L - marge - m.offsetWidth)))}px`;
+  }
+  // Le choix montré dans la liste qui défile (sans faire bouger le reste de l'écran)
+  function voirChoix(el) {
+    const m = el?.closest('.jm-der-m');
+    if (!m) return;
+    const t = el.offsetTop, h = el.offsetHeight;
+    if (t < m.scrollTop) m.scrollTop = Math.max(0, t - 6);
+    else if (t + h > m.scrollTop + m.clientHeight) m.scrollTop = t + h - m.clientHeight + 6;
+  }
+  // Les touches dans une liste ouverte (Entrée et Échap passent par le kit : valider et retour)
+  function toucheMenu(e) {
+    const w = menuDe(menuOuvert);
+    if (!w) return;
+    const els = [...w.querySelectorAll('.jm-der-l:not(:disabled)')];
+    const a = document.activeElement, i = els.indexOf(a);
+    if (i < 0 && a !== w.querySelector('.jm-der-b')) return;
+    if (e.key === 'Tab') { fermerMenu(false); return; }
+    if (!els.length || e.ctrlKey || e.altKey || e.metaKey) return;
+    const page = Math.max(1, Math.floor((w.querySelector('.jm-der-m')?.clientHeight || 0) / 44) - 1);
+    let j = -1;
+    if (e.key === 'ArrowDown') j = i < 0 ? 0 : (i + 1) % els.length;
+    else if (e.key === 'ArrowUp') j = i < 0 ? els.length - 1 : (i - 1 + els.length) % els.length;
+    else if (e.key === 'Home') j = 0;
+    else if (e.key === 'End') j = els.length - 1;
+    else if (e.key === 'PageDown') j = Math.min(els.length - 1, Math.max(i, 0) + page);
+    else if (e.key === 'PageUp') j = Math.max(0, i - page);
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); return; }
+    else if (e.key.length === 1 && !/^[abAB\s]$/.test(e.key)) {
+      // (taper le début d'un choix : « 57 », « mos » ; la même lettre encore passe au choix suivant qui commence ainsi)
+      const t = Date.now();
+      menuFrappe = t - menuFrappeA > 800 ? sansAccent(e.key) : menuFrappe + sansAccent(e.key);
+      menuFrappeA = t;
+      const noms = els.map((x) => sansAccent(texteChoix(x)));
+      const seule = menuFrappe.length > 1 && [...menuFrappe].every((c) => c === menuFrappe[0]);
+      const cherche = seule ? menuFrappe[0] : menuFrappe;
+      const debut = seule || menuFrappe.length === 1 ? i + 1 : Math.max(i, 0);
+      for (let n = 0; n < noms.length && j < 0; n++) { const x = (debut + n) % noms.length; if (noms[x].startsWith(cherche)) j = x; }
+      for (let n = 0; n < noms.length && j < 0; n++) { const x = (debut + n) % noms.length; if (noms[x].includes(` ${cherche}`)) j = x; }
+      if (j < 0) { e.preventDefault(); e.stopPropagation(); return; }
+    } else return;
+    e.preventDefault(); e.stopPropagation();
+    els[j].focus({ preventScroll: true });
+    voirChoix(els[j]);
+  }
+  addEventListener('resize', () => { if (menuOuvert) placerMenu(); });
+
   // Une phrase de Rust (une erreur, une lecture qui casse, une connexion faite), avec son bouton
   function annonceSitesHTML(a, site) {
     const { esc } = O, t = tC();
@@ -894,6 +1059,10 @@
     const actif = document.activeElement, kActif = actif?.closest?.('#jm [data-k]')?.dataset.k;
     const curseur = actif && /^(INPUT|TEXTAREA)$/.test(actif.tagName) ? [actif.selectionStart, actif.selectionEnd] : null;
     const hautD = hote.querySelector('.jm-dossier')?.scrollTop || 0, hautL = hote.querySelector('.jm-liste')?.scrollTop || 0;
+    // (une liste déroulante ouverte se rouvre si la main y reste ; sinon elle se referme)
+    const kVise = focusK || kActif;
+    const garderMenu = menuOuvert && kVise && (kVise === menuOuvert || kVise.startsWith(`${menuOuvert}~`)) ? menuOuvert : null;
+    menuOuvert = null;
     const memeOnglet = hote.querySelector('#jm')?.dataset.onglet === o.id;
     let gauche, droite, barre = '', recap = '';
     const s = o.id === 'candidatures' ? suiviDe() : null;
@@ -950,11 +1119,13 @@
     // (étape 5 bis : la carte de connexion, ou la petite fenêtre du site, par-dessus l'onglet)
     cartesSites();
     remplirBoite();
+    habillerMenus(garderMenu);
     if (memeOnglet) {
       const d = hote.querySelector('.jm-dossier'), l = hote.querySelector('.jm-liste');
       if (d) d.scrollTop = hautD;
       if (l) l.scrollTop = hautL;
     }
+    if (menuOuvert) placerMenu();
     const k = focusK || kActif;
     const cible = k && hote.querySelector(`[data-k="${CSS.escape(k)}"]`);
     (cible || hote.querySelector('.jm-onglet.actif'))?.focus({ preventScroll: true });
@@ -1265,6 +1436,7 @@
   }
   function surTouche(e) {
     if (sorties.has(e)) return;
+    toucheMenu(e);
     toucheSources(e);
     if (e.target.tagName === 'TEXTAREA') toucheZone(e);
     // (une liste à choisir : ses flèches choisissent dans la liste)
@@ -1297,6 +1469,15 @@
     h.addEventListener('pointerover', surSurvol);
     // (« Où chercher » ouverte : un clic à côté la referme)
     h.addEventListener('pointerdown', (e) => { if (srcMenu && !e.target.closest?.('.jm-srcs')) { srcMenu = false; dessinerTout('cs:ou'); } });
+    // (une liste déroulante ouverte : un clic à côté la referme ; un clic sur son titre, qui vaut un clic sur son
+    // bouton, la referme aussi, par le bouton)
+    h.addEventListener('pointerdown', (e) => {
+      const w = menuDe(menuOuvert);
+      if (!w || w.contains(e.target) || e.target.closest?.('label')?.contains(w)) return;
+      fermerMenu(false);
+    });
+    // (la colonne qui défile : la liste ouverte suit son bouton)
+    h.addEventListener('scroll', (e) => { if (menuOuvert && !e.target.classList?.contains('jm-der-m')) placerMenu(); }, true);
     h.addEventListener('focusout', surSortie);
     h.addEventListener('submit', (e) => e.preventDefault());
   }
@@ -2115,8 +2296,8 @@
         ${basculesHTML(t)}
       </div>
       <div class="jm-b-rang">
-        <span class="jm-b-sel${f.contrat ? ' on' : ''}"><select class="f" data-perso="of-champ" data-champ="contrat" data-k="of:contrat" aria-label="${esc(t('contrat'))}">${optionsHTML(x.contrats, f.contrat, choixSur)}</select>${icone('bas')}</span>
-        <span class="jm-b-sel${f.teletravail && f.teletravail !== 'peu_importe' ? ' on' : ''}"><select class="f" data-perso="of-champ" data-champ="teletravail" data-k="of:tele" aria-label="${esc(t('teletravail'))}">${optionsHTML(x.teles, f.teletravail || 'peu_importe', codeSurP)}</select>${icone('bas')}</span>
+        <span class="jm-b-sel${f.contrat ? ' on' : ''}"><select class="f" data-perso="of-champ" data-champ="contrat" data-k="of:contrat" aria-label="${esc(t('contrat'))}">${optionsHTML(x.contrats, f.contrat, choixSur)}</select></span>
+        <span class="jm-b-sel${f.teletravail && f.teletravail !== 'peu_importe' ? ' on' : ''}"><select class="f" data-perso="of-champ" data-champ="teletravail" data-k="of:tele" aria-label="${esc(t('teletravail'))}">${optionsHTML(x.teles, f.teletravail || 'peu_importe', codeSurP)}</select></span>
         <span class="jm-b-sep" aria-hidden="true"></span>
         <div class="jm-puces" role="radiogroup">${listes}</div>
         <span class="jm-compte">${esc(texteSur(x.compte))}</span>
@@ -2184,7 +2365,7 @@
     h += '</div>';
     const lignes = liste(x.lignes).filter((l) => numSur(l?.id));
     const ouverte = ofChoisie ?? x.fiche?.id;
-    if (lignes.length) h += `<div class="jm-liste-tete"><span class="jm-b-sel jm-tri"><select class="f" data-perso="of-champ" data-champ="tri" data-k="of:tri" aria-label="${esc(t('tri'))}">${optionsHTML(x.tris, ofFiltres?.tri || 'pertinence', codeSurP)}</select>${icone('bas')}</span></div>`;
+    if (lignes.length) h += `<div class="jm-liste-tete"><span class="jm-b-sel jm-tri"><select class="f" data-perso="of-champ" data-champ="tri" data-k="of:tri" aria-label="${esc(t('tri'))}">${optionsHTML(x.tris, ofFiltres?.tri || 'pertinence', codeSurP)}</select></span></div>`;
     for (const l of lignes) {
       const sel = l.id === ouverte && ofVue === 'offre';
       const marques = (l.postule === true ? `<span class="jm-o-m ok" title="${esc(t('postule'))}">${icone('coche')}</span>` : '')
@@ -2774,6 +2955,9 @@
     // Un onglet, une ligne, un bouton (clic, A ou Entrée)
     valider(el) {
       const d = el.dataset;
+      // (une liste déroulante : son bouton l'ouvre ou la ferme, un de ses choix est pris)
+      if (d.perso === 'menu') { basculerMenu(el); return; }
+      if (d.perso === 'menu-choix') { choisirMenu(el); return; }
       if (validerSites(el, d)) return;
       if (typeof d.perso === 'string' && d.perso.startsWith('po-')) { validerPo(el, d); return; }
       if (d.perso === 'onglet' && idSur(d.id)) { if (d.id !== onglet) O.son?.tic?.(); montrer(d.id); return; }
@@ -2783,6 +2967,8 @@
     // Retour (Échap, B, le bouton du bas) : d'abord ce qui est ouvert, puis le premier onglet ; sinon le kit revient
     // au menu de Mindset
     retour() {
+      // (une liste déroulante ouverte se referme d'abord, sans rien changer)
+      if (menuOuvert) { const ouverte = !!menuDe(menuOuvert); fermerMenu(true); if (ouverte) return true; }
       // (étape 5 bis : la petite fenêtre du site, puis la carte de connexion, se ferment d'abord)
       if (petiteOuverte()) { O.action('cs-fermer'); return true; }
       if (cnx) { fermerConnexion(); return true; }

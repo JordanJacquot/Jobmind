@@ -377,7 +377,7 @@ button.jm-cal-d.oui:hover, button.jm-cal-d.oui:focus { background: color-mix(in 
 .jm-b-lieu select:focus, .jm-b-lieu input:focus, .jm-b-sel select:focus { background: rgba(255, 255, 255, 0.07); }
 .jm-b-lieu .jm-b-ville { width: 120px; background: rgba(255, 255, 255, 0.05); }
 .jm-b-lieu select option, .jm-b-sel select option, .jm-rch-choix select option { background: var(--carte2); color: var(--texte); }
-.jm-b-sel { position: relative; display: inline-flex; align-items: center; height: 34px; padding: 0 28px 0 8px; border-radius: 99px; background: rgba(255, 255, 255, 0.045); border: 1px solid transparent; color: var(--doux); }
+.jm-b-sel { position: relative; display: inline-flex; align-items: center; height: 34px; padding: 0; border-radius: 99px; background: rgba(255, 255, 255, 0.045); border: 1px solid transparent; color: var(--doux); }
 .jm-b-sel select { appearance: none; height: 30px; padding: 0 4px; font-size: 13.5px; font-weight: 600; color: inherit; cursor: pointer; }
 .jm-b-sel > svg { position: absolute; right: 9px; width: 14px; height: 14px; pointer-events: none; }
 .jm-b-sel.on { color: var(--jm); border-color: color-mix(in srgb, var(--jm) 45%, transparent); background: color-mix(in srgb, var(--jm) 9%, transparent); }
@@ -490,6 +490,35 @@ button.jm-cal-d.oui:hover, button.jm-cal-d.oui:focus { background: color-mix(in 
 .jm-srcs-l.ici { color: var(--jm); }
 .jm-srcs-l.ici > svg { color: var(--jm); }
 @media (prefers-reduced-motion: reduce) { .jm-srcs-m { animation: none; } .jm-srcs-b > svg:last-child { transition: none; } }
+/* Toutes les autres listes déroulantes, au style d'« Où chercher » (habillerMenus dans jobmind.js) : le bouton
+   .jm-der-b à la place du <select> caché, et la liste ouverte .jm-der-m posée par-dessus l'écran (sous le bouton, ou
+   au-dessus s'il manque la place), qui défile quand elle est longue. Chaque zone garde la taille de ses listes. */
+.jm-der { display: block; min-width: 0; }
+.jm-der-s { display: none !important; }
+.jm-der-b { cursor: pointer; }
+.jm-der-b:disabled { opacity: 0.5; cursor: default; }
+.jm-der-m { position: fixed; right: auto; z-index: 40; width: max-content; max-width: min(440px, calc(100vw - 16px)); box-sizing: border-box; overflow-y: auto;
+  overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--ligne) transparent; }
+.jm-der-m .jm-srcs-l { flex: none; cursor: pointer; }
+.jm-der-l > i { width: 15px; flex: none; }
+.jm-der .jm-srcs-n { display: block; margin: 0; font-size: inherit; line-height: 1.35; color: inherit; }
+.jm-a-txt .jm-der { margin-top: 0; }
+.jm-champ .jm-der-b { height: 42px; font-size: 15px; }
+.jm-select-der { max-width: 360px; }
+.jm-select-der .jm-der-b { height: 40px; }
+.jm-po-in-der { width: 100%; }
+.jm-po-in-der .jm-der-b { height: 36px; }
+/* (les petites listes de la barre des filtres restent compactes) */
+.jm-b-lieu .jm-der, .jm-b-sel .jm-der { display: inline-flex; min-width: 0; }
+.jm-b-lieu .jm-der-b, .jm-b-sel .jm-der-b { width: auto; min-width: 0; height: 32px; gap: 6px; background: none; }
+.jm-b-lieu .jm-der-b { max-width: 200px; padding: 0 6px 0 8px; border-radius: 8px; font-size: 14px; }
+.jm-b-sel .jm-der-b { padding: 0 10px 0 12px; border-radius: 99px; font-size: 13.5px; color: inherit; }
+.jm-b-lieu .jm-der-b > svg, .jm-b-sel .jm-der-b > svg { width: 14px; height: 14px; }
+.jm-b-sel .jm-der-b > svg { color: inherit; }
+.jm-b-lieu .jm-der-b:hover, .jm-b-lieu .jm-der-b:focus, .jm-b-sel .jm-der-b:hover, .jm-b-sel .jm-der-b:focus { background: rgba(255, 255, 255, 0.07); }
+.jm-b-lieu .jm-der-b.on, .jm-b-sel .jm-der-b.on { background: color-mix(in srgb, var(--jm) 8%, rgba(255, 255, 255, 0.04)); }
+.jm-tri .jm-der-b { font-size: 12.5px; }
+@media (max-width: 900px) { .jm-b-lieu .jm-der-b { max-width: 150px; } }
 .jm-point { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--pale); }
 .jm-point.ok { background: var(--vert); box-shadow: 0 0 6px color-mix(in srgb, var(--vert) 60%, transparent); }
 .jm-cx-etat { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 9px; padding: 8px 11px; border-radius: 12px; font-size: 13px; color: var(--doux); background: rgba(255, 255, 255, 0.035); }
