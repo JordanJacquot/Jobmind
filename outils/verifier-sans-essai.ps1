@@ -23,7 +23,9 @@ $noms = 'JOBMIND_DONNEES', 'JOBMIND_ESSAI_LOCAL', 'JOBMIND_ESSAI_NOM', 'capture.
     # (étape 5 : le panneau ouvert par l'essai, les pages d'exemple des sites et les pages des essais du panneau)
     'panneau.demande', 'piege-ipc', 'session-voir', 'Logistique des Trois Fronti',
     # (étape 5 bis : les sites imités, leurs identifiants inventés, les demandes de l'essai des sites en coulisse)
-    'voir.demande', 'connexion.demande', 'sites.essai', 'Essai-MotDePasse', 'essai_linkedin', 'challenge/essai'
+    'voir.demande', 'connexion.demande', 'sites.essai', 'Essai-MotDePasse', 'essai_linkedin', 'challenge/essai',
+    # (étape 7 : la fausse boîte Gmail de l'essai, son mot de passe inventé et ses réponses inventées)
+    'boite.demande', 'essaiessaiessaii', 'entretien-1@netea'
 $trouves = @()
 foreach ($n in $noms) {
     $large = ($n.ToCharArray() | ForEach-Object { "$_`0" }) -join ''

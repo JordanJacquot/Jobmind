@@ -19,13 +19,16 @@
 //! - [`recherches`] (étape 4) : les recherches gardées, tirées de « Ce que je cherche » ou tapées ;
 //! - [`lecture`] (étape 6) : le diplôme et l'expérience demandés, lus dans le texte d'une offre par des règles, avec
 //!   leur preuve ; le permis et le CACES ;
-//! - [`pertinence`] (étape 6) : la note d'une offre et sa raison en une ligne, hors sujet.
+//! - [`pertinence`] (étape 6) : la note d'une offre et sa raison en une ligne, hors sujet ;
+//! - [`mails`] (étape 7) : l'adresse Gmail et le mot de passe d'application vérifiés, le rattachement d'un mail reçu à
+//!   une candidature et le statut proposé d'après ce qu'il dit.
 
 pub mod candidature;
 pub mod cle;
 pub mod jour;
 pub mod lecture;
 pub mod lieux;
+pub mod mails;
 pub mod offre;
 pub mod pertinence;
 pub mod profil;

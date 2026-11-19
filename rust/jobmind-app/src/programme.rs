@@ -82,6 +82,10 @@ const LECTURE_MAX: Duration = Duration::from_secs(60);
 const RESEAU_MAX: Duration = Duration::from_secs(90);
 /// Étape 6 : la lecture d'un lot d'offres par Claude, abandonnée après ce temps (chaque demande a son délai de 30 s).
 const IA_MAX: Duration = Duration::from_secs(360);
+/// Étape 7 : la première relève de la boîte Gmail, peu après le démarrage ; un fil de la boîte abandonné après ce temps
+/// (chaque lecture a déjà son délai de 30 s).
+const PREMIERE_RELEVE: Duration = Duration::from_secs(12);
+const MAIL_MAX: Duration = Duration::from_secs(180);
 
 /// Tout ce que l'appli garde pendant qu'elle tourne, sur le fil de la fenêtre.
 struct Etat {
@@ -104,6 +108,16 @@ struct Etat {
     profil: Profil,
     /// Les clés, chiffrées par DPAPI (data\cles.json)
     cles: Cles,
+    /// Étape 7 : la boîte Gmail (ce qui tourne sur son fil, le mail à ranger ouvert)
+    boite: crate::mail::Boite,
+    /// Étape 7 : le fil de la boîte travaille depuis ce moment, et la lecture des mails flous par Claude
+    mail_depuis: Option<Instant>,
+    mail_ia_depuis: Option<Instant>,
+    /// Étape 7 : la prochaine relève de la boîte
+    prochaine_releve: Instant,
+    /// Construction d'essai : la fausse boîte Gmail (un faux serveur IMAP local, jamais Gmail)
+    #[cfg(feature = "essai")]
+    faux_imap: Option<jobmind_mail::faux::FauxImap>,
     /// La lecture du fichier de CV choisi a commencé à ce moment
     lecture_depuis: Option<Instant>,
     /// L'onglet Offres : l'offre ouverte, les filtres, la recherche en cours
@@ -381,6 +395,12 @@ pub fn lancer() -> ! {
             suivi,
             profil,
             cles,
+            boite: crate::mail::Boite::default(),
+            mail_depuis: None,
+            mail_ia_depuis: None,
+            prochaine_releve: Instant::now() + PREMIERE_RELEVE,
+            #[cfg(feature = "essai")]
+            faux_imap: crate::essai::fausse_boite(&journal),
             lecture_depuis: None,
             offres,
             reseau_depuis: None,
@@ -526,6 +546,8 @@ fn tour(app: &AppHandle) {
             etat.lecture_trop_longue(app);
             etat.reseau_trop_long(app);
             etat.ia_trop_longue(app);
+            etat.releve_due(app);
+            etat.mail_trop_long(app);
             etat.evenements_des_sites(app);
             etat.minuteries_des_sites(app);
         }
@@ -537,6 +559,7 @@ fn tour(app: &AppHandle) {
             voir_demande(etat, app);
             connexion_demande(etat, app);
             connexion_recue(etat);
+            boite_demande(etat, app);
         }
         etat.fin = fin;
         fin
@@ -1087,6 +1110,26 @@ fn rapporter_ia(app: &AppHandle, r: RetourIa) {
     });
 }
 
+/// Étape 7 : rapporte ce qu'un fil de la boîte Gmail a donné au fil de la fenêtre (occupé : réessayé juste après).
+fn rapporter_vers<T: Send + 'static>(app: &AppHandle, r: T, f: fn(&mut Etat, &AppHandle, T)) {
+    let a = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let pour_etat = a.clone();
+        let reste = ETAT.with(move |e| match e.try_borrow_mut() {
+            Ok(mut e) => {
+                if let Some(etat) = e.as_mut() {
+                    f(etat, &pour_etat, r);
+                }
+                None
+            }
+            Err(_) => Some(r),
+        });
+        if let Some(r) = reste {
+            rapporter_vers(&a, r, f);
+        }
+    });
+}
+
 /// Rapporte une étape de l'import au fil de la fenêtre (occupé : réessayé juste après).
 fn rapporter(app: &AppHandle, r: RetourImport) {
     let a = app.clone();
@@ -1136,7 +1179,8 @@ impl Etat {
                 if suivi::est_geste(id)
                     || profil::est_geste(id)
                     || offres::est_geste(id)
-                    || coulisse::est_geste(id) =>
+                    || coulisse::est_geste(id)
+                    || crate::mail::est_geste(id) =>
             {
                 self.geste(id, valeur);
                 return;
@@ -1156,7 +1200,11 @@ impl Etat {
         if let Some(r) = raison {
             self.journal.ecrire(&r);
         }
-        let (mut e, raison) = self.suivi.etat_complet(VERSION, d.base.as_ref(), self.jour, &vue, &vue_offres);
+        let (vue_mails, raison) = self.boite.vue(d.base.as_ref(), Some(&self.cles));
+        if let Some(r) = raison {
+            self.journal.ecrire(&r);
+        }
+        let (mut e, raison) = self.suivi.etat_tout(VERSION, d.base.as_ref(), self.jour, &vue, &vue_offres, &vue_mails);
         if let Some(r) = raison {
             self.journal.ecrire(&r);
         }
@@ -1204,6 +1252,12 @@ impl Etat {
         if let Some(t) = fait.ia {
             self.lancer_ia(app, t);
         }
+        if let Some(t) = fait.mail {
+            self.lancer_mail(app, t);
+        }
+        if let Some(t) = fait.mail_ia {
+            self.lancer_mail_ia(app, t);
+        }
         for o in fait.coulisse {
             self.programmer(o);
         }
@@ -1241,6 +1295,9 @@ impl Etat {
             }
             if coulisse::est_geste(id) {
                 return etat.coulisse.geste(d.base.as_ref(), id, valeur, maintenant);
+            }
+            if crate::mail::est_geste(id) {
+                return etat.boite.geste(d.base.as_ref(), Some(&mut etat.cles), id, valeur, maintenant);
             }
             if profil::est_geste(id) {
                 let dossier = d.dossier().to_path_buf();
@@ -1458,6 +1515,140 @@ impl Etat {
         if self.reseau_depuis.is_some_and(|t| t.elapsed() > RESEAU_MAX) {
             self.reseau_depuis = None;
             self.faire(app, |etat, _| etat.offres.trop_long());
+        }
+    }
+
+    /// Étape 7 : lance le fil de la boîte Gmail (essayer, relever). L'adresse et le mot de passe d'application sont lus
+    /// ici, au dernier moment, et donnés seulement à ce fil (jamais au journal ni à la page) ; le mot de passe est
+    /// effacé de la mémoire avec l'accès, à la fin du fil.
+    fn lancer_mail(&mut self, app: &AppHandle, t: crate::mail::Tache) {
+        let jeton = match &t {
+            crate::mail::Tache::Essayer { jeton } | crate::mail::Tache::Relever { jeton, .. } => *jeton,
+        };
+        let Some((adresse, mdp)) = crate::mail::identifiants(&self.cles) else {
+            let r = crate::mail::Retour {
+                jeton,
+                resultat: crate::mail::Resultat::Essai(Err(jobmind_mail::ErreurMail::Identifiants)),
+            };
+            self.journal.ecrire("Mail : boîte illisible sur ce PC, rien lancé");
+            rapporter_vers(app, r, Etat::retour_mail);
+            return;
+        };
+        let mut mdp = mdp;
+        let acces = self.acces_mail(&adresse, &mdp);
+        coulisse::effacer(&mut mdp);
+        let a = app.clone();
+        let r = std::thread::Builder::new().name("boite-mail".into()).spawn(move || {
+            let resultat = match t {
+                crate::mail::Tache::Essayer { .. } => crate::mail::Resultat::Essai(jobmind_mail::essayer(&acces)),
+                crate::mail::Tache::Relever { reperes, .. } => {
+                    crate::mail::Resultat::Releve(jobmind_mail::relever(&acces, &reperes))
+                }
+            };
+            drop(acces);
+            rapporter_vers(&a, crate::mail::Retour { jeton, resultat }, Etat::retour_mail);
+        });
+        match r {
+            Ok(_) => self.mail_depuis = Some(Instant::now()),
+            Err(e) => {
+                self.journal.ecrire(&format!("Mail : fil de la boîte non lancé ({e})"));
+                let _ = self.boite.trop_long();
+            }
+        }
+    }
+
+    /// L'accès à la vraie boîte : imap.gmail.com, sur TLS.
+    #[cfg(not(feature = "essai"))]
+    fn acces_mail(&self, adresse: &str, mdp: &str) -> jobmind_mail::Acces {
+        jobmind_mail::Acces::gmail(adresse, mdp)
+    }
+
+    /// Construction d'essai : la fausse boîte locale (127.0.0.1), jamais Gmail ; sans elle, le port 9 (personne).
+    #[cfg(feature = "essai")]
+    fn acces_mail(&self, adresse: &str, mdp: &str) -> jobmind_mail::Acces {
+        self.journal.ecrire("Essai : boîte mail demandée à la fausse boîte locale");
+        match &self.faux_imap {
+            Some(f) => f.acces(adresse, mdp),
+            None => jobmind_mail::Acces {
+                hote: "127.0.0.1".into(),
+                port: 9,
+                tls: false,
+                adresse: adresse.into(),
+                mdp: mdp.into(),
+                delai: Duration::from_secs(5),
+            },
+        }
+    }
+
+    /// Ce que le fil de la boîte a rapporté.
+    fn retour_mail(&mut self, app: &AppHandle, r: crate::mail::Retour) {
+        if self.boite.jeton_en_cours() == Some(r.jeton) {
+            self.mail_depuis = None;
+        }
+        self.faire(app, |etat, d| {
+            let adresse = etat.cles.lire(jobmind_core::cle::Cle::GmailAdresse).unwrap_or_default();
+            let claude = offres::cle_prete(Some(&etat.cles), Service::Claude);
+            etat.boite.fini(d.base.as_ref(), r, &adresse, claude, heure::maintenant())
+        });
+    }
+
+    /// Étape 7 : les réponses floues lues par Claude, sur un fil à part (la clé lue ici, au dernier moment).
+    fn lancer_mail_ia(&mut self, app: &AppHandle, t: crate::mail::TacheIa) {
+        let cle = offres::cles_claires(&self.cles, Service::Claude).and_then(|v| v.into_iter().next());
+        let (adresse, https) = self.adresse_claude();
+        let a = app.clone();
+        let r = std::thread::Builder::new().name("mail-ia".into()).spawn(move || {
+            let r = match cle {
+                Some(cle) => {
+                    let claude =
+                        jobmind_llm::claude::Claude::nouveau(&adresse, &cle, https, jobmind_llm::claude::DELAI);
+                    crate::mail::lire_lot(&claude, &t)
+                }
+                None => crate::mail::RetourIa {
+                    jeton: t.jeton,
+                    lus: Vec::new(),
+                    erreur: Some(jobmind_llm::ErreurLlm::CleManquante),
+                },
+            };
+            rapporter_vers(&a, r, Etat::retour_mail_ia);
+        });
+        match r {
+            Ok(_) => self.mail_ia_depuis = Some(Instant::now()),
+            Err(e) => {
+                self.journal.ecrire(&format!("Mail : fil de Claude non lancé ({e})"));
+                self.boite.ia = None;
+            }
+        }
+    }
+
+    fn retour_mail_ia(&mut self, app: &AppHandle, r: crate::mail::RetourIa) {
+        self.mail_ia_depuis = None;
+        self.faire(app, |etat, d| etat.boite.ia_finie(d.base.as_ref(), r));
+    }
+
+    /// Étape 7 : la relève de la boîte, au démarrage puis toutes les 15 minutes (rien si elle n'est pas branchée).
+    fn releve_due(&mut self, app: &AppHandle) {
+        if Instant::now() < self.prochaine_releve {
+            return;
+        }
+        self.prochaine_releve = Instant::now() + Duration::from_secs(crate::mail::ECART_RELEVE_S);
+        self.faire(app, |etat, d| match etat.boite.releve_due(d.base.as_ref(), &etat.cles, etat.jour) {
+            Some(t) => {
+                Fait { mail: Some(t), change: true, journal: Some("Mail : relève prévue".into()), ..Fait::default() }
+            }
+            None => Fait::default(),
+        });
+    }
+
+    /// Un fil de la boîte (ou de Claude) qui dure trop longtemps : abandonné (un résultat arrivé ensuite est laissé).
+    fn mail_trop_long(&mut self, app: &AppHandle) {
+        if self.mail_depuis.is_some_and(|t| t.elapsed() > MAIL_MAX) {
+            self.mail_depuis = None;
+            self.faire(app, |etat, _| etat.boite.trop_long());
+        }
+        if self.mail_ia_depuis.is_some_and(|t| t.elapsed() > IA_MAX) {
+            self.mail_ia_depuis = None;
+            self.boite.ia = None;
         }
     }
 
@@ -1912,6 +2103,28 @@ fn connexion_demande(etat: &mut Etat, app: &AppHandle) {
     let site = v.get("site").and_then(Value::as_str).unwrap_or_default().chars().take(20).collect::<String>();
     etat.journal.ecrire(&format!("Essai : connexion demandée ({site})"));
     app.state::<Page>().ordre(json!({ "kit": "accueil", "connexion": v.clone() }));
+    crate::pont::effacer_valeur(&mut v);
+}
+
+/// Construction d'essai (étape 7) : un fichier `boite.demande` (`{ adresse, mdp, envoyer }`, inventés) remplit « Ma
+/// boîte mail » dans la page comme Jordan (puis « Brancher ma boîte » si `envoyer`). Le fichier est supprimé aussitôt
+/// lu, son texte effacé de la mémoire ; rien de son contenu ne va au journal.
+#[cfg(feature = "essai")]
+fn boite_demande(etat: &mut Etat, app: &AppHandle) {
+    let demande = etat.dossier.join(crate::essai::BOITE_DEMANDE);
+    if !demande.is_file() {
+        return;
+    }
+    let mut texte = std::fs::read_to_string(&demande).unwrap_or_default();
+    let _ = std::fs::remove_file(&demande);
+    let lu = serde_json::from_str::<Value>(texte.trim_start_matches('\u{feff}'));
+    coulisse::effacer(&mut texte);
+    let Ok(mut v) = lu else {
+        etat.journal.ecrire("Essai : boîte mail demandée illisible");
+        return;
+    };
+    etat.journal.ecrire("Essai : boîte mail remplie comme Jordan");
+    app.state::<Page>().ordre(json!({ "kit": "accueil", "boite_form": v.clone() }));
     crate::pont::effacer_valeur(&mut v);
 }
 

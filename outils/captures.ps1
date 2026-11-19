@@ -320,6 +320,20 @@ try {
             Verifier (Attendre { -not (Test-Path -LiteralPath (Join-Path $donnees 'connexion.demande')) } 4000) "carte de connexion de $site remplie"
             if ($envoyer) { Verifier (Attendre { (Compter "Sites : connecté à $site") -gt $cx } 30000) "connecté à $site (journal)" }
         }
+        # Étape 7 : la fausse boîte Gmail de l'essai (locale, jamais Gmail ; l'adresse et le mot de passe d'application
+        # inventés qu'elle attend) : « boite:remplir » remplit « Ma boîte mail » comme Jordan, « boite:brancher » la
+        # remplit, clique « Brancher ma boîte » et attend la fin de la relève ; « mail:<n> » ouvre le mail à ranger n
+        elseif ($v -match '^boite:(remplir|brancher)$') {
+            $envoyer = $Matches[1] -eq 'brancher'
+            $j = [ordered]@{ adresse = 'jordan.exemple@gmail.com'; mdp = 'essa iess aies saii'; envoyer = $envoyer } | ConvertTo-Json -Compress
+            $finies = Compter 'Mail : relève finie'
+            [IO.File]::WriteAllText((Join-Path $donnees 'boite.demande'), $j, $sansBom)
+            Verifier (Attendre { -not (Test-Path -LiteralPath (Join-Path $donnees 'boite.demande')) } 4000) 'Ma boîte mail remplie'
+            if ($envoyer) { Verifier (Attendre { (Compter 'Mail : relève finie') -gt $finies } 40000) 'boîte branchée et relevée (journal)' }
+            [void](Attendre { $false } 600)
+        }
+        elseif ($v -match '^mail:(\d{1,6})$') { Ordre ('{"kit":"accueil","mail":' + $Matches[1] + '}') }
+        elseif ($v -eq 'mails-ranger') { Ordre '{"kit":"accueil","mails":"ranger"}' }
         elseif ($v -eq 'calendrier') { Ordre '{"kit":"accueil","calendrier":true}' }
         elseif ($v -match '^jour:(\d{1,2})$') { Ordre ('{"kit":"accueil","cliquer":"cal:' + (Get-Date -Day ([int]$Matches[1]) -Format 'yyyy-MM-dd') + '"}') }
         elseif ($v -match '^clic:([a-z]{1,4}:[a-z0-9-]{1,12})$') { Ordre ('{"kit":"accueil","cliquer":"' + $Matches[1] + '"}') }

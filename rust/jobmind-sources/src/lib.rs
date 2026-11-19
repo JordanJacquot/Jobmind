@@ -30,6 +30,8 @@
 //! est passée par [`masquer`].
 
 pub mod adzuna;
+/// Les alertes « nouvelles offres » reçues par mail (étape 7) : reconnues, puis leurs offres lues.
+pub mod alertes;
 #[cfg(any(test, feature = "faux"))]
 pub mod faux;
 pub mod html;

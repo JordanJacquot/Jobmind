@@ -133,10 +133,16 @@ pub fn modifier(c: &Connection, id: i64, f: &Fiche, maintenant: Moment) -> rusql
     Ok(true)
 }
 
-/// Supprime une candidature et sa frise. Rend faux si elle n'existait pas.
+/// Supprime une candidature et sa frise. Ses mails rangés (étape 7) reviennent dans « Mails à ranger ». Rend faux si
+/// elle n'existait pas.
 pub fn supprimer(c: &Connection, id: i64) -> rusqlite::Result<bool> {
     let t = c.unchecked_transaction()?;
     t.execute("DELETE FROM evenements WHERE candidature_id = ?1", [id])?;
+    t.execute(
+        "UPDATE mails SET etat = CASE WHEN etat = 'rangee' THEN 'a_ranger' ELSE etat END, candidature_id = NULL, \
+         proposition = CASE WHEN proposition = 'attente' THEN NULL ELSE proposition END WHERE candidature_id = ?1",
+        [id],
+    )?;
     let n = t.execute("DELETE FROM candidatures WHERE id = ?1", [id])?;
     t.commit()?;
     Ok(n > 0)

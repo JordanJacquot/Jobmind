@@ -335,6 +335,8 @@ fn service_json(s: Service, v: &VueProfil) -> Value {
              « API Keys ». Copie-la ici tout de suite : elle n'est montrée qu'une fois.",
             "https://console.anthropic.com/settings/keys",
         ),
+        // (jamais dans Mes clés : la rubrique « Ma boîte mail », crate::mail)
+        Service::Gmail => ("Gmail", "", "", ""),
     };
     let etat_de = |c: Cle| v.cles.iter().find(|(k, _)| *k == c).and_then(|(_, e)| e.clone());
     let parties: Vec<Value> = s
@@ -356,6 +358,7 @@ fn service_json(s: Service, v: &VueProfil) -> Value {
                     Cle::AdzunaCle => "32 lettres et chiffres",
                     Cle::Jooble => "Colle ta clé Jooble",
                     Cle::Claude => "Commence par sk-ant-",
+                    Cle::GmailAdresse | Cle::GmailMdp => "",
                 },
             })
         })

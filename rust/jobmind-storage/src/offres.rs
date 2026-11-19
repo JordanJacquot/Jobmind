@@ -268,6 +268,8 @@ pub struct OffreComplete {
     pub candidats: Option<VueCandidats>,
     /// Étape 6 : le diplôme et l'expérience lus, avec leur preuve
     pub lecture: LectureGardee,
+    /// Étape 7 : le jour où une alerte mail l'a apportée (rien : venue d'ailleurs)
+    pub venue_par_mail: Option<Jour>,
 }
 
 /// Le numéro de la première offre du groupe de celle-ci (elle-même si ce n'est pas un doublon).
@@ -305,6 +307,7 @@ pub fn lire(c: &Connection, id: i64) -> rusqlite::Result<Option<OffreComplete>> 
     }
     let candidats = candidats(c, p)?;
     let lecture = lecture_de(c, p)?;
+    let venue_par_mail = crate::mails::venue_par_mail(c, p)?;
     Ok(Some(OffreComplete {
         offre: o,
         description,
@@ -313,6 +316,7 @@ pub fn lire(c: &Connection, id: i64) -> rusqlite::Result<Option<OffreComplete>> 
         retrouvee_le: retrouvee,
         candidats,
         lecture,
+        venue_par_mail,
     }))
 }
 

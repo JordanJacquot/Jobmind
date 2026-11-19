@@ -370,6 +370,34 @@ pub fn vers_site(base: &str, u: &str) -> String {
     }
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// Étape 7 : la fausse boîte Gmail de l'essai (un faux serveur IMAP local, jamais Gmail, jamais un vrai mail)
+// ---------------------------------------------------------------------------------------------------------------
+
+pub use crate::mail::exemples::{BOITE_ADRESSE, BOITE_DEMANDE, BOITE_MDP, boite_exemples};
+
+/// La fausse boîte de l'essai, lancée au démarrage (127.0.0.1, sans TLS) avec [`boite_exemples`].
+pub fn fausse_boite(journal: &Journal) -> Option<jobmind_mail::faux::FauxImap> {
+    let config = jobmind_mail::faux::ConfigImap::new(
+        BOITE_ADRESSE,
+        BOITE_MDP,
+        boite_exemples(crate::windows::heure::maintenant()),
+    );
+    match jobmind_mail::faux::FauxImap::demarrer(config) {
+        Ok(f) => {
+            journal.ecrire(&format!(
+                "Essai : fausse boîte Gmail prête (127.0.0.1, {} mails)",
+                boite_exemples(crate::windows::heure::maintenant()).len()
+            ));
+            Some(f)
+        }
+        Err(e) => {
+            journal.ecrire(&format!("Essai : fausse boîte Gmail non lancée ({e})"));
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

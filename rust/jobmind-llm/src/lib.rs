@@ -7,10 +7,13 @@
 //!
 //! - [`claude`] : le client de l'API Messages de Claude (HTTP par ureq, sur un fil à part de l'appli) ;
 //! - [`lecture`] : la demande « trouve le diplôme et l'expérience » (réponse en JSON imposé par un schéma), et la
-//!   réponse vérifiée : chaque citation doit se trouver dans l'offre, sinon rien n'est gardé (rien d'inventé).
+//!   réponse vérifiée : chaque citation doit se trouver dans l'offre, sinon rien n'est gardé (rien d'inventé) ;
+//! - [`reponse`] (étape 7) : ce qu'annonce une réponse de recruteur que les règles n'ont pas su lire, avec la phrase
+//!   du mail qui le dit, vérifiée de la même façon.
 
 pub mod claude;
 pub mod lecture;
+pub mod reponse;
 
 /// Le modèle à prendre pour une demande.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

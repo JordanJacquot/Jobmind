@@ -15,6 +15,7 @@
 //! - [`cles`] (étape 3) : les clés des sources d'offres et de l'IA, chiffrées (le coffre DPAPI est donné par l'appli) ;
 //! - [`offres`] (étape 4) : l'archive des offres trouvées, les doublons rattachés, la recherche dans tout le texte,
 //!   favoris, « plus tard » et « Pas pour moi », les recherches gardées, les demandes du jour à chaque source ;
+//! - [`mails`] (étape 7) : les mails lus dans Gmail (alertes, réponses rangées ou à ranger, statut proposé), la relève ;
 //! - [`dossier`] : le dossier de données et suite.json (copie gérée ou non, dossier de travail) ;
 //! - [`donnees`] : tout réuni ;
 //! - [`valeurs`] : les règles de PowerShell suivies (champs sans majuscules, vrai ou faux).
@@ -32,6 +33,7 @@ pub mod dossier;
 pub mod fichiers;
 pub mod journal;
 pub mod lecture;
+pub mod mails;
 pub mod moment;
 pub mod offres;
 pub mod profil;
@@ -39,7 +41,7 @@ pub mod reglages;
 pub mod valeurs;
 
 pub use base::{Base, ErreurBase};
-pub use carte::{Carte, EtatMindset, etat_carte};
+pub use carte::{Carte, EtatMindset, etat_carte, etat_carte_avec};
 pub use donnees::Donnees;
 pub use fichiers::{FichierRelu, Fichiers};
 pub use journal::{Horloge, Journal, horloge_figee};

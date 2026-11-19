@@ -1762,6 +1762,7 @@ dependencies = [
  "jobmind-core",
  "jobmind-lecture",
  "jobmind-llm",
+ "jobmind-mail",
  "jobmind-sources",
  "jobmind-storage",
  "jobmind-vie",
@@ -1804,6 +1805,10 @@ dependencies = [
 [[package]]
 name = "jobmind-mail"
 version = "0.1.0"
+dependencies = [
+ "native-tls",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "jobmind-relais"

@@ -53,6 +53,29 @@ fn ligne(texte: &str, etat: &str) -> Ligne {
 
 /// Ce que la carte montre, d'après les candidatures, le jour et le délai de relance.
 pub fn etat_carte(liste: &[Candidature], aujourdhui: Jour, delai: u32) -> Carte {
+    etat_carte_avec(liste, aujourdhui, delai, 0)
+}
+
+/// [`etat_carte`], avec les réponses reçues qui attendent Jordan (étape 7 : un mail à ranger, un statut proposé) : une
+/// ligne en tête (« 2 réponses reçues à voir »), la carte gardant ses 3 lignes au plus.
+pub fn etat_carte_avec(liste: &[Candidature], aujourdhui: Jour, delai: u32, a_voir: usize) -> Carte {
+    let mut c = carte_seule(liste, aujourdhui, delai);
+    if a_voir > 0 {
+        let t = if a_voir == 1 {
+            "1 réponse reçue à voir".to_string()
+        } else {
+            format!("{a_voir} réponses reçues à voir")
+        };
+        if c.lignes.len() == 1 && c.lignes[0].texte == AUCUN {
+            c.lignes.clear();
+        }
+        c.lignes.insert(0, ligne(&t, "attention"));
+        c.lignes.truncate(3);
+    }
+    c
+}
+
+fn carte_seule(liste: &[Candidature], aujourdhui: Jour, delai: u32) -> Carte {
     if liste.is_empty() {
         return Carte { titre: TITRE.to_string(), scores: Vec::new(), lignes: vec![ligne(AUCUN, "info")] };
     }

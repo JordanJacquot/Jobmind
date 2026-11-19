@@ -85,6 +85,7 @@
     croix: svg('<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>', 2.2),
     globe: svg('<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.5 3.5 5.3 3.5 8.5s-1.1 6-3.5 8.5c-2.4-2.5-3.5-5.3-3.5-8.5s1.1-6 3.5-8.5z"/>'),
     recharger: svg('<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4h-4"/>'),
+    mail: svg('<rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M4.5 7.5l7.5 5.5 7.5-5.5"/>'),
   };
   const icone = (n) => (typeof n === 'string' && Object.hasOwn(ICONES, n) ? ICONES[n] : '');
   // La couleur de chaque statut, par son rôle dans le thème (jamais en dur : elle suit le thème de la suite)
@@ -120,6 +121,10 @@
   const textesC = () => { const t = suiviDe()?.textes; return t && typeof t === 'object' ? t : {}; };
   const T = (k) => texteSur(textesC()[k]);
   const fiche = () => { const f = suiviDe()?.fiche; return f && typeof f === 'object' && numSur(f.id) ? f : null; };
+  // Étape 7 : les mails à ranger (et celui ouvert à droite), le choix de la candidature fait pour chacun
+  const mailsDe = () => { const m = suiviDe()?.mails; return m && typeof m === 'object' && !Array.isArray(m) ? m : {}; };
+  let mailVu = null;      // le mail à ranger ouvert à droite (vueC === 'mail')
+  const mrChoix = {};     // la candidature choisie pour chaque mail à ranger
   // La rubrique ouverte d'un onglet : celle choisie, sinon la première (Mon profil s'ouvre sur Mon CV)
   function rubriqueDe(o) {
     const l = rubriquesDe(o);
@@ -153,9 +158,20 @@
   function listeCandidaturesHTML(o, s) {
     const { esc } = O;
     const groupes = Array.isArray(s.groupes) ? s.groupes : [];
-    const ouverte = vueC === 'formulaire' ? null : (choisie ?? s.ouverte);
+    const ouverte = vueC === 'dossier' ? (choisie ?? s.ouverte) : null;
     let h = `<div class="jm-liste-tete"><span class="jm-liste-t">${esc(texteSur(o.liste))}</span>
       <button type="button" class="jm-ajout f" data-perso="ajouter" data-k="c:ajouter" title="${esc(T('ajouter'))}">${icone('plus')}<span>${esc(T('ajouter_court'))}</span></button></div>`;
+    // (étape 7 : les mails que Jobmind n'a pas su ranger, en tête)
+    const mx = mailsDe(), tm = tx(mx), ar = liste(mx.a_ranger).filter((x) => numSur(x?.id));
+    if (ar.length) {
+      h += `<div class="jm-groupe-t">${esc(tm('titre'))} <span>${ar.length}</span></div>`;
+      for (const x of ar) {
+        const sel = vueC === 'mail' && x.id === mailVu;
+        h += `<button type="button" class="jm-cand jm-mail-l f${sel ? ' sel' : ''}" data-perso="mail" data-id="${x.id}" data-k="ml:${x.id}" aria-current="${sel}">
+          <span class="jm-c1"><b>${esc(texteSur(x.nom))}</b><span class="jm-st" style="--c:var(--T)">${icone('mail')}</span></span>
+          <span class="jm-c2">${esc(texteSur(x.sous))}</span>${x.recu_le ? `<span class="jm-c3">${esc(tm('recu'))} le ${esc(texteSur(x.recu_le))}</span>` : ''}</button>`;
+      }
+    }
     for (const g of groupes) {
       const lignes = Array.isArray(g?.lignes) ? g.lignes.filter((x) => numSur(x?.id)) : [];
       if (!lignes.length) continue;
@@ -164,10 +180,10 @@
         const sel = x.id === ouverte;
         h += `<button type="button" class="jm-cand f${sel ? ' sel' : ''}${x.fini === true ? ' fini' : ''}" data-perso="cand" data-id="${x.id}" data-k="c:${x.id}" aria-current="${sel}">
           <span class="jm-c1"><b>${esc(texteSur(x.nom))}</b>${codeSur(x.statut) ? pastille(x.statut, x.statut_nom) : ''}</span>
-          <span class="jm-c2">${esc(texteSur(x.sous))}</span>${x.action ? `<span class="jm-c3">${esc(texteSur(x.action))}</span>` : ''}</button>`;
+          <span class="jm-c2">${esc(texteSur(x.sous))}</span>${x.action ? `<span class="jm-c3">${esc(texteSur(x.action))}</span>` : ''}${x.reponse === true ? `<span class="jm-c3 jm-c-rep">${icone('mail')}${esc(tm('reponse'))}</span>` : ''}</button>`;
       }
     }
-    if (!groupes.length && o.vide) h += `<p class="jm-vide-l">${esc(texteSur(o.vide))}</p>`;
+    if (!groupes.length && !ar.length && o.vide) h += `<p class="jm-vide-l">${esc(texteSur(o.vide))}</p>`;
     const bilan = Array.isArray(s.bilan) ? s.bilan.filter((t) => typeof t === 'string') : [];
     if (bilan.length) h += `<div class="jm-bilan">${bilan.map((t, i) => (i ? `<span>${esc(t)}</span>` : `<b>${esc(t)}</b>`)).join('')}</div>`;
     return h;
@@ -315,6 +331,10 @@
 
   function panneauHTML(f) {
     const { esc } = O;
+    // (étape 7 : les mails reçus, en texte seulement)
+    if (pilule === 'mails') {
+      return liste(f.mails).filter((m) => numSur(m?.id)).map((m) => `<div class="jm-mail-r"><div class="jm-meta"><b>${esc(texteSur(m.objet))}</b><span>${esc(texteSur(m.de))}${m.recu_le ? `, ${esc(texteSur(m.recu_le))}` : ''}</span></div><div class="jm-lettre petit" data-brut>${esc(texteSur(m.texte))}</div></div>`).join('');
+    }
     if (pilule === 'offre') {
       const o = f.offre || {};
       if (!o.lien) return `<p class="jm-panneau-vide">${esc(texteSur(o.vide))}</p>`;
@@ -343,9 +363,17 @@
     } else if (c) {
       h += `<p class="jm-calme">${icone(c.icone)}<span>${esc(texteSur(c.texte))}</span></p>`;
     }
+    // (étape 7 : le statut que dit une réponse reçue ; Jordan confirme d'un clic, jamais changé seul)
+    const pr = objet(f.proposition);
+    if (numSur(pr.mail)) {
+      const bts = `${texteSur(pr.oui) ? bouton('m-oui', 'pr:oui', texteSur(pr.oui), 'coche', 'principal', ` data-id="${pr.mail}"`) : ''}${bouton('m-non', 'pr:non', texteSur(pr.non), '', 'second', ` data-id="${pr.mail}"`)}`;
+      h += `<div class="jm-action jm-prop" style="--c:${couleurStatut(codeSur(pr.statut) ? pr.statut : 'relancee')}"><span class="jm-a-ic">${icone('mail')}</span><div class="jm-a-txt"><b>${esc(texteSur(pr.titre))}</b><span>${esc(texteSur(pr.texte))}</span><span class="jm-citation">${esc(texteSur(pr.citation))} <em>${esc(texteSur(pr.par))}</em></span></div><div class="jm-a-bts">${bts}</div></div>`;
+    }
     const frise = Array.isArray(f.frise) ? f.frise : [];
     if (frise.length) h += `<div class="jm-frise">${frise.map((e, i) => `${i ? '<b class="jm-fl"></b>' : ''}<span><i></i>${esc(texteSur(e?.texte))} <em>${esc(texteSur(e?.date))}</em></span>`).join('')}</div>`;
     const pil = [['envoye', T('p_envoye')], ['offre', T('p_offre')], ['notes', T('p_notes')]];
+    const nm = liste(f.mails).length;
+    if (nm) pil.push(['mails', `${T('p_mails')} (${nm})`]);
     h += `<div class="jm-pilules" role="tablist">${pil.map(([id, nom]) => `<button type="button" role="tab" aria-selected="${pilule === id}" class="jm-pil f${pilule === id ? ' actif' : ''}" data-perso="pilule" data-id="${id}" data-k="p:${id}">${esc(nom)}</button>`).join('')}</div>`;
     h += `<div class="jm-panneau">${panneauHTML(f)}</div>`;
     if (confirme) {
@@ -377,8 +405,28 @@
   }
 
   // Le dossier de droite de l'onglet Candidatures
+  // Étape 7 : un mail à ranger ouvert : son texte (jamais son HTML), la candidature à choisir, « Rien à voir »
+  function mailRangerHTML(m) {
+    const { esc } = O, t = tx(mailsDe());
+    const choix = liste(mailsDe().choix).filter((x) => numSur(x?.id));
+    const ici = numSur(mrChoix[m.id]) ? mrChoix[m.id] : (numSur(m.suggestion) ? m.suggestion : 0);
+    const options = `<option value="0"${ici ? '' : ' selected'}>${esc(t('choisir'))}</option>${choix.map((x) => `<option value="${x.id}"${x.id === ici ? ' selected' : ''}>${esc(texteSur(x.nom))}</option>`).join('')}`;
+    return `<div class="jm-d${O.anime ? ' entree' : ''}"><div class="jm-d-tete"><div class="jm-d-titres"><h1>${esc(texteSur(m.objet))}</h1><div class="jm-d-sous">${esc(t('de'))} ${esc(texteSur(m.de))}${m.recu_le ? `, ${esc(texteSur(m.recu_le))}` : ''}</div></div>
+      <span class="jm-st gros" style="--c:var(--T)">${esc(t('titre'))}</span></div>
+      <p class="jm-ou">${esc(t('intro'))}</p>${m.raison ? `<p class="jm-ou-sous">${esc(texteSur(m.raison))}</p>` : ''}
+      <div class="jm-action jm-ranger"><span class="jm-a-ic">${icone('dossier')}</span><div class="jm-a-txt"><b>${esc(t('ranger_dans'))}</b>
+        <select class="f jm-select" data-perso="m-choix" data-id="${m.id}" data-k="mr:choix" aria-label="${esc(t('ranger_dans'))}">${options}</select></div>
+        <div class="jm-a-bts">${bouton('m-ranger', 'mr:ranger', t('ranger'), 'coche', 'principal', ` data-id="${m.id}"`)}${bouton('m-rien', 'mr:rien', t('rien'), 'poubelle', 'discret danger', ` data-id="${m.id}"`)}</div></div>
+      <div class="jm-lettre jm-mail-t" data-brut>${esc(texteSur(m.texte) || t('vide_texte'))}</div>
+      ${m.pieces ? `<p class="jm-petit">${esc(texteSur(m.pieces))}</p>` : ''}</div>`;
+  }
+
   function droiteCandidatures(o, s) {
     if (vueC === 'formulaire' && form) return formulaireHTML(s);
+    if (vueC === 'mail') {
+      const m = objet(mailsDe().ouvert);
+      if (numSur(m.id)) return mailRangerHTML(m);
+    }
     const f = fiche();
     if (f) return dossierHTML(f, s);
     const vide = !(Array.isArray(s.groupes) && s.groupes.length);
@@ -734,6 +782,8 @@
     const f = fiche(), id = f ? f.id : null;
     if (id !== ficheVue) { ficheVue = id; pilule = 'envoye'; menu = false; rdv = null; confirme = false; if (cal?.ou === 'e') cal = null; }
     if (cal && !calOuvert(cal.ou)) cal = null;
+    // (étape 7 : le mail à ranger montré est celui que Rust a ouvert ; plus aucun : le dossier revient)
+    if (vueC === 'mail') { const m = objet(mailsDe().ouvert); if (numSur(m.id)) mailVu = m.id; else { vueC = 'dossier'; mailVu = null; } }
     if (choisie !== null && (id === choisie || !suiviDe()?.groupes?.some((g) => g?.lignes?.some((x) => x?.id === choisie)))) choisie = null;
   }
 
@@ -780,6 +830,7 @@
     O.anime = false;
     // (étape 5 bis : la carte de connexion, ou la petite fenêtre du site, par-dessus l'onglet)
     cartesSites();
+    remplirBoite();
     if (memeOnglet) {
       const d = hote.querySelector('.jm-dossier'), l = hote.querySelector('.jm-liste');
       if (d) d.scrollTop = hautD;
@@ -818,6 +869,14 @@
     vueC = 'dossier';
     if (fiche()?.id !== id) { choisie = id; O.anime = !reduit(); O.action('c-ouvrir', { id }); }
     dessinerTout(`c:${id}`);
+  }
+
+  // Étape 7 : ouvre un mail à ranger à droite (Rust renvoie l'état avec son texte)
+  function ouvrirMail(id) {
+    if (vueC !== 'mail' || mailVu !== id) O.anime = !reduit();
+    vueC = 'mail'; mailVu = id; menu = false; rdv = null; confirme = false; cal = null;
+    if (objet(mailsDe().ouvert).id !== id) O.action('m-ouvrir', { id });
+    dessinerTout(`ml:${id}`);
   }
 
   function ouvrirFormulaire(f) {
@@ -912,7 +971,19 @@
         return true;
       case 'enregistrer': enregistrer(); return true;
       case 'annuler': O.son?.retour?.(); fermerFormulaire(false); return true;
-      case 'pilule': if (['envoye', 'offre', 'notes'].includes(d.id) && pilule !== d.id) { pilule = d.id; O.son?.tic?.(); dessinerTout(`p:${d.id}`); } return true;
+      case 'pilule': if (['envoye', 'offre', 'notes', 'mails'].includes(d.id) && pilule !== d.id) { pilule = d.id; O.son?.tic?.(); dessinerTout(`p:${d.id}`); } return true;
+      // Étape 7 : les mails à ranger, et le statut proposé par une réponse
+      case 'mail': { const id = Number(d.id); if (numSur(id)) { O.son?.ok?.(); ouvrirMail(id); } return true; }
+      case 'm-choix': return true;
+      case 'm-ranger': {
+        const id = Number(d.id), k = Number(mrChoix[id] || objet(mailsDe().ouvert).suggestion);
+        if (!numSur(id)) return true;
+        if (!numSur(k)) { O.son?.retour?.(); hote.querySelector('[data-k="mr:choix"]')?.focus({ preventScroll: false }); return true; }
+        if (!el.disabled) { el.disabled = true; O.son?.ok?.(); O.action('m-ranger', { id, candidature: k }); }
+        return true;
+      }
+      case 'm-rien': { const id = Number(d.id); if (numSur(id) && !el.disabled) { el.disabled = true; O.son?.ok?.(); O.action('m-rien', { id }); } return true; }
+      case 'm-oui': case 'm-non': { const id = Number(d.id); if (numSur(id) && !el.disabled) { el.disabled = true; O.son?.ok?.(); O.action(d.perso, { id }); } return true; }
       case 'notes': return true;
       case 'copier': {
         if (!f) return true;
@@ -990,6 +1061,8 @@
   // Ce qui se tape : gardé dans la page (un nouvel état qui arrive ne l'efface pas)
   function surSaisie(e) {
     const el = e.target, d = el.dataset || {};
+    // (étape 7 : la candidature choisie pour un mail à ranger)
+    if (d.perso === 'm-choix') { const id = Number(d.id), k = Number(el.value); if (numSur(id)) mrChoix[id] = numSur(k) ? k : 0; return; }
     if (d.perso === 'champ' && form && CHAMPS.includes(d.champ)) {
       form.v[d.champ] = el.value;
       el.closest('.jm-champ')?.classList.remove('faux');
@@ -1334,12 +1407,82 @@
     dessinerTout(focusK || (id ? `k:${id}` : undefined));
   }
 
+  // -------------------------------------------- Ma boîte mail (étape 7)
+  // Le guide pas à pas (la validation en deux étapes, le mot de passe d'application de Google), l'adresse et les 16
+  // lettres, puis « Brancher ma boîte » ('mail-brancher') ; branchée : « Essayer », « Regarder maintenant »,
+  // « Débrancher ma boîte » (jamais au premier clic). Le mot de passe tapé ne vit que dans boiteSaisie (jamais dans
+  // l'état, jamais écrit dans le HTML : la case est remplie par sa propriété), envoyé une fois puis oublié.
+  let boiteSaisie = { adresse: '', mdp: '' };
+  let boiteConfirme = false;
+  function boiteHTML(d) {
+    const { esc } = O, t = tx(d);
+    let h = `<div class="jm-p${anime()}"><h1>${esc(texteSur(d.titre))}</h1><p class="jm-intro">${esc(texteSur(d.intro))}</p>`;
+    if (texteSur(d.en_cours)) h += `<div class="jm-annonce attention" role="status">${icone('horloge')}<div><span>${esc(texteSur(d.en_cours))}</span></div></div>`;
+    else if (d.annonce && typeof d.annonce === 'object' && texteSur(d.annonce.texte)) {
+      const g = d.annonce.genre === 'ok' ? 'ok' : 'erreur';
+      h += `<div class="jm-annonce ${g}" role="status">${icone(g === 'ok' ? 'coche' : 'attention')}<div><span>${esc(texteSur(d.annonce.texte))}</span></div></div>`;
+    }
+    if (d.branchee === true) {
+      h += `<section class="jm-cle gardee"><div class="jm-r-tete"><span class="jm-a-ic">${icone('mail')}</span><div class="jm-cle-t"><div class="jm-cle-l1"><b>${esc(texteSur(d.adresse))}</b><span class="jm-etat">${esc(t('branchee'))}</span></div>${d.derniere ? `<p>${esc(texteSur(d.derniere))}</p>` : ''}</div></div>
+        <div class="jm-parts"><span>${icone('cadenas')}${esc(t('mot_de_passe'))} : <b>${esc(texteSur(d.apercu))}</b></span></div>`;
+      if (boiteConfirme) {
+        h += `<div class="jm-suppr"><p>${esc(texteSur(d.question))}</p><div class="jm-btns">${bouton('gm-decon-oui', 'gm:oui', t('oui'), 'poubelle', 'danger')}${bouton('gm-decon-non', 'gm:non', t('non'), '', 'second')}</div></div>`;
+      } else {
+        const occupe = texteSur(d.en_cours) ? ' disabled' : '';
+        h += `<div class="jm-btns">${bouton('gm-relever', 'gm:relever', t('relever'), 'recharger', 'principal', occupe)}${bouton('gm-essayer', 'gm:essayer', t('essayer'), 'coche', '', occupe)}${bouton('gm-decon', 'gm:decon', t('debrancher'), 'poubelle', 'discret danger')}</div>`;
+      }
+      h += '</section>';
+    } else {
+      const etapes = liste(d.etapes).map((e, i) => {
+        const lien = texteSur(e?.adresse) && idSur(e?.quoi)
+          ? `<div class="jm-lien-l"><span class="jm-lien" data-brut>${esc(texteSur(e.adresse))}</span>${bouton('gm-copier', `gc:${e.quoi}`, t('copier'), 'lien', 'discret', ` data-id="${e.quoi}"`)}</div><p class="jm-petit">${esc(t('adresse_aide'))}</p>`
+          : '';
+        return `<li class="jm-etape"><span class="jm-etape-n">${i + 1}</span><div><b>${esc(texteSur(e?.titre))}</b><p>${esc(texteSur(e?.texte))}</p>${lien}</div></li>`;
+      }).join('');
+      h += `<ol class="jm-etapes">${etapes}</ol>
+        <section class="jm-cle"><div class="jm-grille cle">
+          <label class="jm-champ"><span>${esc(t('adresse'))}</span><input class="f" type="email" data-perso="p-champ" data-zone="gm" data-champ="adresse" data-k="gm:adresse" maxlength="254" autocomplete="off" spellcheck="false" placeholder="${esc(t('i_adresse'))}" value="${esc(boiteSaisie.adresse)}"></label>
+          <label class="jm-champ"><span>${esc(t('mdp'))}</span><input class="f" type="password" data-perso="p-champ" data-zone="gm" data-champ="mdp" data-k="gm:mdp" maxlength="40" autocomplete="off" spellcheck="false" placeholder="${esc(t('i_mdp'))}"></label></div>
+          <p class="jm-err" role="alert"></p>
+          <div class="jm-btns">${bouton('gm-brancher', 'gm:brancher', t('brancher'), 'mail', 'principal', texteSur(d.en_cours) ? ' disabled' : '')}</div></section>`;
+    }
+    return `${h}<p class="jm-note gauche">${esc(texteSur(d.note))}</p></div>`;
+  }
+
+  // (la case du mot de passe, remplie par sa propriété après chaque dessin : jamais dans le HTML)
+  function remplirBoite() {
+    const el = hote.querySelector('[data-k="gm:mdp"]');
+    if (el && boiteSaisie.mdp) el.value = boiteSaisie.mdp;
+  }
+
+  function boiteBrancher() {
+    const err = hote.querySelector('.jm-cle .jm-err');
+    for (const [k, m] of [['adresse', 'Écris ton adresse Gmail.'], ['mdp', "Colle le mot de passe d'application."]]) {
+      if (!String(boiteSaisie[k] || '').trim()) {
+        const el = hote.querySelector(`[data-k="gm:${k}"]`);
+        el?.closest('.jm-champ')?.classList.add('faux');
+        if (err) err.textContent = m;
+        el?.focus({ preventScroll: false });
+        O.son?.retour?.();
+        return;
+      }
+    }
+    if (Date.now() < envoiJusqua) return;
+    envoiJusqua = Date.now() + 800;
+    O.son?.ok?.();
+    O.action('mail-brancher', { adresse: String(boiteSaisie.adresse).slice(0, 254), mdp: String(boiteSaisie.mdp).slice(0, 40) });
+    // (le mot de passe n'est pas gardé ici : refusé, Jordan le colle de nouveau)
+    boiteSaisie.mdp = '';
+    const el = hote.querySelector('[data-k="gm:mdp"]'); if (el) el.value = '';
+  }
+
   // Le dossier d'une rubrique de Mon profil, selon sa vue
   function droiteProfil(d) {
     if (d.vue === 'cv') return cvHTML(d);
     if (d.vue === 'recherche') return rechercheHTML(d);
     if (d.vue === 'style') return styleHTML(d);
     if (d.vue === 'cles') return clesHTML(d);
+    if (d.vue === 'mail') return boiteHTML(d);
     return null;
   }
 
@@ -1390,6 +1533,18 @@
       case 'k-effacer-non': { const id = cleConfirme; O.son?.retour?.(); cleConfirme = null; dessinerTout(id ? `ke:${id}` : undefined); return true; }
       case 'k-effacer-oui': if (idSur(cleConfirme)) { const service = cleConfirme; cleConfirme = null; el.disabled = true; O.action('cle-effacer', { service }); } return true;
       case 'k-essayer': if (idSur(d.id) && !el.disabled) { O.son?.ok?.(); O.action('cle-essayer', { service: d.id }); } return true;
+      // Ma boîte mail (étape 7)
+      case 'gm-brancher': if (!el.disabled) boiteBrancher(); return true;
+      case 'gm-essayer': if (!el.disabled) { el.disabled = true; O.son?.ok?.(); O.action('mail-essayer'); } return true;
+      case 'gm-relever': if (!el.disabled) { el.disabled = true; O.son?.ok?.(); O.action('mail-relever'); } return true;
+      case 'gm-decon': O.son?.ok?.(); boiteConfirme = true; dessinerTout('gm:non'); return true;
+      case 'gm-decon-non': O.son?.retour?.(); boiteConfirme = false; dessinerTout('gm:decon'); return true;
+      case 'gm-decon-oui': if (boiteConfirme) { boiteConfirme = false; el.disabled = true; O.son?.ok?.(); O.action('mail-debrancher'); } return true;
+      case 'gm-copier': {
+        const e = liste(objet(rubriquesDe(ongletDe('profil')).find((r) => r.id === 'mail')?.dossier).etapes).find((x) => x?.quoi === d.id);
+        if (e && texteSur(e.adresse)) copierBrut(texteSur(e.adresse), el, () => O.action('mail-copie', { quoi: d.id }));
+        return true;
+      }
       default: return validerOffres(el, d);
     }
   }
@@ -1409,6 +1564,7 @@
     if (d.zone === 'rc' && rch && ['postes', 'ville', 'salaire', 'departement', 'region'].includes(d.champ)) { rch[d.champ] = v; return; }
     if (d.zone === 'st' && styleForm && (d.champ === 'titre' || d.champ === 'texte')) { styleForm[d.champ] = v; return; }
     if (d.zone === 'cle' && cleForm && codeSurP(d.champ)) cleSaisie[d.champ] = v;
+    if (d.zone === 'gm' && (d.champ === 'adresse' || d.champ === 'mdp')) boiteSaisie[d.champ] = v;
   }
 
   // Retour dans Mon profil : ferme d'abord ce qui est ouvert ; vrai si quelque chose l'était
@@ -1420,6 +1576,7 @@
     if (styleForm) { styleForm = null; dessinerTout('st:ajouter'); return true; }
     if (cleConfirme) { const id = cleConfirme; cleConfirme = null; dessinerTout(`ke:${id}`); return true; }
     if (cleForm) { cleFermer(); return true; }
+    if (boiteConfirme) { boiteConfirme = false; dessinerTout('gm:decon'); return true; }
     return false;
   }
 
@@ -1434,6 +1591,20 @@
     if (o.recherche === 'enregistree') { rch = null; if (rubriqueOuverte('recherche')) dessinerTout('rc:enreg'); return true; }
     if (numSur(o.style)) { styleForm = null; if (rubriqueOuverte('style')) dessinerTout('st:ajouter'); return true; }
     if (idSur(o.cle)) { cleForm = null; cleSaisie = {}; cleConfirme = null; if (rubriqueOuverte('cles')) dessinerTout(`k:${o.cle}`); return true; }
+    // (étape 7 : la boîte branchée ou débranchée ; construction d'essai : la boîte remplie comme Jordan)
+    if (o.boite === 'branchee' || o.boite === 'debranchee') {
+      boiteSaisie = { adresse: '', mdp: '' }; boiteConfirme = false;
+      if (rubriqueOuverte('mail')) dessinerTout(o.boite === 'branchee' ? 'gm:relever' : 'gm:adresse');
+      return true;
+    }
+    if (o.boite_form && typeof o.boite_form === 'object') {
+      const b = o.boite_form;
+      boiteSaisie = { adresse: texteSur(b.adresse).slice(0, 254), mdp: texteSur(b.mdp).slice(0, 40) };
+      if (onglet !== 'profil') montrer('profil');
+      ouvrirRubrique('mail', 'gm:mdp');
+      if (b.envoyer === true) boiteBrancher();
+      return true;
+    }
     return false;
   }
 
@@ -1878,6 +2049,7 @@
       if (rdv) { rdv = null; dessinerTout('d:statut'); return true; }
       if (confirme) { confirme = false; dessinerTout('d:supprimer'); return true; }
       if (vueC === 'formulaire') { fermerFormulaire(true); return true; }
+      if (vueC === 'mail') { vueC = 'dossier'; mailVu = null; dessinerTout(); return true; }
       if (retourProfil()) return true;
       if (retourOffres()) return true;
       const premier = onglets()[0];
@@ -1950,6 +2122,10 @@
         hote.querySelector(`#jm [data-k="${o.cliquer}"]`)?.click();
         return;
       }
+      // (étape 7) un mail à ranger ouvert (pour les captures, et après « Rien à voir » : le suivant)
+      if (numSur(o.mail)) { if (onglet !== 'candidatures') montrer('candidatures'); ouvrirMail(o.mail); return; }
+      if (o.mails === 'ranger') { const m = liste(mailsDe().a_ranger).find((x) => numSur(x?.id)); if (onglet !== 'candidatures') montrer('candidatures'); if (m) ouvrirMail(m.id); return; }
+      if (numSur(o.mail_range)) { if (onglet === 'candidatures') dessinerTout(); return; }
       if (idSur(o.onglet)) montrer(o.onglet);
     },
   });

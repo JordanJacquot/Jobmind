@@ -208,11 +208,23 @@ fn fiche(x: &OffreComplete, aujourdhui: Jour, claude: bool) -> Value {
         "id": o.id,
         "titre": o.titre,
         "sous": sous(o),
-        "sources": format!("Trouvée sur {}", noms(o)),
+        "sources": match x.venue_par_mail {
+            // (étape 7 : venue d'une alerte mail)
+            Some(j) => format!("Trouvée sur {}, venue d'une alerte mail le {}", noms(o), j.court(aujourdhui)),
+            None => format!("Trouvée sur {}", noms(o)),
+        },
+        "alerte_mail": x.venue_par_mail.is_some(),
         "double": o.sources.len() > 1,
         "infos": infos,
         "texte": x.description,
-        "texte_vide": "Le site n'a donné aucun texte pour cette offre. Lis-la sur le site.",
+        "texte_vide": match (x.venue_par_mail, x.liens.iter().find(|l| !l.url.is_empty())) {
+            (Some(_), Some(l)) => format!(
+                "Le mail d'alerte ne donne que le titre. Clique « Voir sur {} », puis « Ajouter à Jobmind » dans la \
+                 petite fenêtre : Jobmind gardera le texte entier de l'offre.",
+                nom_source(&l.source)
+            ),
+            _ => "Le site n'a donné aucun texte pour cette offre. Lis-la sur le site.".to_string(),
+        },
         "note": if matches!(x.description_de.as_str(), "adzuna" | "jooble") {
             format!("{texte_de} ne donne que le début de l'annonce : le texte entier est sur le site.")
         } else if x.description_de == "site" {
@@ -585,6 +597,7 @@ mod tests {
                     lue: true,
                     par_ia: false,
                 },
+                venue_par_mail: None,
             }),
             recherches: vec![r],
             recherche: Some(4),

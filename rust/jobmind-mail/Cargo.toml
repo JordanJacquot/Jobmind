@@ -1,12 +1,23 @@
 [package]
 name = "jobmind-mail"
 version = "0.1.0"
-description = "Le Gmail de Jordan dans Jobmind : lire (IMAP : alertes d'offres, réponses des recruteurs) et envoyer (SMTP : les candidatures). Sans écran"
+description = "Le Gmail de Jordan dans Jobmind : lire la boîte en IMAP sur TLS, en lecture seule (EXAMINE et BODY.PEEK : rien n'est jamais marqué lu, déplacé ni effacé), et chaque mail (MIME) en texte, par un client IMAP et une lecture MIME écrits ici. Plus tard, l'envoi (SMTP) des candidatures. Sans écran"
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
+# L'option « faux » : le faux serveur IMAP local (127.0.0.1) qui sert une boîte de mails inventés, pour la
+# construction d'essai de l'appli (jamais livrée). Les tests de ce crate s'en servent aussi, sans l'option.
+[features]
+faux = []
+
 [dependencies]
+# Versions figées (« = ») : une nouvelle version n'entre que par un changement relu. Les mêmes que jobmind-sources.
+# Les erreurs de la boîte mail, nommées (la même version que celle déjà tirée par Tauri)
+thiserror = "=2.0.21"
+# Le chiffrement de la connexion à Gmail (port 993) : SChannel, celui de Windows, avec la vérification normale des
+# certificats (ceux de Windows, tenus à jour par Windows Update). MIT ou Apache-2.0, déjà tiré par ureq.
+native-tls = "=0.2.18"
 
 [lints]
 workspace = true

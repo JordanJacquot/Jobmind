@@ -54,6 +54,10 @@ pub struct Vue<'a> {
     pub profil: &'a VueProfil,
     /// L'onglet Offres (étape 4) : la liste filtrée, l'offre ouverte, les recherches gardées
     pub offres: &'a VueOffres,
+    /// Étape 7 : la boîte Gmail (Ma boîte mail, les mails à ranger)
+    pub mails: &'a crate::mail::VueMails,
+    /// Étape 7 : les mails rangés dans le dossier ouvert
+    pub mails_dossier: &'a [jobmind_storage::mails::MailGarde],
 }
 
 impl Vue<'_> {
@@ -67,6 +71,8 @@ impl Vue<'_> {
             aujourdhui,
             profil: &VIDE,
             offres: &crate::offres::VIDE,
+            mails: &crate::mail::VIDE,
+            mails_dossier: &[],
         }
     }
 }
@@ -111,14 +117,14 @@ fn rubrique_reglages(delai: u32) -> Value {
                 "oui": "Oui, me déconnecter",
                 "non": "Annuler",
             },
-            "note": "Ta boîte Gmail, la sauvegarde et les exports viendront ici.",
+            "note": "La sauvegarde et les exports viendront ici. Ta boîte Gmail se branche dans « Ma boîte mail ».",
         },
     })
 }
 
 /// Les textes du formulaire et du dossier (la page les pose tels quels).
 fn textes(aujourdhui: Jour) -> Value {
-    let paires: [(&str, &str); 46] = [
+    let paires: [(&str, &str); 47] = [
         ("ajouter", "Ajouter une candidature"),
         ("ajouter_court", "Ajouter"),
         ("nouvelle", "Nouvelle candidature"),
@@ -153,6 +159,7 @@ fn textes(aujourdhui: Jour) -> Value {
         ("p_envoye", "Ce que j'ai envoyé"),
         ("p_offre", "L'offre"),
         ("p_notes", "Notes"),
+        ("p_mails", "Mails reçus"),
         ("notes_aide", "Gardé tout seul quand tu quittes le champ."),
         ("copier", "Copier"),
         ("copie", "Copié"),
@@ -240,7 +247,13 @@ fn meta_envoi(c: &Candidature, aujourdhui: Jour) -> String {
 }
 
 /// Le dossier d'une candidature (le grand panneau de droite).
-pub fn fiche(c: &Candidature, frise: &[Evenement], delai: u32, aujourdhui: Jour) -> Value {
+pub fn fiche(
+    c: &Candidature,
+    frise: &[Evenement],
+    mails: &[jobmind_storage::mails::MailGarde],
+    delai: u32,
+    aujourdhui: Jour,
+) -> Value {
     let s = situation(c, aujourdhui, delai);
     let (ou, ou_sous) = ou_on_en_est(c, aujourdhui);
     let (action, calme, relance) = match &s.action {
@@ -262,8 +275,14 @@ pub fn fiche(c: &Candidature, frise: &[Evenement], delai: u32, aujourdhui: Jour)
             None,
         ),
     };
-    let frise: Vec<Value> =
-        frise.iter().map(|e| json!({ "texte": e.statut.nom(), "date": e.jour.court(aujourdhui) })).collect();
+    // (étape 7 : les réponses reçues prennent leur place dans la frise, à leur jour)
+    let (mails_json, proposition, recues) = crate::mail::dossier(mails, c, aujourdhui);
+    let mut points: Vec<(Jour, String)> = frise.iter().map(|e| (e.jour, e.statut.nom().to_string())).collect();
+    for (j, t) in recues {
+        let i = points.iter().position(|(x, _)| *x > j).unwrap_or(points.len());
+        points.insert(i, (j, t));
+    }
+    let frise: Vec<Value> = points.iter().map(|(j, t)| json!({ "texte": t, "date": j.court(aujourdhui) })).collect();
     let entretien = match &c.entretien {
         Some(e) => json!({
             "date": e.jour.saisie(),
@@ -295,6 +314,9 @@ pub fn fiche(c: &Candidature, frise: &[Evenement], delai: u32, aujourdhui: Jour)
             "vide": "Aucun lien noté. L'offre elle-même sera gardée ici quand elle viendra de l'onglet Offres.",
         },
         "notes": c.notes,
+        // (étape 7 : les mails rangés dans ce dossier, et le statut proposé qui attend Jordan)
+        "mails": mails_json,
+        "proposition": proposition,
         "champs": {
             "entreprise": c.entreprise,
             "poste": c.poste,
@@ -330,6 +352,8 @@ fn onglet_candidatures(v: &Vue) -> Value {
                         "statut_nom": c.statut.nom(),
                         "action": ligne_action(s, v.aujourdhui).unwrap_or_default(),
                         "fini": *g == Groupe::Terminee,
+                        // (étape 7 : une réponse reçue attend Jordan dans ce dossier)
+                        "reponse": v.mails.attente.contains(&c.id),
                     })
                 })
                 .collect();
@@ -342,7 +366,7 @@ fn onglet_candidatures(v: &Vue) -> Value {
     json!({
         "id": CANDIDATURES,
         "nom": "Candidatures",
-        "nombre": a_faire,
+        "nombre": a_faire + v.mails.a_ranger.len() + v.mails.attente.len(),
         "liste": "Mes candidatures",
         "vide": "Rien à suivre pour l'instant.",
         "rubriques": [],
@@ -357,10 +381,12 @@ fn onglet_candidatures(v: &Vue) -> Value {
             "groupes": groupes,
             "bilan": bilan,
             "ouverte": ouverte.map(|c| c.id),
-            "fiche": ouverte.map(|c| fiche(c, v.frise, v.delai, v.aujourdhui)),
+            "fiche": ouverte.map(|c| fiche(c, v.frise, v.mails_dossier, v.delai, v.aujourdhui)),
             "statuts": Statut::TOUS.iter().map(|s| json!({ "id": s.code(), "nom": s.nom() })).collect::<Vec<_>>(),
             "moyens": Moyen::TOUS.iter().map(|m| json!({ "id": m.code(), "nom": m.nom() })).collect::<Vec<_>>(),
             "textes": textes(v.aujourdhui),
+            // (étape 7 : les mails à ranger, et celui ouvert)
+            "mails": crate::mail::onglet(v.mails, v.candidatures, v.aujourdhui),
         },
     })
 }
@@ -368,6 +394,8 @@ fn onglet_candidatures(v: &Vue) -> Value {
 /// Les rubriques de Mon profil : Mon CV, Ce que je cherche, Mon style, Mes clés (vue_profil.rs), puis Réglages.
 fn rubriques_profil(v: &Vue) -> Vec<Value> {
     let mut l = vue_profil::rubriques(v.profil, v.aujourdhui);
+    // (étape 7 : Ma boîte mail, après Mes clés)
+    l.push(crate::mail::rubrique(v.mails, v.aujourdhui));
     l.push(rubrique_reglages(v.delai));
     l
 }
@@ -408,6 +436,7 @@ pub fn etat(version: &str, v: &Vue) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mail::VIDE as MVIDE;
     use crate::offres::VIDE as OVIDE;
     use jobmind_core::candidature::Entretien;
     use jobmind_core::{Heure, Moyen};
@@ -479,12 +508,12 @@ mod tests {
         assert!(o[0]["suivi"]["groupes"].as_array().unwrap().is_empty());
         assert!(o[0]["suivi"]["fiche"].is_null());
         assert!(o[0]["suivi"]["bilan"].as_array().unwrap().is_empty());
-        // Mon profil : ses cinq rubriques, vides ; Réglages a son délai de relance
+        // Mon profil : ses six rubriques, vides ; Réglages a son délai de relance
         let r = o[2]["rubriques"].as_array().unwrap();
         let noms: Vec<&str> = r.iter().map(|x| x["nom"].as_str().unwrap()).collect();
-        assert_eq!(noms, ["Mon CV", "Ce que je cherche", "Mon style", "Mes clés", "Réglages"]);
-        let vues: Vec<&str> = r[..4].iter().map(|x| x["dossier"]["vue"].as_str().unwrap()).collect();
-        assert_eq!(vues, ["cv", "recherche", "style", "cles"]);
+        assert_eq!(noms, ["Mon CV", "Ce que je cherche", "Mon style", "Mes clés", "Ma boîte mail", "Réglages"]);
+        let vues: Vec<&str> = r[..5].iter().map(|x| x["dossier"]["vue"].as_str().unwrap()).collect();
+        assert_eq!(vues, ["cv", "recherche", "style", "cles", "mail"]);
         let sous: Vec<&str> = r.iter().map(|x| x["sous"].as_str().unwrap()).collect();
         assert_eq!(
             sous,
@@ -493,6 +522,7 @@ mod tests {
                 "Rien de noté pour l'instant",
                 "Aucun texte pour l'instant",
                 "Aucune clé pour l'instant",
+                "Pas encore branchée",
                 "Relance après 14 jours"
             ]
         );
@@ -500,9 +530,9 @@ mod tests {
         assert_eq!(r[1]["dossier"]["enregistree"], false);
         assert_eq!(r[1]["dossier"]["departements"].as_array().unwrap().len(), 101);
         assert_eq!(r[3]["dossier"]["services"][2]["etat"], "absente");
-        assert_eq!(r[4]["dossier"]["reglage"]["valeur"], 14);
+        assert_eq!(r[5]["dossier"]["reglage"]["valeur"], 14);
         assert_eq!(
-            (r[4]["dossier"]["reglage"]["min"].as_u64(), r[4]["dossier"]["reglage"]["max"].as_u64()),
+            (r[5]["dossier"]["reglage"]["min"].as_u64(), r[5]["dossier"]["reglage"]["max"].as_u64()),
             (Some(3), Some(60))
         );
         assert!(e["pages"].as_object().unwrap().is_empty());
@@ -521,6 +551,8 @@ mod tests {
             aujourdhui: auj(),
             profil: &VIDE,
             offres: &OVIDE,
+            mails: &MVIDE,
+            mails_dossier: &[],
         };
         let e = etat("0.1.0", &v);
         let o = &e["accueil"]["perso"]["onglets"][0];
@@ -616,7 +648,17 @@ mod tests {
         let l = exemples();
         let p = crate::vue_profil::tests::exemple();
         for (ouverte, profil) in [(None, &VIDE), (Some(1), &p), (Some(2), &VIDE), (Some(3), &p), (Some(4), &VIDE)] {
-            let v = Vue { candidatures: &l, ouverte, frise: &[], delai: 14, aujourdhui: auj(), profil, offres: &OVIDE };
+            let v = Vue {
+                candidatures: &l,
+                ouverte,
+                frise: &[],
+                delai: 14,
+                aujourdhui: auj(),
+                profil,
+                offres: &OVIDE,
+                mails: &MVIDE,
+                mails_dossier: &[],
+            };
             let mut t = Vec::new();
             textes_de(&etat("0.1.0", &v), &mut t);
             for t in t {
@@ -667,8 +709,17 @@ mod tests {
             [Evenement { jour: Jour::nouveau(2026, 11, 2).unwrap(), statut: Statut::Envoyee, texte: String::new() }];
         let p = crate::vue_profil::tests::exemple();
         for (ouverte, profil) in [(None, &VIDE), (Some(1), &p), (Some(2), &VIDE), (Some(3), &p), (Some(4), &VIDE)] {
-            let v =
-                Vue { candidatures: &l, ouverte, frise: &frise, delai: 14, aujourdhui: auj(), profil, offres: &OVIDE };
+            let v = Vue {
+                candidatures: &l,
+                ouverte,
+                frise: &frise,
+                delai: 14,
+                aujourdhui: auj(),
+                profil,
+                offres: &OVIDE,
+                mails: &MVIDE,
+                mails_dossier: &[],
+            };
             verifier(&etat("0.1.0", &v), &noms, "etat");
         }
     }
@@ -704,6 +755,8 @@ mod tests {
                 aujourdhui: auj(),
                 profil: &VIDE,
                 offres: &OVIDE,
+                mails: &MVIDE,
+                mails_dossier: &[],
             };
             let f = &etat("0.1.0", &v)["accueil"]["perso"]["onglets"][0]["suivi"]["fiche"];
             for x in [&f["action"]["icone"], &f["calme"]["icone"]] {
@@ -746,6 +799,8 @@ mod tests {
             aujourdhui: auj(),
             profil: &VIDE,
             offres: &OVIDE,
+            mails: &MVIDE,
+            mails_dossier: &[],
         };
         assert!(etat("0.1.0", &v).to_string().len() < 40_000);
     }

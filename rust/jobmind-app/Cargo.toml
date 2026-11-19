@@ -26,7 +26,7 @@ test = false
 # cherche ces noms dans l'exe de publication.
 [features]
 # (étape 4 : avec le faux serveur local qui imite Adzuna et Jooble ; aucune demande de l'essai ne part sur internet)
-essai = ["jobmind-sources/faux"]
+essai = ["jobmind-sources/faux", "jobmind-mail/faux"]
 
 [dependencies]
 # Versions figées (« = ») : une nouvelle version n'entre que par un changement relu. Les mêmes que Mindcare.
@@ -52,6 +52,8 @@ jobmind-lecture = { path = "../jobmind-lecture" }
 jobmind-sources = { path = "../jobmind-sources" }
 # Étape 6 : le petit modèle de Claude, pour les offres que les règles n'ont pas su lire (sur un fil à part)
 jobmind-llm = { path = "../jobmind-llm" }
+# Étape 7 : la boîte Gmail de Jordan (IMAP en lecture seule), lue sur un fil à part
+jobmind-mail = { path = "../jobmind-mail" }
 
 # Ce qui parle à Windows (verrou, signal, fenêtre, registre, heure, capture de l'essai ; étape 3 : le coffre des clés,
 # DPAPI, et la boîte « Ouvrir » pour choisir un CV, COM). La même version que wry, tao
@@ -89,6 +91,8 @@ tauri-build = { version = "=2.7.4", default-features = false }
 tauri = { version = "=2.12.5", default-features = false, features = ["wry", "compression", "common-controls-v6", "custom-protocol", "unstable", "test"] }
 # Les tests de l'onglet Offres : les réponses inventées d'Adzuna et de Jooble (le faux serveur de jobmind-sources)
 jobmind-sources = { path = "../jobmind-sources", features = ["faux"] }
+# Les tests de la boîte Gmail : le faux serveur IMAP local (127.0.0.1)
+jobmind-mail = { path = "../jobmind-mail", features = ["faux"] }
 
 # Pas `workspace = true` : le module Windows (src\windows) a besoin d'autoriser le code « unsafe », que le reste du
 # dépôt interdit tout à fait (forbid). Ici, il est refusé partout (deny), sauf dans src\windows qui l'autorise.

@@ -69,6 +69,10 @@ pub struct Fait {
     pub candidature: Option<i64>,
     /// Étape 5 : l'offre à ouvrir dans l'onglet Offres (celle que « Ajouter à Jobmind » vient de garder)
     pub offre: Option<i64>,
+    /// Étape 7 : ce que le fil de la boîte Gmail doit faire (essayer, relever ; sans le mot de passe)
+    pub mail: Option<crate::mail::Tache>,
+    /// Étape 7 : des réponses floues à faire lire par Claude, sur un fil à part (sans la clé)
+    pub mail_ia: Option<crate::mail::TacheIa>,
 }
 
 impl Fait {
@@ -120,7 +124,20 @@ impl Suivi {
         profil: &VueProfil,
         offres: &VueOffres,
     ) -> (Value, Option<String>) {
-        let vide = Vue { profil, offres, ..Vue::vide(aujourdhui) };
+        self.etat_tout(version, base, aujourdhui, profil, offres, &crate::mail::VIDE)
+    }
+
+    /// [`Suivi::etat`], avec ce que Mon profil, l'onglet Offres et la boîte Gmail montrent (étape 7).
+    pub fn etat_tout(
+        &mut self,
+        version: &str,
+        base: Option<&Base>,
+        aujourdhui: Jour,
+        profil: &VueProfil,
+        offres: &VueOffres,
+        mails: &crate::mail::VueMails,
+    ) -> (Value, Option<String>) {
+        let vide = Vue { profil, offres, mails, ..Vue::vide(aujourdhui) };
         let Some(b) = base else { return (ecran::etat(version, &vide), None) };
         let c = b.connexion();
         let lu = candidatures::lister(c).and_then(|(l, n)| Ok((l, n, candidatures::delai_relance(c)?)));
@@ -137,7 +154,21 @@ impl Suivi {
             Some(id) => candidatures::evenements(c, id).unwrap_or_default(),
             None => Vec::new(),
         };
-        let vue = Vue { candidatures: &liste, ouverte: self.ouverte, frise: &frise, delai, aujourdhui, profil, offres };
+        let mails_dossier = match self.ouverte {
+            Some(id) => jobmind_storage::mails::de_candidature(c, id).unwrap_or_default(),
+            None => Vec::new(),
+        };
+        let vue = Vue {
+            candidatures: &liste,
+            ouverte: self.ouverte,
+            frise: &frise,
+            delai,
+            aujourdhui,
+            profil,
+            offres,
+            mails,
+            mails_dossier: &mails_dossier,
+        };
         let journal =
             (illisibles > 0).then(|| format!("Suivi : {illisibles} candidature(s) illisible(s) laissée(s) de côté"));
         (ecran::etat(version, &vue), journal)
@@ -489,7 +520,7 @@ mod tests {
         let f = s.geste(&b, DELAI, &json!(500), m(18, 11));
         assert_eq!(f.message.as_deref(), Some("Relance proposée après 60 jours."));
         let (e, _) = s.etat("0.2.0", Some(&b), auj);
-        assert_eq!(e["accueil"]["perso"]["onglets"][2]["rubriques"][4]["sous"], "Relance après 60 jours");
+        assert_eq!(e["accueil"]["perso"]["onglets"][2]["rubriques"][5]["sous"], "Relance après 60 jours");
         // Supprimée : la liste est vide, plus de dossier
         let f = s.geste(&b, SUPPRIMER, &json!({ "id": id }), m(18, 12));
         assert_eq!(f.message.as_deref(), Some("Candidature supprimée."));

@@ -143,6 +143,40 @@ pub fn retenir(c: &Connection, dues: &[BulleDue], maintenant: Moment) -> rusqlit
     Ok(faites)
 }
 
+/// Étape 7 : la bulle d'une réponse reçue et rangée dans un dossier (« Réponse de Netéa Services »), une seule fois par
+/// mail (clé « reponse:<numéro du mail> »), même après un redémarrage. Rend la bulle mise en attente (rien : déjà
+/// annoncée).
+pub fn retenir_reponse(
+    c: &Connection,
+    mail: i64,
+    candidature: i64,
+    titre: &str,
+    texte: &str,
+    maintenant: Moment,
+) -> rusqlite::Result<Option<Bulle>> {
+    let cle = format!("reponse:{mail}");
+    if c.query_row("SELECT 1 FROM bulles_cles WHERE cle = ?1", [&cle], |_| Ok(())).optional()?.is_some() {
+        return Ok(None);
+    }
+    let b = Bulle {
+        id: nouvel_id(maintenant.secondes(), mail as usize),
+        titre: jobmind_core::suivi::couper(titre, 63),
+        texte: jobmind_core::suivi::couper(texte, 250),
+        candidature: Some(candidature),
+    };
+    let t = c.unchecked_transaction()?;
+    t.execute(
+        "INSERT INTO bulles (id, titre, texte, candidature_id, etat, cree_le) VALUES (?1, ?2, ?3, ?4, 'attente', ?5)",
+        params![b.id, b.titre, b.texte, b.candidature, maintenant.iso()],
+    )?;
+    t.execute(
+        "INSERT OR IGNORE INTO bulles_cles (cle, bulle_id, vue_le) VALUES (?1, ?2, ?3)",
+        params![cle, b.id, maintenant.iso()],
+    )?;
+    t.commit()?;
+    Ok(Some(b))
+}
+
 /// L'envoi des bulles à Mindset : le dossier de données, et le moment de la dernière bulle écrite.
 #[derive(Debug, Clone)]
 pub struct Envoi {

@@ -13,10 +13,14 @@ pub enum Cle {
     AdzunaCle,
     Jooble,
     Claude,
+    /// Étape 7 : l'adresse de la boîte Gmail branchée, et son mot de passe d'application (16 lettres, crate::mails)
+    GmailAdresse,
+    GmailMdp,
 }
 
 impl Cle {
-    pub const TOUTES: [Cle; 4] = [Cle::AdzunaId, Cle::AdzunaCle, Cle::Jooble, Cle::Claude];
+    pub const TOUTES: [Cle; 6] =
+        [Cle::AdzunaId, Cle::AdzunaCle, Cle::Jooble, Cle::Claude, Cle::GmailAdresse, Cle::GmailMdp];
 
     /// Le nom gardé dans le fichier des clés.
     pub fn code(self) -> &'static str {
@@ -25,6 +29,8 @@ impl Cle {
             Cle::AdzunaCle => "adzuna_cle",
             Cle::Jooble => "jooble",
             Cle::Claude => "claude",
+            Cle::GmailAdresse => "gmail_adresse",
+            Cle::GmailMdp => "gmail_mdp",
         }
     }
 
@@ -39,6 +45,8 @@ impl Cle {
             Cle::AdzunaCle => "Application Key",
             Cle::Jooble => "Clé Jooble",
             Cle::Claude => "Clé Claude",
+            Cle::GmailAdresse => "Adresse Gmail",
+            Cle::GmailMdp => "Mot de passe d'application",
         }
     }
 
@@ -48,6 +56,7 @@ impl Cle {
             Cle::AdzunaId | Cle::AdzunaCle => Service::Adzuna,
             Cle::Jooble => Service::Jooble,
             Cle::Claude => Service::Claude,
+            Cle::GmailAdresse | Cle::GmailMdp => Service::Gmail,
         }
     }
 
@@ -62,6 +71,9 @@ impl Cle {
             Cle::Jooble => (16, 64, &['-']),
             // (« sk-ant-api03-... », une centaine de caractères)
             Cle::Claude => (40, 256, &['-', '_']),
+            // (vérifiées par crate::mails, jamais par verifier_cle)
+            Cle::GmailAdresse => (3, 254, &['@', '.', '-', '_', '+']),
+            Cle::GmailMdp => (16, 16, &[]),
         }
     }
 }
@@ -72,6 +84,8 @@ pub enum Service {
     Adzuna,
     Jooble,
     Claude,
+    /// Étape 7 : la boîte Gmail (pas dans Mes clés : sa rubrique « Ma boîte mail » à elle)
+    Gmail,
 }
 
 impl Service {
@@ -82,6 +96,7 @@ impl Service {
             Service::Adzuna => "adzuna",
             Service::Jooble => "jooble",
             Service::Claude => "claude",
+            Service::Gmail => "gmail",
         }
     }
 
@@ -95,6 +110,7 @@ impl Service {
             Service::Adzuna => &[Cle::AdzunaId, Cle::AdzunaCle],
             Service::Jooble => &[Cle::Jooble],
             Service::Claude => &[Cle::Claude],
+            Service::Gmail => &[Cle::GmailAdresse, Cle::GmailMdp],
         }
     }
 }
@@ -144,6 +160,8 @@ fn nom_dans_phrase(cle: Cle) -> &'static str {
         Cle::AdzunaCle => "Application Key",
         Cle::Jooble => "clé Jooble",
         Cle::Claude => "clé Claude",
+        Cle::GmailAdresse => "adresse Gmail",
+        Cle::GmailMdp => "mot de passe d'application",
     }
 }
 

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use crate::base::Base;
 use crate::bulles::Envoi;
 use crate::candidatures;
-use crate::carte::{EtatMindset, etat_carte};
+use crate::carte::{EtatMindset, etat_carte_avec};
 use crate::fichiers::Fichiers;
 use crate::journal::{Horloge, Journal};
 use crate::reglages::Reglages;
@@ -80,7 +80,9 @@ impl Donnees {
             candidatures::lister(b.connexion()).and_then(|(l, _)| Ok((l, candidatures::delai_relance(b.connexion())?)));
         match lu {
             Ok((liste, delai)) => {
-                let carte = etat_carte(&liste, self.fichiers.journal.maintenant().jour(), delai);
+                // (étape 7 : les réponses reçues qui attendent Jordan)
+                let a_voir = crate::mails::nombre_a_voir(b.connexion()).unwrap_or(0);
+                let carte = etat_carte_avec(&liste, self.fichiers.journal.maintenant().jour(), delai, a_voir);
                 self.etat.ecrire(&mut self.fichiers, &carte);
             }
             Err(e) => self.fichiers.journal.ecrire(&format!("etat.json pour Mindset : base illisible ({e})")),
