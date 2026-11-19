@@ -512,6 +512,8 @@ pub fn lancer() -> ! {
     });
     let dossier_pack = theme.pack.as_ref().map(|p| p.dossier.clone());
     let taille_min = Taille { largeur: TAILLE_MIN.0, hauteur: TAILLE_MIN.1 };
+    // (« Garder le mot de passe » : les sites dont l'identifiant et le mot de passe sont gardés, pour la reconnexion)
+    let gardes = coulisse::garde::gardes(&cles);
     ETAT.with(|e| {
         *e.borrow_mut() = Some(Etat {
             vie: Vie::nouvelle(Reglages::depuis(&l, &choix, taille_min)),
@@ -547,7 +549,7 @@ pub fn lancer() -> ! {
             style_depuis: None,
             #[cfg(feature = "essai")]
             faux_claude,
-            coulisse: Coulisse::default(),
+            coulisse: Coulisse::avec_gardes(gardes),
             actions_vue: Vec::new(),
             evenements_sites: Arc::new(Mutex::new(Vec::new())),
             chargement_prevu: None,
@@ -1543,6 +1545,13 @@ impl Etat {
             MessagePage::Menu if self.vie.dans_mindset() => {
                 crate::pont::demander_menu(&self.dossier_mindset, &mut self.systeme, &mut self.disque)
             }
+            // (les villes proposées pendant la frappe : la réponse part tout de suite, rien au journal à chaque lettre)
+            MessagePage::Action { ref id, ref valeur, .. } if id == crate::villes::PROPOSER => {
+                if let (Some(app), Some(o)) = (self.app.as_ref(), crate::villes::reponse(valeur)) {
+                    app.state::<Page>().ordre(o);
+                }
+                return;
+            }
             MessagePage::Action { ref id, mut valeur, .. } if id == coulisse::CONNECTER => {
                 let mdp = match valeur.get_mut("mdp").map(Value::take) {
                     Some(Value::String(s)) => Secret::new(s),
@@ -1685,6 +1694,12 @@ impl Etat {
         let Some(d) = d.as_mut() else { return };
         let fait = f(self, d);
         self.appliquer(app, d, fait);
+        // (« Garder le mot de passe » : les identifiants d'une connexion réussie gardés, ceux à oublier effacés, et la
+        // reconnexion automatique demandée par une page lue)
+        let suite = coulisse::garde::suite(&mut self.coulisse, Some(&mut self.cles));
+        if suite != Fait::default() {
+            self.appliquer(app, d, suite);
+        }
     }
 
     /// Ce qu'a donné un geste : la ligne du journal, l'import demandé (la boîte « Ouvrir »), l'état renvoyé à la page

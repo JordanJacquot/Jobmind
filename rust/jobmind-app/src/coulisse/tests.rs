@@ -670,3 +670,5 @@ fn chaque_chemin_envoie_la_petite_fenetre_a_la_page() {
     crate::coulisse::bandeau_envoye(&mut c, &f, "La page du site : LinkedIn");
     fermer_et_oublier(&mut c, Some(&b));
 }
+
+mod garde;

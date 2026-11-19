@@ -580,6 +580,8 @@ impl Offres {
         self.parties.push((r.id, s));
         self.jetons += 1;
         let (lieu, rayon) = recherches::lieu_pour_source(&r.lieu);
+        // (une ville prise dans les propositions, « Sarrebourg (57400) » : Adzuna cherche par le nom seul)
+        let lieu = jobmind_sources::communes::nom_seul(&lieu);
         let noms = offre::noms_sources(&services.iter().map(|x| nom_source(x.code())).collect::<Vec<_>>());
         if !auto {
             self.recherche = Some(r.id);

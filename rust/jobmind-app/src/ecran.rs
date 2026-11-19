@@ -110,10 +110,11 @@ fn rubrique_reglages(delai: u32) -> Value {
             "sites": {
                 "titre": "Tes connexions aux sites",
                 "texte": "Jobmind garde tes connexions à LinkedIn, Indeed, Welcome to the Jungle et France Travail sur \
-                          ce PC, seulement pour elle. Ton mot de passe, lui, n'est jamais gardé.",
+                          ce PC, seulement pour elle. Quand une connexion marche, Jobmind garde aussi ton identifiant \
+                          et ton mot de passe de ce site, chiffrés pour ce PC, pour te reconnecter toute seule.",
                 "bouton": "Me déconnecter de tous les sites",
-                "question": "Te déconnecter de tous les sites ? Tu devras te reconnecter à tes comptes la prochaine \
-                             fois.",
+                "question": "Te déconnecter de tous les sites ? Jobmind oubliera aussi tes mots de passe gardés : tu \
+                             devras te reconnecter à tes comptes la prochaine fois.",
                 "oui": "Oui, me déconnecter",
                 "non": "Annuler",
             },

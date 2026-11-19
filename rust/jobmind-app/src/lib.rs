@@ -62,6 +62,7 @@ pub mod profil;
 pub mod programme;
 pub mod style;
 pub mod suivi;
+pub mod villes;
 pub mod vue_offres;
 pub mod vue_profil;
 #[cfg(windows)]

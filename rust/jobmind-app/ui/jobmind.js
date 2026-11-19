@@ -772,7 +772,127 @@
     els[j].focus({ preventScroll: true });
     voirChoix(els[j]);
   }
-  addEventListener('resize', () => { if (menuOuvert) placerMenu(); });
+  addEventListener('resize', () => { if (menuOuvert) placerMenu(); placerVilles(); });
+
+  // ---------------------------------------------------------------- les villes proposées pendant la frappe
+  // Dans chaque case de ville (data-champ="ville" : la barre des offres, le formulaire d'une recherche, « Ce que je
+  // cherche », la ville d'une candidature), dès 2 lettres ou 2 chiffres, Rust propose les communes de France
+  // (« Sarrebourg (57400) », src\villes.rs) : la page lui envoie ce qui est tapé ('villes', { k, texte }) un instant
+  // après la dernière lettre, et il répond par l'ordre { villes: { k, texte, liste } } (une réponse en retard, pour un
+  // autre texte, est laissée). La liste a l'allure des listes déroulantes (.jm-srcs-m .jm-der-m, .jm-srcs-l
+  // .jm-der-l), posée sous la case ; la main reste dans la case : haut et bas passent d'une proposition à l'autre,
+  // Entrée (A) prend celle choisie, Échap (B) ferme la liste sans rien effacer ; la souris aussi. La ville prise est
+  // posée dans la case, puis son événement « input » part comme si Jordan l'avait tapée.
+  let villesMinuteur = 0;
+  let villePosee = null;    // le texte que la page vient de poser dans la case (pas de nouvelle demande pour lui)
+  const estCaseVille = (el) => el?.tagName === 'INPUT' && el.dataset?.champ === 'ville' && !!el.dataset.k && !!hote?.contains(el);
+  const villesM = () => hote?.querySelector('.jm-villes-m') || null;
+  const caseDeVilles = (m) => (m && hote ? hote.querySelector(`input[data-k="${CSS.escape(m.dataset.pour || '')}"]`) : null);
+  function fermerVilles() {
+    clearTimeout(villesMinuteur);
+    const m = villesM();
+    if (!m) return;
+    const c = caseDeVilles(m);
+    c?.setAttribute('aria-expanded', 'false');
+    c?.removeAttribute('aria-activedescendant');
+    m.remove();
+  }
+  // Ce qui est tapé dans une case de ville : demandé à Rust un instant après la dernière lettre
+  function demanderVilles(el) {
+    clearTimeout(villesMinuteur);
+    const texte = el.value;
+    if (villePosee !== null && texte === villePosee) { villePosee = null; return; }
+    villePosee = null;
+    if (texte.replace(/[\s'’()-]/g, '').length < 2) { fermerVilles(); return; }
+    const k = el.dataset.k;
+    villesMinuteur = setTimeout(() => {
+      if (document.activeElement === el && el.value === texte) O.action('villes', { k, texte: texte.slice(0, 80) });
+    }, 120);
+  }
+  // La réponse de Rust : la liste sous la case (seulement si la case a encore la main et le même texte)
+  function montrerVilles(r) {
+    const { esc } = O, el = document.activeElement;
+    if (!estCaseVille(el) || el.dataset.k !== r.k || el.value !== r.texte) return;
+    const l = liste(r.liste).filter((x) => texteSur(x?.texte) && texteSur(x?.nom)).slice(0, 8);
+    fermerVilles();
+    if (!l.length) return;
+    const m = document.createElement('div');
+    m.className = 'jm-srcs-m jm-der-m jm-villes-m';
+    m.id = 'jm-villes';
+    m.dataset.pour = r.k;
+    m.setAttribute('role', 'listbox');
+    const nom = el.getAttribute('aria-label') || texteChoix(el.closest('label')?.querySelector('span'));
+    if (nom) m.setAttribute('aria-label', nom);
+    m.innerHTML = l.map((x, i) => `<button type="button" role="option" id="jm-ville-${i}" tabindex="-1" aria-selected="false" class="jm-srcs-l jm-der-l jm-ville-l" data-i="${i}" data-texte="${esc(x.texte)}">${icone('lieu')}<span class="jm-srcs-n">${esc(x.nom)}${texteSur(x.cp) ? ` <span class="jm-ville-cp">(${esc(x.cp)})</span>` : ''}</span></button>`).join('');
+    // (la souris : survoler montre, cliquer prend ; la main ne quitte jamais la case)
+    m.addEventListener('pointerdown', (e) => { e.preventDefault(); const b = e.target.closest?.('.jm-ville-l'); if (b) prendreVille(Number(b.dataset.i)); });
+    m.addEventListener('pointermove', (e) => { const b = e.target.closest?.('.jm-ville-l'); if (b) marquerVille(Number(b.dataset.i)); });
+    (el.closest('label')?.parentElement || el.parentElement).append(m);
+    el.setAttribute('aria-controls', 'jm-villes');
+    el.setAttribute('aria-expanded', 'true');
+    el.setAttribute('aria-autocomplete', 'list');
+    placerVilles();
+  }
+  // La proposition montrée (haut et bas, la souris)
+  function marquerVille(i) {
+    const m = villesM(), els = m ? [...m.querySelectorAll('.jm-ville-l')] : [];
+    els.forEach((b, j) => { b.classList.toggle('actif', j === i); b.setAttribute('aria-selected', String(j === i)); });
+    const c = caseDeVilles(m);
+    if (els[i]) {
+      c?.setAttribute('aria-activedescendant', els[i].id);
+      const t = els[i].offsetTop, h = els[i].offsetHeight;
+      if (t < m.scrollTop) m.scrollTop = Math.max(0, t - 6);
+      else if (t + h > m.scrollTop + m.clientHeight) m.scrollTop = t + h - m.clientHeight + 6;
+    } else c?.removeAttribute('aria-activedescendant');
+  }
+  // Une proposition prise : posée dans la case, qui prévient ceux qui l'écoutent
+  function prendreVille(i) {
+    const m = villesM(), b = m?.querySelectorAll('.jm-ville-l')[i], el = caseDeVilles(m);
+    if (!b || !el) return;
+    const t = String(b.dataset.texte || '');
+    fermerVilles();
+    O.son?.ok?.();
+    villePosee = t;
+    el.value = t;
+    el.focus({ preventScroll: true });
+    try { el.setSelectionRange(t.length, t.length); } catch (_) { /* (rien) */ }
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  // Les touches dans une case de ville dont la liste est ouverte ; vrai si la touche est prise
+  function toucheVilles(e) {
+    const m = villesM();
+    if (!m || !estCaseVille(e.target) || m.dataset.pour !== e.target.dataset.k || e.ctrlKey || e.altKey || e.metaKey) return false;
+    const els = [...m.querySelectorAll('.jm-ville-l')], i = els.findIndex((b) => b.classList.contains('actif'));
+    if (e.key === 'Escape') { fermerVilles(); O.son?.retour?.(); }
+    else if (e.key === 'ArrowDown') marquerVille(i < 0 ? 0 : (i + 1) % els.length);
+    else if (e.key === 'ArrowUp') marquerVille(i < 0 ? els.length - 1 : (i - 1 + els.length) % els.length);
+    else if (e.key === 'Enter' && i >= 0) prendreVille(i);
+    else { if (e.key === 'Enter' || e.key === 'Tab') fermerVilles(); return false; }
+    e.preventDefault(); e.stopPropagation();
+    return true;
+  }
+  // La liste posée sous sa case (ou au-dessus s'il manque la place en bas), dans l'écran
+  function placerVilles() {
+    const m = villesM();
+    if (!m) return;
+    const el = caseDeVilles(m);
+    if (!el) { m.remove(); return; }
+    const r = el.getBoundingClientRect();
+    const zone = el.closest('.jm-liste, .jm-dossier, .jm-e-corps, .jm-modale-boite')?.getBoundingClientRect();
+    if (zone && (r.bottom < zone.top || r.top > zone.bottom)) { fermerVilles(); return; }
+    const H = innerHeight, L = innerWidth, marge = 8, ecart = 6;
+    m.style.minWidth = `${Math.round(Math.max(r.width, 220))}px`;
+    m.style.maxHeight = 'none';
+    const voulu = Math.min(m.offsetHeight, 380);
+    const bas = H - r.bottom - ecart - marge, haut = r.top - ecart - marge;
+    const dessous = voulu <= bas || bas >= haut;
+    const h = Math.max(96, Math.min(voulu, dessous ? bas : haut));
+    m.style.maxHeight = `${Math.round(h)}px`;
+    m.classList.toggle('dessus', !dessous);
+    const vrai = Math.min(m.offsetHeight, h);
+    m.style.top = `${Math.round(dessous ? r.bottom + ecart : Math.max(marge, r.top - ecart - vrai))}px`;
+    m.style.left = `${Math.round(Math.max(marge, Math.min(r.left, L - marge - m.offsetWidth)))}px`;
+  }
 
   // Une phrase de Rust (une erreur, une lecture qui casse, une connexion faite), avec son bouton
   function annonceSitesHTML(a, site) {
@@ -803,6 +923,7 @@
     // (une annonce qui propose déjà « Me connecter » remplace la ligne d'état tant qu'elle est là : une seule carte)
     const remplace = !oui && texteSur(c.annonce?.texte) && c.annonce.bouton === 'connexion';
     if (!remplace) h += `<div class="jm-cx-etat${oui ? ' ok' : ''}"><i class="jm-point${oui ? ' ok' : ''}" aria-hidden="true"></i><span>${esc(texteSur(s.etat))}</span>${oui ? '' : bouton('cs-connexion', 'cs:connecter', t('connecter'), 'cadenas', 'discret', ` data-id="${s.id}"`)}</div>`;
+    h += gardeHTML(s, 'cs:oublier');
     h += basculesHTML(to);
     h += '</div>';
     const l = c.liste && typeof c.liste === 'object' && c.liste.site === s.id ? c.liste : null;
@@ -860,6 +981,14 @@
       ${s.connecte === true ? '' : `<p class="jm-note">${esc(t('vide_note'))}</p><div class="jm-btns centre">${bouton('cs-connexion', 'cs:connecter2', t('connecter'), 'cadenas', 'second', ` data-id="${s.id}"`)}</div>`}</div>`;
   }
 
+  // « Garder le mot de passe » : Jobmind se souvient de la connexion à ce site sur ce PC (seulement ce fait, jamais les
+  // identifiants), et « Oublier ma connexion »
+  function gardeHTML(s, k) {
+    if (s?.garde !== true) return '';
+    const { esc } = O, t = tC();
+    return `<div class="jm-cx-garde"><span class="jm-cx-garde-t">${icone('cadenas')}<span>${esc(t('garde'))} ${esc(t('garde_note', s.nom))}</span></span>${bouton('cs-oublier', k, t('oublier'), '', 'discret', ` data-id="${s.id}"`)}</div>`;
+  }
+
   // La carte de connexion de Jobmind (par-dessus l'onglet)
   function connexionHTML() {
     const { esc } = O, t = tC(), s = siteDe(cnx?.site);
@@ -872,6 +1001,7 @@
         <label class="jm-champ"><span>${esc(t('cx_mdp'))}</span><input class="f" type="password" data-perso="cs-cx-champ" data-champ="mdp" data-k="cx:mdp" maxlength="300" autocomplete="off" spellcheck="false"></label>
       </div>
       <p class="jm-err" role="alert"></p>
+      ${gardeHTML(s, 'cx:oublier')}
       <div class="jm-btns">${bouton('cs-cx-ok', 'cx:ok', t('cx_ok'), 'cadenas', 'principal')}${bouton('cs-cx-non', 'cx:non', t('cx_annuler'), '', 'second')}</div>
       <div class="jm-cx-autre"><span>${esc(t('cx_autre'))}</span>${bouton('cs-page-site', 'cx:site', t('page_site'), 'globe', 'discret', ` data-id="${s.id}"`)}</div>
     </form></div>`;
@@ -1005,6 +1135,7 @@
         return true;
       }
       case 'cs-cx-ok': envoyerConnexion(); return true;
+      case 'cs-oublier': if (codeSurP(d.id)) { O.son?.ok?.(); O.action('cs-oublier', { site: d.id }); } return true;
       case 'cs-cx-non': O.son?.retour?.(); fermerConnexion(); return true;
       case 'cs-page-site': {
         // (la carte de connexion se ferme tout de suite, comme après « Me connecter » : ses cases de texte partent, et
@@ -1368,6 +1499,8 @@
   // Ce qui se tape : gardé dans la page (un nouvel état qui arrive ne l'efface pas)
   function surSaisie(e) {
     const el = e.target, d = el.dataset || {};
+    // (une case de ville : les communes proposées pendant la frappe)
+    if (estCaseVille(el)) demanderVilles(el);
     // (étape 7 : la candidature choisie pour un mail à ranger)
     if (d.perso === 'm-choix') { const id = Number(d.id), k = Number(el.value); if (numSur(id)) mrChoix[id] = numSur(k) ? k : 0; return; }
     if (d.perso === 'champ' && form && CHAMPS.includes(d.champ)) {
@@ -1436,6 +1569,7 @@
   }
   function surTouche(e) {
     if (sorties.has(e)) return;
+    if (toucheVilles(e)) return;
     toucheMenu(e);
     toucheSources(e);
     if (e.target.tagName === 'TEXTAREA') toucheZone(e);
@@ -1448,6 +1582,8 @@
   }
   function surSortie(e) {
     const el = e.target;
+    // (la case de ville quittée : sa liste de propositions se ferme)
+    if (estCaseVille(el)) setTimeout(() => { if (document.activeElement !== el) fermerVilles(); });
     if (el.tagName === 'TEXTAREA') libre(el, false);
     if (el.dataset?.perso === 'notes') garderNotes(el);
   }
@@ -1477,7 +1613,7 @@
       fermerMenu(false);
     });
     // (la colonne qui défile : la liste ouverte suit son bouton)
-    h.addEventListener('scroll', (e) => { if (menuOuvert && !e.target.classList?.contains('jm-der-m')) placerMenu(); }, true);
+    h.addEventListener('scroll', (e) => { if (menuOuvert && !e.target.classList?.contains('jm-der-m')) placerMenu(); if (!e.target.classList?.contains('jm-villes-m')) placerVilles(); }, true);
     h.addEventListener('focusout', surSortie);
     h.addEventListener('submit', (e) => e.preventDefault());
   }
@@ -3000,15 +3136,18 @@
         if (a && a.tagName === 'INPUT' && hote.contains(a)) a.blur();
         return;
       }
+      // (les villes proposées pour ce qui est tapé dans une case de ville)
+      if (o.villes && typeof o.villes === 'object') { montrerVilles(o.villes); return; }
       if (ordreProfil(o)) return;
       if (ordreOffres(o)) return;
-      // (construction d'essai seulement : la carte de connexion remplie comme Jordan, avec des identifiants inventés)
+      // (la carte de connexion ouverte par Rust : le mot de passe gardé refusé par le site, Jordan le tape de nouveau ;
+      // construction d'essai : remplie comme Jordan, avec des identifiants inventés)
       if (o.connexion && typeof o.connexion === 'object') {
         const c = o.connexion;
         if (!codeSurP(c.site) || !siteDe(c.site)) return;
         if (onglet !== 'offres') montrer('offres');
         cnx = { site: c.site, mail: texteSur(c.mail).slice(0, 200), mdp: texteSur(c.mdp).slice(0, 300) };
-        dessinerTout('cx:mdp');
+        dessinerTout(cnx.mail ? 'cx:mdp' : 'cx:mail');
         if (c.envoyer === true) envoyerConnexion();
         return;
       }

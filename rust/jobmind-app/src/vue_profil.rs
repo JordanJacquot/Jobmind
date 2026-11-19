@@ -334,6 +334,8 @@ fn service_json(s: Service, v: &VueProfil) -> Value {
         ),
         // (jamais dans Mes clés : la rubrique « Ma boîte mail », crate::mail)
         Service::Gmail => ("Gmail", "", "", ""),
+        // (jamais dans Mes clés : la carte de connexion de chaque site, crate::coulisse::garde)
+        Service::Sites => ("Sites", "", "", ""),
     };
     let etat_de = |c: Cle| v.cles.iter().find(|(k, _)| *k == c).and_then(|(_, e)| e.clone());
     let parties: Vec<Value> = s
@@ -354,7 +356,7 @@ fn service_json(s: Service, v: &VueProfil) -> Value {
                     Cle::AdzunaId => "8 lettres et chiffres",
                     Cle::AdzunaCle => "32 lettres et chiffres",
                     Cle::Claude => "Commence par sk-ant-",
-                    Cle::GmailAdresse | Cle::GmailMdp => "",
+                    _ => "",
                 },
             })
         })

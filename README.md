@@ -66,10 +66,25 @@ l'étape 13.
   - « Me connecter » : une carte de Jobmind par-dessus l'onglet demande le mail et le mot de passe ; Jobmind les tape
     dans le formulaire du site en coulisse (des événements de saisie lettre par lettre, puis l'envoi), une seule
     fois, en suivant les écrans (LinkedIn et Welcome to the Jungle en un écran, Indeed et France Travail en deux) ;
-    un écran qui redemande ce qui est déjà tapé : le site a refusé, aucun second essai. Le mot de passe n'est gardé
-    que le temps de le taper (`Secret` : jamais dans la base, un fichier, le journal ni l'état de la page ; effacé de
-    la mémoire de Jobmind dès qu'il est tapé, abandonné, ou après 3 minutes) ; « Google ou Apple » : « Utiliser la
-    page du site ». « Connecté à LinkedIn » se déduit de chaque page lue ;
+    un écran qui redemande ce qui est déjà tapé : le site a refusé, aucun second essai. En mémoire, le mot de passe
+    n'est qu'un `Secret` (jamais dans la base, le journal ni l'état de la page ; effacé de la mémoire de Jobmind
+    quand il est lâché, ou après 3 minutes) ; « Google ou Apple » : « Utiliser la page du site ». « Connecté à
+    LinkedIn » se déduit de chaque page lue ;
+  - « Garder le mot de passe » (`coulisse\garde.rs`) : une connexion tapée par Jobmind et acceptée par le site (après
+    un captcha ou un code aussi) fait garder l'identifiant et le mot de passe de CE site avec les clés
+    (`data\cles.json`, `site_<site>_mail` et `site_<site>_mdp`, chiffrés par DPAPI pour ce compte Windows et ce PC ;
+    jamais au journal, jamais envoyés à la page, aucun aperçu) ; un nouveau mot de passe accepté remplace l'ancien.
+    Quand une page lue montre la page de connexion du site (la liste ou l'offre demandée est rechargée ensuite), ou
+    « pas connecté » quand plus rien n'est en cours, Jobmind les retape toute seule en coulisse, sans bulle : au plus
+    une fois par site depuis le lancement. Refusés : gardés quand même, sans insister, et la carte de connexion
+    s'ouvre ; un captcha ou un code : la petite fenêtre, comme avant. « Oublier ma connexion » (sous « Connecté » et
+    dans la carte) les efface ; « Me déconnecter de tous les sites » aussi ;
+  - les villes proposées pendant la frappe (`src\villes.rs`, `communes::proposer`) : dans chaque case de ville, dès
+    2 lettres ou 2 chiffres, au plus 8 communes « Sarrebourg (57400) » sous la case (le nom exact, puis le début du
+    nom, puis un mot du nom, puis le reste ; sans accents ni tirets, « st » pour « saint » ; un code postal, même en
+    partie) ; haut, bas, Entrée, Échap et la souris ; cherchées par Rust (la table n'est jamais envoyée à la page),
+    rien au journal. « Nom (code postal) » est relu par `communes::trouver` (homonymes compris) ; LinkedIn, Indeed,
+    Welcome to the Jungle, Adzuna et les formulaires reçoivent le nom seul (`communes::nom_seul`) ;
   - la petite fenêtre du site : la même vue, posée dans un cadre de Jobmind (80 % de l'onglet, un bandeau avec ce
     qu'on attend de Jordan et « Fermer ») seulement quand le site demande une personne (captcha : cadres reCAPTCHA,
     hCaptcha, Arkose, Cloudflare ; code reçu, « vérifiez que c'est vous », checkpoint ; écran de connexion inconnu ;

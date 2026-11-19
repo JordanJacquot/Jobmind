@@ -130,7 +130,9 @@ impl Cles {
             .iter()
             .map(|(k, c)| {
                 let e = match self.coffre.ouvrir(c).ok().and_then(|o| String::from_utf8(o).ok()) {
-                    Some(clair) => EtatCle::Gardee(apercu(&clair)),
+                    // (rien de l'identifiant ni du mot de passe d'un site, même ses derniers caractères)
+                    Some(clair) if k.montrable() => EtatCle::Gardee(apercu(&clair)),
+                    Some(_) => EtatCle::Gardee(String::new()),
                     None => EtatCle::Illisible,
                 };
                 (*k, e)

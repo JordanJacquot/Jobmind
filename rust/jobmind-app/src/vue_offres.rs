@@ -35,7 +35,8 @@ fn textes(paires: &[(&str, &str)]) -> Value {
 /// « Cariste, autour de Metz (30 km) », « Vendeur, en Moselle », « Agent de tri, partout en France ».
 pub fn lieu_texte(l: &Lieu) -> String {
     match l {
-        Lieu::Ville { nom, rayon } => format!("autour de {nom} ({rayon} km)"),
+        // (une ville prise dans les propositions, « Sarrebourg (57400) » : le nom seul, pour éviter deux parenthèses)
+        Lieu::Ville { nom, rayon } => format!("autour de {} ({rayon} km)", jobmind_sources::communes::nom_seul(nom)),
         Lieu::Departement(d) => format!("dans le {}", d.libelle()),
         Lieu::Region(r) => format!("en {}", r.nom),
         Lieu::Partout => "partout en France".into(),
@@ -648,6 +649,11 @@ mod tests {
         // Aucune adresse d'offre dans l'état
         assert!(!e.to_string().contains("https://"), "{e}");
         assert_eq!(o["gestion"]["liste"][0]["valeurs"]["lieu"], "ville");
+        // Une ville prise dans les propositions : une seule parenthèse
+        assert_eq!(
+            lieu_texte(&Lieu::Ville { nom: "Sarrebourg (57400)".into(), rayon: 30 }),
+            "autour de Sarrebourg (30 km)"
+        );
     }
 
     /// Règle de la suite : aucun tiret long ni demi-cadratin, aucun HTML, pas de double espace ; les noms que le kit

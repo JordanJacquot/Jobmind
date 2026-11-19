@@ -132,7 +132,9 @@ pub fn adresse_recherche(site: Site, mots: &str, lieu: &LieuSite, page: u32) -> 
     Some(match site {
         Site::LinkedIn => {
             let (l, distance) = match lieu {
-                LieuSite::Ville { nom, rayon_km } => (format!("{}, France", ou(nom)), Some(miles(*rayon_km))),
+                LieuSite::Ville { nom, rayon_km } => {
+                    (format!("{}, France", ou(&crate::communes::nom_seul(nom))), Some(miles(*rayon_km)))
+                }
                 LieuSite::Departement { nom, .. } => (format!("{}, France", ou(nom)), None),
                 LieuSite::Region { nom, .. } => (format!("{}, France", ou(nom)), None),
                 LieuSite::Partout => ("France".into(), None),
@@ -148,7 +150,7 @@ pub fn adresse_recherche(site: Site, mots: &str, lieu: &LieuSite, page: u32) -> 
         }
         Site::Indeed => {
             let (l, rayon) = match lieu {
-                LieuSite::Ville { nom, rayon_km } => (ou(nom), Some((*rayon_km).min(100))),
+                LieuSite::Ville { nom, rayon_km } => (ou(&crate::communes::nom_seul(nom)), Some((*rayon_km).min(100))),
                 LieuSite::Departement { code, nom } => (format!("{} ({})", ou(nom), ou(code)), None),
                 LieuSite::Region { nom, .. } => (ou(nom), None),
                 LieuSite::Partout => (String::new(), None),
@@ -164,7 +166,7 @@ pub fn adresse_recherche(site: Site, mots: &str, lieu: &LieuSite, page: u32) -> 
         }
         Site::Wttj => {
             let l = match lieu {
-                LieuSite::Ville { nom, .. } => ou(nom),
+                LieuSite::Ville { nom, .. } => ou(&crate::communes::nom_seul(nom)),
                 LieuSite::Departement { nom, .. } | LieuSite::Region { nom, .. } => ou(nom),
                 LieuSite::Partout => String::new(),
             };
@@ -185,7 +187,11 @@ pub fn adresse_recherche(site: Site, mots: &str, lieu: &LieuSite, page: u32) -> 
             let (mots, lieux, rayon) = match lieu {
                 LieuSite::Ville { nom, rayon_km } => match crate::communes::trouver(nom) {
                     Some(c) => (mots, Some(c.insee.to_string()), Some(*rayon_km)),
-                    None => (propre_recherche(&format!("{mots} {}", ou(nom)), MOTS_MAX), None, Some(*rayon_km)),
+                    None => (
+                        propre_recherche(&format!("{mots} {}", ou(&crate::communes::nom_seul(nom))), MOTS_MAX),
+                        None,
+                        Some(*rayon_km),
+                    ),
                 },
                 LieuSite::Departement { code, .. } => (mots, Some(format!("{}D", ou(code))), None),
                 LieuSite::Region { code, .. } => (mots, insee_region(code).map(|c| format!("{c}R")), None),

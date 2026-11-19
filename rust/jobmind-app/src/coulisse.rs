@@ -9,9 +9,9 @@
 //! - un résultat ouvert est chargé en coulisse et lu comme à l'étape 5 (jobmind_sources::page), puis montré comme une
 //!   offre ; « Ajouter à Jobmind » la garde dans l'archive, « Voir la page du site » ouvre la petite fenêtre ;
 //! - la connexion : une carte de Jobmind demande le mail et le mot de passe ; Jobmind les tape dans le formulaire du
-//!   site en coulisse, une seule fois, en suivant les écrans (mail puis mot de passe) ; le mot de passe n'est gardé que
-//!   le temps de le taper ([`Secret`] : jamais dans la base, un fichier, le journal ni l'état de la page, effacé de la
-//!   mémoire dès qu'il est tapé ou abandonné) ;
+//!   site en coulisse, une seule fois, en suivant les écrans (mail puis mot de passe) ; en mémoire, le mot de passe
+//!   n'est qu'un [`Secret`] (jamais dans la base, le journal ni l'état de la page, effacé de la mémoire quand il est
+//!   lâché) ; une connexion réussie le fait garder chiffré avec les clés, pour la reconnexion automatique ([`garde`]) ;
 //! - la petite fenêtre du site : la même vue, montrée dans un cadre de Jobmind par-dessus l'onglet, seulement quand le
 //!   site demande une personne (captcha, code, « vérifiez que c'est vous », un écran de connexion inconnu, Google ou
 //!   Apple) ou quand Jordan veut voir la page (« Voir la page du site », « Voir sur le site », pour postuler sur
@@ -74,7 +74,9 @@ pub const ZONE: &str = "cs-zone";
 pub const VOIR_OFFRE: &str = "cs-offre";
 /// Mon profil, Réglages : « Me déconnecter de tous les sites »
 pub const DECONNECTER: &str = "cs-deconnecter";
-const GESTES: [&str; 14] = [
+/// « Oublier ma connexion » d'un site : ses identifiants gardés effacés (crate::coulisse::garde)
+pub const OUBLIER: &str = "cs-oublier";
+const GESTES: [&str; 15] = [
     SOURCE,
     CHERCHER,
     SUIVANTE,
@@ -89,6 +91,7 @@ const GESTES: [&str; 14] = [
     ZONE,
     VOIR_OFFRE,
     DECONNECTER,
+    OUBLIER,
 ];
 
 /// Un geste des sites.
@@ -275,6 +278,13 @@ pub struct Connexion {
     pub mdp: Option<Secret>,
     pub mail_tape: bool,
     pub mdp_tape: bool,
+    /// « Garder le mot de passe » : une copie du mot de passe, gardée jusqu'à ce que le site accepte la connexion
+    /// (alors chiffrée et gardée par crate::coulisse::garde), effacée sinon
+    pub garder: Option<Secret>,
+    /// La reconnexion automatique (identifiants gardés, tapés sans rien demander)
+    pub auto: bool,
+    /// Ce qu'elle a interrompu (une liste, une offre), rechargé une fois connecté
+    pub apres: Option<(But, String)>,
 }
 
 /// La liste lue d'un site.
@@ -342,6 +352,30 @@ pub struct Coulisse {
     annoncee: bool,
     /// Sa place reçue de la page depuis qu'elle est ouverte : la page a dessiné son bandeau
     bandeau: bool,
+    /// « Garder le mot de passe » (crate::coulisse::garde) : les sites dont Jobmind garde l'identifiant et le mot de
+    /// passe, chiffrés (dans l'ordre de `Site::CONNUS`, relus des clés après chaque geste)
+    pub gardes: [bool; 4],
+    /// La reconnexion automatique déjà essayée depuis le lancement : une seule par site
+    pub essais_auto: [bool; 4],
+    /// Une reconnexion automatique demandée (les identifiants gardés sont lus par garde::suite)
+    pub reconnecter: Option<Site>,
+    /// Ce que la page de connexion a interrompu (une liste, une offre) : rechargé après la reconnexion automatique
+    pub apres_reconnexion: Option<(But, String)>,
+    /// Une connexion tapée par Jobmind vient de réussir : ses identifiants, à garder
+    pub a_garder: Option<Identifiants>,
+    /// Une connexion tapée par Jobmind attend une vérification (captcha, code) : ses identifiants, gardés si elle
+    /// réussit ; oubliés si la petite fenêtre est fermée
+    pub verifies: Option<Identifiants>,
+    /// Les sites dont les identifiants gardés sont à effacer
+    pub a_oublier: Vec<Site>,
+}
+
+/// L'identifiant et le mot de passe d'un site (le mot de passe effacé de la mémoire quand ils sont lâchés).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Identifiants {
+    pub site: Site,
+    pub mail: String,
+    pub mdp: Secret,
 }
 
 /// Au plus ce nombre d'offres des sites lues gardées en mémoire (le temps que Jobmind est ouverte).
@@ -556,9 +590,37 @@ impl Coulisse {
                 self.connexion = None;
                 self.connecte = [Some(false); 4];
                 self.annonces = Default::default();
+                // (les identifiants gardés aussi : sinon Jobmind se reconnecterait tout seul)
+                self.verifies = None;
+                self.reconnecter = None;
+                self.a_oublier = Site::CONNUS.to_vec();
+                self.gardes = [false; 4];
                 Fait {
                     journal: Some("Sites : déconnexion de tous les sites demandée".into()),
                     ..ordres(vec![Ordre::Cacher, Ordre::Effacer], true)
+                }
+            }
+            OUBLIER => {
+                let Some(s) = site_de(&texte_de(v, "site")) else { return Fait::default() };
+                if !self.gardes[indice(s)] {
+                    return Fait::default();
+                }
+                self.gardes[indice(s)] = false;
+                if self.verifies.as_ref().is_some_and(|x| x.site == s) {
+                    self.verifies = None;
+                }
+                if let Some(c) = self.connexion.as_mut().filter(|c| c.site == s) {
+                    c.garder = None;
+                }
+                self.a_oublier.push(s);
+                Fait {
+                    message: Some(format!(
+                        "C'est fait : Jobmind a oublié ta connexion à {}. Elle ne se reconnectera plus toute seule.",
+                        s.nom()
+                    )),
+                    journal: Some(format!("Sites : connexion gardée de {} à oublier", s.code())),
+                    change: true,
+                    ..Fait::default()
                 }
             }
             _ => Fait::default(),
@@ -738,7 +800,19 @@ impl Coulisse {
         }
         let Some(u) = sites::adresse_connexion(s) else { return Fait::default() };
         let id = self.nouvel_id();
-        self.connexion = Some(Connexion { id, site: s, mail, mdp: Some(mdp), mail_tape: false, mdp_tape: false });
+        let garder = Some(mdp.clone());
+        self.verifies = None;
+        self.connexion = Some(Connexion {
+            id,
+            site: s,
+            mail,
+            mdp: Some(mdp),
+            mail_tape: false,
+            mdp_tape: false,
+            garder,
+            auto: false,
+            apres: None,
+        });
         self.annonces[indice(s)] = None;
         let o = self.charger(s, But::Connexion, u.to_string());
         Fait { journal: Some(format!("Sites : connexion à {} demandée", s.code())), ..ordres(o, true) }
@@ -779,6 +853,8 @@ impl Coulisse {
         }
         let Some(p) = self.petite.take() else { return Fait::default() };
         let mut o = vec![Ordre::Cacher];
+        // (une vérification laissée : les identifiants qui l'attendaient ne sont pas gardés)
+        self.verifies = None;
         if p.attend_personne() {
             self.attente = None;
             self.attendue = None;
@@ -895,6 +971,7 @@ impl Coulisse {
         self.attendue = None;
         let c = &l.comprise;
         let mut journal = Vec::new();
+        let pas_connecte = (c.connecte == Some(false) && Site::CONNUS.contains(&c.site)).then_some(c.site);
         if let Some(x) = c.connecte
             && Site::CONNUS.contains(&c.site)
         {
@@ -928,6 +1005,14 @@ impl Coulisse {
                 None => Fait { change: !journal.is_empty(), ..Fait::default() },
             }
         };
+        // (« Garder le mot de passe » : une page lue dit « pas connecté » et plus rien n'est en cours : Jobmind se
+        // reconnecte tout seul, une fois depuis le lancement)
+        if let Some(s) = pas_connecte
+            && self.connecte[indice(s)] == Some(false)
+            && self.libre()
+        {
+            self.demander_reconnexion(s);
+        }
         if !journal.is_empty() {
             if let Some(j) = f.journal.take() {
                 journal.push(j);
@@ -993,6 +1078,10 @@ impl Coulisse {
             Some(But::Connexion) | None => {
                 let s = self.attente.take().map_or(p.site, |a| a.site);
                 self.connexion = None;
+                // (les identifiants tapés par Jobmind avant la vérification : la connexion a réussi, ils sont gardés)
+                if let Some(x) = self.verifies.take().filter(|x| x.site == s) {
+                    self.a_garder = Some(x);
+                }
                 self.connecte[indice(s)] = Some(true);
                 self.po_connecte(s);
                 let t = format!("Tu es connecté à {}.", s.nom());
@@ -1066,6 +1155,10 @@ impl Coulisse {
                         Some("connexion"),
                     ),
                 );
+                // (« Garder le mot de passe » : Jobmind se reconnecte tout seul, une fois, puis recharge cette page)
+                if self.demander_reconnexion(a.site) {
+                    self.apres_reconnexion = Some((a.but, a.adresse.clone()));
+                }
                 return Fait {
                     journal: Some(format!("Sites : {} demande une connexion ({})", a.site.code(), c.trace)),
                     change: true,
@@ -1189,11 +1282,11 @@ impl Coulisse {
         }
         match c.ecran {
             Ecran::Captcha => {
-                self.connexion = None;
+                self.vers_verification();
                 self.demander_personne(s, Raison::Captcha, &c.trace)
             }
             Ecran::Verification => {
-                self.connexion = None;
+                self.vers_verification();
                 self.demander_personne(s, Raison::Verification, &c.trace)
             }
             Ecran::Connexion(f) if c.site == s => {
@@ -1202,8 +1295,35 @@ impl Coulisse {
                 // (un écran qui redemande ce qui est déjà tapé : le site a refusé ; un seul essai)
                 let refuse = (f.mail && cx.mail_tape) || (f.mdp && cx.mdp_tape) || (!mail && !mdp);
                 if refuse {
+                    let auto = cx.auto;
                     self.connexion = None;
                     self.attente = None;
+                    self.apres_reconnexion = None;
+                    if auto {
+                        // (les identifiants gardés refusés : gardés quand même, sans insister ; la carte de connexion
+                        // s'ouvre pour que Jordan tape son mot de passe, comme avant)
+                        self.dire(
+                            s,
+                            annonce(
+                                format!(
+                                    "{} n'a pas accepté le mot de passe gardé par Jobmind. Tape-le de nouveau.",
+                                    s.nom()
+                                ),
+                                "attention",
+                                Some("connexion"),
+                            ),
+                        );
+                        return Fait {
+                            ordre: Some(json!({ "kit": "accueil", "connexion": { "site": s.code() } })),
+                            journal: Some(format!(
+                                "Sites : reconnexion automatique à {} refusée par le site ({}), carte de connexion montrée",
+                                s.code(),
+                                c.ecran.code()
+                            )),
+                            change: true,
+                            ..Fait::default()
+                        };
+                    }
                     self.dire(
                         s,
                         annonce(
@@ -1255,14 +1375,14 @@ impl Coulisse {
                     return ordres(vec![o], false);
                 }
                 // (un écran que Jobmind ne reconnaît pas : la page du site, dans la petite fenêtre)
-                self.connexion = None;
+                self.vers_verification();
                 self.demander_personne(s, Raison::Inconnue, &c.trace)
             }
         }
     }
 
     fn connecte_a(&mut self, s: Site, trace: &str) -> Fait {
-        self.connexion = None;
+        let cx = self.connexion.take();
         self.attente = None;
         self.connecte[indice(s)] = Some(true);
         self.po_connecte(s);
@@ -1273,12 +1393,62 @@ impl Coulisse {
             o.push(Ordre::Cacher);
         }
         let _ = trace;
+        let mut journal = format!("Sites : connecté à {}", s.code());
+        let Some(mut cx) = cx else {
+            return Fait { message: Some(t), bravo: true, journal: Some(journal), ..ordres(o, true) };
+        };
+        // (« Garder le mot de passe » : le mail et le mot de passe tapés par Jobmind, acceptés par le site)
+        if !cx.auto
+            && cx.mdp_tape
+            && let Some(mdp) = cx.garder.take()
+        {
+            self.a_garder = Some(Identifiants { site: s, mail: std::mem::take(&mut cx.mail), mdp });
+        }
+        if cx.auto {
+            journal = format!("Sites : reconnecté tout seul à {}", s.code());
+        }
+        // (ce que la page de connexion avait interrompu : rechargé, une fois)
+        if let Some((but, adresse)) = cx.apres.take() {
+            o.extend(self.charger(s, but, adresse));
+            journal.push_str(", la page interrompue est rechargée");
+        }
         Fait {
-            message: Some(t),
-            bravo: true,
-            journal: Some(format!("Sites : connecté à {}", s.code())),
+            // (reconnecté tout seul : pas de bulle, Jordan n'a rien demandé ; « Connecté » s'affiche)
+            message: (!cx.auto).then_some(t),
+            bravo: !cx.auto,
+            journal: Some(journal),
             ..ordres(o, true)
         }
+    }
+
+    /// Une connexion tapée par Jobmind attend une personne (captcha, code, écran inconnu) : elle s'arrête, et ses
+    /// identifiants attendent la fin de la vérification pour être gardés.
+    fn vers_verification(&mut self) {
+        let Some(mut cx) = self.connexion.take() else { return };
+        self.apres_reconnexion = None;
+        if !cx.auto
+            && cx.mdp_tape
+            && let Some(mdp) = cx.garder.take()
+        {
+            self.verifies = Some(Identifiants { site: cx.site, mail: std::mem::take(&mut cx.mail), mdp });
+        }
+    }
+
+    /// Libre : rien en cours en coulisse (ni page, ni connexion, ni petite fenêtre, ni candidature).
+    pub(crate) fn libre(&self) -> bool {
+        self.attente.is_none() && self.connexion.is_none() && self.petite.is_none() && self.postuler.is_none()
+    }
+
+    /// Demande la reconnexion automatique à ce site si ses identifiants sont gardés et qu'elle n'a pas encore été
+    /// essayée depuis le lancement (une seule fois : un mot de passe refusé n'est pas retapé en boucle).
+    fn demander_reconnexion(&mut self, s: Site) -> bool {
+        let Some(i) = Site::CONNUS.iter().position(|x| *x == s) else { return false };
+        if !self.gardes[i] || self.essais_auto[i] || self.reconnecter.is_some() {
+            return false;
+        }
+        self.essais_auto[i] = true;
+        self.reconnecter = Some(s);
+        true
     }
 
     /// La saisie n'a pas pu se faire (la page a changé, les cases ne sont plus là) : la page du site.
@@ -1302,6 +1472,8 @@ impl Coulisse {
                     Some(true) => format!("Connecté à {}", s.nom()),
                     _ => format!("Pas connecté à {}", s.nom()),
                 },
+                // (« Garder le mot de passe » : seulement le fait qu'ils sont gardés, jamais les identifiants)
+                "garde": self.gardes[indice(s)],
             })
         };
         let source = self.source;
@@ -1384,7 +1556,7 @@ impl Coulisse {
                     .then_some("Ensuite, Jobmind envoie ta candidature."),
             })
         });
-        json!({
+        let mut v = json!({
             "source": source.map(Site::code).unwrap_or_default(),
             "sites": Site::CONNUS.iter().map(|s| site_vue(*s)).collect::<Vec<_>>(),
             "attente": attente,
@@ -1414,7 +1586,7 @@ impl Coulisse {
                 "vide_note": "Pour voir plus d'offres, connecte-toi à ton compte : Jobmind tape ton mail et ton mot de passe pour toi.",
                 "choisir": "Choisis une offre dans la liste pour la lire ici.",
                 "cx_titre": "Me connecter à {site}",
-                "cx_intro": "Jobmind tape ton mail et ton mot de passe sur la page de connexion de {site}, une seule fois. Ton mot de passe n'est jamais gardé, ni sur ce PC ni ailleurs.",
+                "cx_intro": "Jobmind tape ton mail et ton mot de passe sur la page de connexion de {site}. Si la connexion marche, Jobmind s'en souvient sur ce PC (chiffrés, jamais envoyés ailleurs) pour te reconnecter toute seule la prochaine fois.",
                 "cx_mail": "Ton mail (ou ton identifiant)",
                 "cx_mdp": "Ton mot de passe",
                 "cx_ok": "Me connecter",
@@ -1427,7 +1599,14 @@ impl Coulisse {
                 "texte_t": "L'annonce",
                 "texte_vide": "Le site n'a donné aucun texte pour cette offre. Lis-la sur la page du site.",
             },
-        })
+        });
+        // (« Garder le mot de passe » : ajoutés à part, la macro json! a atteint sa limite)
+        if let Some(t) = v.get_mut("textes").and_then(Value::as_object_mut) {
+            t.insert("garde".into(), json!("Jobmind se souvient de ta connexion sur ce PC."));
+            t.insert("garde_note".into(), json!("Si {site} te déconnecte, Jobmind te reconnecte toute seule."));
+            t.insert("oublier".into(), json!("Oublier ma connexion"));
+        }
+        v
     }
 }
 
@@ -1550,6 +1729,8 @@ pub(crate) fn bandeau_envoye(c: &mut Coulisse, f: &Fait, titre: &str) {
     assert_eq!(f.journal.as_deref(), Some("Sites : bandeau de la petite fenêtre dessiné par la page"));
     assert_eq!(c.geste(None, ZONE, &z, t).journal, None);
 }
+
+pub mod garde;
 
 #[cfg(test)]
 mod tests;

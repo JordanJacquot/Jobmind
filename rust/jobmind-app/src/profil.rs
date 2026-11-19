@@ -468,7 +468,7 @@ impl Profil {
             Service::Adzuna => "Adzuna",
             Service::Claude => "Claude",
             // (la boîte Gmail a sa rubrique à elle : crate::mail)
-            Service::Gmail => return Fait::default(),
+            Service::Gmail | Service::Sites => return Fait::default(),
         };
         if id == CLE_EFFACER {
             return match cles.effacer(service.parties()) {

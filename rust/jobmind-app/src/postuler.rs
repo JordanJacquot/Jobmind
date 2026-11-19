@@ -396,7 +396,8 @@ fn lire_donnees(
         && let jobmind_core::recherche::Lieu::Ville { nom, .. } = &r.lieu
         && !nom.trim().is_empty()
     {
-        d.ville = (nom.clone(), Some(Source::Recherche));
+        // (« Sarrebourg (57400) », pris dans les propositions : le nom seul dans un formulaire de candidature)
+        d.ville = (jobmind_sources::communes::nom_seul(nom), Some(Source::Recherche));
     }
     if let Some(cv) = crate::envoi::cv_joint(c, dossier)?
         && let Some(ch) = cv.chemin.filter(|x| x.is_file())

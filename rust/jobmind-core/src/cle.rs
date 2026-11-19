@@ -15,10 +15,46 @@ pub enum Cle {
     /// Étape 7 : l'adresse de la boîte Gmail branchée, et son mot de passe d'application (16 lettres, crate::mails)
     GmailAdresse,
     GmailMdp,
+    /// « Garder le mot de passe » : l'identifiant et le mot de passe de chaque site de la vue des sites, gardés après
+    /// une connexion réussie pour s'y reconnecter tout seul (jobmind-app, `coulisse::garde`). Jamais vérifiés par
+    /// [`verifier_cle`] : ce que le site a accepté.
+    LinkedinMail,
+    LinkedinMdp,
+    IndeedMail,
+    IndeedMdp,
+    WttjMail,
+    WttjMdp,
+    FranceTravailMail,
+    FranceTravailMdp,
 }
 
 impl Cle {
-    pub const TOUTES: [Cle; 5] = [Cle::AdzunaId, Cle::AdzunaCle, Cle::Claude, Cle::GmailAdresse, Cle::GmailMdp];
+    pub const TOUTES: [Cle; 13] = [
+        Cle::AdzunaId,
+        Cle::AdzunaCle,
+        Cle::Claude,
+        Cle::GmailAdresse,
+        Cle::GmailMdp,
+        Cle::LinkedinMail,
+        Cle::LinkedinMdp,
+        Cle::IndeedMail,
+        Cle::IndeedMdp,
+        Cle::WttjMail,
+        Cle::WttjMdp,
+        Cle::FranceTravailMail,
+        Cle::FranceTravailMdp,
+    ];
+
+    /// L'identifiant et le mot de passe gardés d'un site, d'après son code (« linkedin », « francetravail »).
+    pub fn du_site(code: &str) -> Option<(Cle, Cle)> {
+        match code {
+            "linkedin" => Some((Cle::LinkedinMail, Cle::LinkedinMdp)),
+            "indeed" => Some((Cle::IndeedMail, Cle::IndeedMdp)),
+            "wttj" => Some((Cle::WttjMail, Cle::WttjMdp)),
+            "francetravail" => Some((Cle::FranceTravailMail, Cle::FranceTravailMdp)),
+            _ => None,
+        }
+    }
 
     /// Le nom gardé dans le fichier des clés (un autre nom, celui d'une clé d'une ancienne version, n'est pas lu).
     pub fn code(self) -> &'static str {
@@ -28,6 +64,14 @@ impl Cle {
             Cle::Claude => "claude",
             Cle::GmailAdresse => "gmail_adresse",
             Cle::GmailMdp => "gmail_mdp",
+            Cle::LinkedinMail => "site_linkedin_mail",
+            Cle::LinkedinMdp => "site_linkedin_mdp",
+            Cle::IndeedMail => "site_indeed_mail",
+            Cle::IndeedMdp => "site_indeed_mdp",
+            Cle::WttjMail => "site_wttj_mail",
+            Cle::WttjMdp => "site_wttj_mdp",
+            Cle::FranceTravailMail => "site_francetravail_mail",
+            Cle::FranceTravailMdp => "site_francetravail_mdp",
         }
     }
 
@@ -43,6 +87,8 @@ impl Cle {
             Cle::Claude => "Clé Claude",
             Cle::GmailAdresse => "Adresse Gmail",
             Cle::GmailMdp => "Mot de passe d'application",
+            Cle::LinkedinMail | Cle::IndeedMail | Cle::WttjMail | Cle::FranceTravailMail => "Identifiant du site",
+            Cle::LinkedinMdp | Cle::IndeedMdp | Cle::WttjMdp | Cle::FranceTravailMdp => "Mot de passe du site",
         }
     }
 
@@ -52,7 +98,14 @@ impl Cle {
             Cle::AdzunaId | Cle::AdzunaCle => Service::Adzuna,
             Cle::Claude => Service::Claude,
             Cle::GmailAdresse | Cle::GmailMdp => Service::Gmail,
+            _ => Service::Sites,
         }
+    }
+
+    /// Ce que l'écran peut en dire (ses 4 derniers caractères) : jamais pour l'identifiant ni le mot de passe d'un site,
+    /// qui ne sortent jamais de Rust.
+    pub fn montrable(self) -> bool {
+        self.service() != Service::Sites
     }
 
     /// Les longueurs permises, et les caractères en plus des lettres et des chiffres.
@@ -67,6 +120,8 @@ impl Cle {
             // (vérifiées par crate::mails, jamais par verifier_cle)
             Cle::GmailAdresse => (3, 254, &['@', '.', '-', '_', '+']),
             Cle::GmailMdp => (16, 16, &[]),
+            // (jamais vérifiées : ce que le site a accepté)
+            _ => (1, 300, &[]),
         }
     }
 }
@@ -78,6 +133,8 @@ pub enum Service {
     Claude,
     /// Étape 7 : la boîte Gmail (pas dans Mes clés : sa rubrique « Ma boîte mail » à elle)
     Gmail,
+    /// Les identifiants gardés des sites (pas dans Mes clés : la carte de connexion de chaque site)
+    Sites,
 }
 
 impl Service {
@@ -88,6 +145,7 @@ impl Service {
             Service::Adzuna => "adzuna",
             Service::Claude => "claude",
             Service::Gmail => "gmail",
+            Service::Sites => "sites",
         }
     }
 
@@ -101,6 +159,16 @@ impl Service {
             Service::Adzuna => &[Cle::AdzunaId, Cle::AdzunaCle],
             Service::Claude => &[Cle::Claude],
             Service::Gmail => &[Cle::GmailAdresse, Cle::GmailMdp],
+            Service::Sites => &[
+                Cle::LinkedinMail,
+                Cle::LinkedinMdp,
+                Cle::IndeedMail,
+                Cle::IndeedMdp,
+                Cle::WttjMail,
+                Cle::WttjMdp,
+                Cle::FranceTravailMail,
+                Cle::FranceTravailMdp,
+            ],
         }
     }
 }
@@ -151,6 +219,8 @@ fn nom_dans_phrase(cle: Cle) -> &'static str {
         Cle::Claude => "clé Claude",
         Cle::GmailAdresse => "adresse Gmail",
         Cle::GmailMdp => "mot de passe d'application",
+        Cle::LinkedinMail | Cle::IndeedMail | Cle::WttjMail | Cle::FranceTravailMail => "identifiant",
+        Cle::LinkedinMdp | Cle::IndeedMdp | Cle::WttjMdp | Cle::FranceTravailMdp => "mot de passe",
     }
 }
 
