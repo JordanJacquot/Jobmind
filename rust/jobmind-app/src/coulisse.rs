@@ -403,6 +403,18 @@ fn ordres(o: Vec<Ordre>, change: bool) -> Fait {
 }
 
 impl Coulisse {
+    /// Une sauvegarde vient d'être remise : la candidature sur un site, l'offre d'un site ouverte et la petite fenêtre
+    /// sont oubliées (les connexions et les listes restent). Vrai si la petite fenêtre était ouverte (à cacher).
+    pub fn apres_remise(&mut self) -> bool {
+        self.postuler = None;
+        self.fiche = None;
+        if self.attente.as_ref().is_some_and(|a| a.but == But::Postuler) {
+            self.attente = None;
+            self.attendue = None;
+        }
+        self.petite.take().is_some()
+    }
+
     pub(crate) fn nouvel_id(&mut self) -> u64 {
         self.ids += 1;
         self.ids
@@ -857,6 +869,9 @@ impl Coulisse {
                 journal.push(format!("Sites : {} {}", c.site.code(), if x { "connecté" } else { "pas connecté" }));
             }
             self.connecte[i] = Some(x);
+            if x {
+                self.po_connecte(c.site);
+            }
         }
         // « Ajouter à Jobmind » dans la petite fenêtre
         if let Some(p) = self.petite.as_ref()
@@ -940,6 +955,7 @@ impl Coulisse {
                 let s = self.attente.take().map_or(p.site, |a| a.site);
                 self.connexion = None;
                 self.connecte[indice(s)] = Some(true);
+                self.po_connecte(s);
                 let t = format!("Tu es connecté à {}.", s.nom());
                 self.annonces[indice(s)] = None;
                 Fait {
@@ -1210,6 +1226,7 @@ impl Coulisse {
         self.connexion = None;
         self.attente = None;
         self.connecte[indice(s)] = Some(true);
+        self.po_connecte(s);
         let t = format!("Tu es connecté à {}.", s.nom());
         self.annonces[indice(s)] = None;
         let mut o = Vec::new();
@@ -1350,7 +1367,7 @@ impl Coulisse {
                 "ajoutee": "Ajoutée à tes offres",
                 "voir_offre": "Voir dans mes offres",
                 "connecter": "Me connecter",
-                "page_site": "Utiliser la page du site",
+                "page_site": "Me connecter sur la page du site",
                 "fermer": "Fermer",
                 "lecture": "Lecture de la page...",
                 "vide_t": "{site} dans Jobmind",

@@ -125,7 +125,7 @@ fn recapitulatif_puis_envoi_puis_suivi_puis_reponse_reconnue() {
     // Le récapitulatif : l'adresse lue dans l'offre, avec son extrait ; la lettre gardée ; le CV joint
     let f = e.geste(&ctx(&b, &k, &d), OUVRIR, &json!({ "id": offre }), m(10, 0, 0));
     assert!(f.change && f.envoi.is_none(), "ouvrir n'envoie rien");
-    let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), m(10, 0, 0));
+    let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), None, m(10, 0, 0));
     assert_eq!(v["ouvert"], true);
     assert_eq!(v["de"], BOITE_ADRESSE);
     assert_eq!(v["a"], "recrutement@tmf-exemple.fr");
@@ -145,7 +145,7 @@ fn recapitulatif_puis_envoi_puis_suivi_puis_reponse_reconnue() {
     let f2 = e.geste(&ctx(&b, &k, &d), ENVOYER, &saisie(offre, p), m(10, 0, 5));
     assert!(f2.envoi.is_none(), "double clic : un seul envoi");
     assert!(f2.message.unwrap().contains("en train de partir"));
-    let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), m(10, 0, 6));
+    let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), None, m(10, 0, 6));
     assert_eq!(v["en_cours"], true);
     // (aucun mot de passe dans la tâche, l'état de la page ni le journal)
     for x in [format!("{t:?}"), v.to_string(), f.journal.clone().unwrap_or_default()] {
@@ -187,7 +187,7 @@ fn recapitulatif_puis_envoi_puis_suivi_puis_reponse_reconnue() {
     let pj = brut.split("Content-Disposition: attachment;").nth(1).unwrap().split("\r\n\r\n").nth(1).unwrap();
     assert_eq!(base64_lu(pj.split("--").next().unwrap()).unwrap(), pdf());
     // La vue : envoyée
-    let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), m(10, 0, 8));
+    let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), None, m(10, 0, 8));
     assert_eq!(v["issue"]["genre"], "parti");
     assert!(v["envoyee"]["texte"].as_str().unwrap().starts_with("Envoyée par mail aujourd'hui"));
     // La réponse du recruteur (« Re: », In-Reply-To : le Message-ID) reconnue à coup sûr par la relève
@@ -199,7 +199,7 @@ fn recapitulatif_puis_envoi_puis_suivi_puis_reponse_reconnue() {
     );
     let mail: Mail = jobmind_mail::mime::lire(5, reponse.as_bytes());
     let rel = Releve { uidvalidity: 1, dernier_uid: 5, mails: vec![mail], restants: 0, illisibles: 0 };
-    let bilan = crate::mail::traiter(&b, &rel, BOITE_ADRESSE, m(10, 30, 0)).unwrap();
+    let bilan = crate::mail::traiter(&b, &rel, BOITE_ADRESSE, m(10, 30, 0), 60).unwrap();
     assert_eq!(bilan.rangees.len(), 1, "rangée à coup sûr");
     assert_eq!(bilan.rangees[0].1, x.id);
     let raison: String = c
@@ -235,7 +235,7 @@ fn reponse_par_references_seulement() {
         restants: 0,
         illisibles: 0,
     };
-    let bilan = crate::mail::traiter(&b, &rel, BOITE_ADRESSE, m(10, 30, 0)).unwrap();
+    let bilan = crate::mail::traiter(&b, &rel, BOITE_ADRESSE, m(10, 30, 0), 60).unwrap();
     assert_eq!(bilan.rangees.len(), 1);
     let rangee: String =
         b.connexion().query_row("SELECT message_id FROM mails WHERE etat = 'rangee'", [], |r| r.get(0)).unwrap();
@@ -260,7 +260,7 @@ fn le_rythme_une_minute_entre_deux_envois() {
     let f = e.geste(&ctx(&b, &k, &d), ENVOYER, &encore, m(10, 0, 30));
     assert!(f.envoi.is_none());
     assert!(f.message.unwrap().contains("Attends 30 secondes"));
-    let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), m(10, 0, 30));
+    let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), None, m(10, 0, 30));
     assert_eq!(v["attente"]["secondes"], 30);
     // Une minute après : possible
     let t2 = e.geste(&ctx(&b, &k, &d), ENVOYER, &encore, m(10, 1, 0)).envoi.expect("la suite");
@@ -306,7 +306,7 @@ fn refus_avant_de_partir() {
     // Sans CV en fichier
     let f = e.geste(&ctx(&b, &k, &d), ENVOYER, &saisie(offre, p), m(10, 0, 0));
     assert!(f.envoi.is_none() && f.message.unwrap().contains("Choisir mon CV"));
-    let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), m(10, 0, 0));
+    let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), None, m(10, 0, 0));
     assert!(v["cv"].is_null());
     assert_eq!(v["issue"]["genre"], "echec");
     // Un CV importé, mais son fichier effacé du PC
@@ -320,7 +320,7 @@ fn refus_avant_de_partir() {
     profil::ajouter_cv(b.connexion(), &n, m(9, 0, 0)).unwrap();
     let f = e.geste(&ctx(&b, &k, &d), ENVOYER, &saisie(offre, p), m(10, 0, 0));
     assert!(f.envoi.is_none() && f.message.unwrap().contains("n'est plus sur ce PC"));
-    let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), m(10, 0, 0));
+    let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), None, m(10, 0, 0));
     assert_eq!(v["cv"]["present"], false);
     std::fs::write(d.join("cv").join("cv-efface.pdf"), pdf()).unwrap();
     // Des adresses et des objets impossibles
@@ -383,15 +383,15 @@ fn pannes_et_envoi_incertain() {
         assert!(t.contains(mot) && t.contains("Rien n'a été envoyé"), "{mode:?} : {t}");
         assert!(!f.bravo);
         assert!(candidatures::lister(b.connexion()).unwrap().0.is_empty(), "{mode:?} : rien dans le suivi");
-        let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), m(10, minute.get(), 2));
+        let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), None, m(10, minute.get(), 2));
         assert_eq!(v["issue"]["genre"], "echec");
         assert!(v["incertain"].is_null());
     }
-    // Coupure juste après la fin : incertain
+    // Coupure juste après la fin : incertain (la carte de l'envoi le dit ; pas de message en double en haut)
     let f = essai(&mut e, ModeSmtp::CoupeApresFin);
-    assert!(f.message.unwrap().contains("Messages envoyés"));
+    assert!(f.message.is_none() && f.change);
     assert!(candidatures::lister(b.connexion()).unwrap().0.is_empty());
-    let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), m(10, 20, 0));
+    let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), None, m(10, 20, 0));
     let tente = v["incertain"]["tente"].as_i64().expect("incertain");
     assert!(v["incertain"]["texte"].as_str().unwrap().contains("Messages envoyés"));
     // Tant que Jordan n'a rien dit : pas de nouvel envoi
@@ -455,6 +455,142 @@ fn textes_sans_tiret_long() {
     assert!(!src.contains('\u{2014}') && !src.contains('\u{2013}'));
 }
 
+/// Le bug grave de l'audit : une phrase que Jordan a retirée partait quand même s'il gardait une autre lettre (celle de
+/// Claude, jamais changée). « Retirer » l'enlève de toutes les lettres modifiables ; si la lettre gardée la contient
+/// encore, Jobmind le dit et RIEN ne part, par mail comme sur le site.
+#[test]
+fn phrase_retiree_bloque_l_envoi_partout() {
+    use jobmind_storage::preparations::PhraseAVerifier;
+    let d = dossier("retiree");
+    let (b, offre, p) = base(&d, true);
+    let k = cles(&d);
+    let phrase = "J'ai chargé et déchargé des camions pendant deux ans à Woippy.";
+    let l =
+        vec![PhraseAVerifier { texte: phrase.into(), raison: "pas dans ton CV".into(), code: "x".into(), vue: false }];
+    base_prep::changer_a_verifier(b.connexion(), p, &l).unwrap();
+    let mut prep = crate::preparation::Preparation::default();
+    let pctx = crate::preparation::Contexte { base: Some(&b), cles: Some(&k) };
+    // « Retirer » : partie de la lettre de Jordan (celle qu'il garde) ; la lettre de Claude reste telle quelle
+    let f = prep.geste(&pctx, crate::preparation::RETIRER, &json!({ "id": p, "n": 0 }), m(10, 0, 0));
+    assert_eq!(f.message.as_deref(), Some("La phrase est retirée de ta lettre."));
+    let x = base_prep::lire(b.connexion(), p).unwrap().unwrap();
+    assert!(!x.lettre.contains(phrase) && x.lettre_brute.contains(phrase));
+    assert_eq!(base_prep::phrases_retirees(b.connexion(), p).unwrap(), vec![phrase.to_string()]);
+    let mut e = Envoi::default();
+    let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), None, m(10, 0, 0));
+    assert_eq!(v["a_verifier"], json!([]));
+    // Jordan garde la lettre de Claude : Jobmind le dit tout de suite
+    let f = prep.geste(&pctx, crate::preparation::CHOISIR, &json!({ "id": p, "quelle": "brute" }), m(10, 1, 0));
+    let t = f.message.unwrap();
+    assert!(t.contains("contient encore une phrase que tu as retirée") && t.contains(phrase), "{t}");
+    assert!(!f.bravo);
+    // ... et l'envoi par mail est BLOQUÉ, la phrase montrée
+    let f = e.geste(&ctx(&b, &k, &d), ENVOYER, &saisie(offre, p), m(10, 2, 0));
+    assert!(f.envoi.is_none());
+    assert!(f.message.unwrap().contains(phrase));
+    let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), None, m(10, 2, 0));
+    assert_eq!(v["a_verifier"], json!([phrase]));
+    assert!(v["a_verifier_t"].as_str().unwrap().contains("que tu as retirée"));
+    assert!(base_envois::rythme(b.connexion(), m(10, 2, 0).jour()).unwrap().0.is_none(), "rien de tenté");
+    // ... et sur le site aussi : rien ne s'ouvre
+    let lu = crate::postuler::tests_lire_donnees(b.connexion(), &d, offre, Some(p));
+    assert!(lu.unwrap_err().contains(phrase));
+    // Elle garde de nouveau sa lettre : ça part
+    prep.geste(&pctx, crate::preparation::CHOISIR, &json!({ "id": p, "quelle": "moi" }), m(10, 3, 0));
+    let f = e.geste(&ctx(&b, &k, &d), ENVOYER, &saisie(offre, p), m(10, 3, 0));
+    let t = f.envoi.expect("la lettre gardée n'a plus la phrase");
+    assert!(!t.brouillon.texte.contains(phrase));
+}
+
+/// La version qui part est celle que Jordan regarde dans « Ma candidature », pas la plus récente, par mail comme sur
+/// le site (avant : le récapitulatif prenait toujours la dernière version).
+#[test]
+fn la_version_montree_est_celle_qui_part() {
+    let d = dossier("montree");
+    let (b, offre, ancienne) = base(&d, true);
+    let k = cles(&d);
+    let autre = "Madame, Monsieur,\n\nUne seconde version, plus courte.\n\nJordan Exemple";
+    let n = NouvellePreparation {
+        offre_id: offre,
+        modele: "claude-opus-5-5".into(),
+        reponse_brute: "{}".into(),
+        lettre_brute: autre.into(),
+        objet: "Seconde version".into(),
+        questions: json!([]),
+        conseils: json!([]),
+        ..NouvellePreparation::default()
+    };
+    let recente = base_prep::ajouter(b.connexion(), &n, m(9, 45, 0)).unwrap();
+    let e = Envoi::default();
+    // Sans version montrée : la plus récente
+    let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), None, m(10, 0, 0));
+    assert_eq!((v["version"].as_i64(), v["lettre"].as_str()), (Some(recente), Some(autre)));
+    // Jordan regarde l'ancienne : c'est elle que le récapitulatif montre et envoie
+    let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), Some(ancienne), m(10, 0, 0));
+    assert_eq!((v["version"].as_i64(), v["lettre"].as_str()), (Some(ancienne), Some(LETTRE)));
+    assert_eq!(v["objet"], "Candidature au poste d'agent de quai, réf. 57-112");
+    let mut e = e;
+    let t = e.geste(&ctx(&b, &k, &d), ENVOYER, &saisie(offre, ancienne), m(10, 0, 1)).envoi.unwrap();
+    assert_eq!(t.brouillon.texte, LETTRE);
+    // Une version d'une autre offre n'est jamais prise
+    let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), Some(9999), m(10, 0, 2));
+    assert_eq!(v["version"].as_i64(), Some(recente));
+    // Le site prend la même version
+    let lu = crate::postuler::tests_lire_donnees(b.connexion(), &d, offre, Some(ancienne)).unwrap();
+    assert_eq!((lu.version, lu.lettre.as_str()), (Some(ancienne), LETTRE));
+    let lu = crate::postuler::tests_lire_donnees(b.connexion(), &d, offre, None).unwrap();
+    assert_eq!(lu.version, Some(recente));
+}
+
+/// Un envoi qui ne répond plus (5 minutes) devient incertain : jamais « en cours » pour toujours ; un résultat qui
+/// arrive ensuite est laissé, et Jordan dit ce qu'il voit dans Gmail.
+#[test]
+fn envoi_trop_long_devient_incertain() {
+    let d = dossier("trop-long");
+    let (b, offre, p) = base(&d, true);
+    let k = cles(&d);
+    let mut e = Envoi::default();
+    let t = e.geste(&ctx(&b, &k, &d), ENVOYER, &saisie(offre, p), m(10, 0, 0)).envoi.unwrap();
+    let f = e.trop_long(Some(&b), m(10, 5, 1));
+    assert!(f.change && f.journal.unwrap().contains("incertain"));
+    assert!(e.jeton_en_cours().is_none());
+    assert!(base_envois::incertain(b.connexion(), offre).unwrap().is_some());
+    // (le résultat arrivé ensuite est laissé ; rien dans le suivi tant que Jordan n'a rien dit)
+    let f = e.fini(Some(&b), Retour { jeton: t.jeton, resultat: Ok(t.brouillon.message_id.clone()) }, m(10, 6, 0));
+    assert!(!f.bravo);
+    assert!(candidatures::lister(b.connexion()).unwrap().0.is_empty());
+    // (sans envoi en cours : rien)
+    assert_eq!(e.trop_long(Some(&b), m(10, 7, 0)), Fait::default());
+}
+
+/// Gmail a dit oui, mais le suivi n'a pas pu noter la candidature : l'envoi devient incertain (jamais « en cours »).
+#[test]
+fn parti_mais_pas_note_devient_incertain() {
+    let d = dossier("pas-note");
+    let (b, offre, p) = base(&d, true);
+    let k = cles(&d);
+    let mut e = Envoi::default();
+    let t = e.geste(&ctx(&b, &k, &d), ENVOYER, &saisie(offre, p), m(10, 0, 0)).envoi.unwrap();
+    // (l'offre rendue impossible à mettre dans le suivi : plus d'entreprise ni de titre)
+    b.connexion().execute("UPDATE offres SET entreprise = '', titre = '' WHERE id = ?1", [offre]).unwrap();
+    let f = e.fini(Some(&b), Retour { jeton: t.jeton, resultat: Ok(t.brouillon.message_id.clone()) }, m(10, 0, 1));
+    assert!(!f.bravo && f.change);
+    assert!(f.journal.unwrap().contains("noté incertain"));
+    let x = base_envois::incertain(b.connexion(), offre).unwrap().expect("incertain");
+    assert_eq!(x.etat, EtatTente::Incertain);
+}
+
+/// Après la remise d'une sauvegarde, le compteur des envois continue : un vieux résultat ne passe pas pour un nouveau.
+#[test]
+fn apres_remise_le_compteur_continue() {
+    let mut e = Envoi::default();
+    let a = e.jeton();
+    e.ouvert = Some(3);
+    e.apres_remise();
+    assert!(e.ouvert.is_none());
+    assert!(e.jeton() > a);
+}
+
 /// Rien d'inventé : une phrase « à vérifier » encore dans la lettre gardée bloque l'envoi ; « C'est juste » le permet.
 #[test]
 fn phrase_a_verifier_bloque_l_envoi() {
@@ -469,7 +605,7 @@ fn phrase_a_verifier_bloque_l_envoi() {
     let mut e = Envoi::default();
     let f = e.geste(&ctx(&b, &k, &d), ENVOYER, &saisie(offre, p), m(10, 0, 0));
     assert!(f.envoi.is_none() && f.message.unwrap().contains("à vérifier"));
-    let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), m(10, 0, 0));
+    let (v, _) = e.vue(Some(&b), Some(&k), &d, Some(offre), None, m(10, 0, 0));
     assert_eq!(v["a_verifier"], json!([phrase]));
     l[0].vue = true;
     base_prep::changer_a_verifier(b.connexion(), p, &l).unwrap();

@@ -154,6 +154,8 @@ pub struct VueMails {
     pub en_cours: Option<String>,
     pub annonce: Option<Annonce>,
     pub a_ranger: Vec<MailGarde>,
+    /// Tous les mails à ranger (la liste n'en montre que 100) : le chiffre de l'onglet Candidatures
+    pub nombre_a_ranger: usize,
     pub ouvert: Option<MailGarde>,
     /// Les candidatures dont un statut proposé attend Jordan
     pub attente: Vec<i64>,
@@ -215,6 +217,9 @@ impl Boite {
         let lu = (|| -> rusqlite::Result<()> {
             v.reperes = base_mails::reperes(c)?;
             v.a_ranger = base_mails::a_ranger(c)?;
+            v.nombre_a_ranger = c
+                .query_row("SELECT COUNT(*) FROM mails WHERE etat = 'a_ranger'", [], |r| r.get::<_, i64>(0))?
+                .max(0) as usize;
             v.attente = base_mails::candidatures_a_voir(c)?;
             if !self.ouvert.is_some_and(|id| v.a_ranger.iter().any(|m| m.id == id)) {
                 self.ouvert = v.a_ranger.first().map(|m| m.id);
@@ -456,7 +461,8 @@ impl Boite {
                 let Some(b) = base else {
                     return Fait::refus(SANS_BASE, "Mail : relève perdue, la base n'est pas ouverte".into());
                 };
-                let bilan = match traiter(b, &rel, adresse, maintenant) {
+                let decalage = crate::windows::heure::decalage_minutes();
+                let bilan = match traiter(b, &rel, adresse, maintenant, decalage) {
                     Ok(x) => x,
                     Err(e) => return Fait::refus(PAS_ENREGISTRE, format!("Mail : relève non gardée ({e})")),
                 };
@@ -571,9 +577,25 @@ fn identifiant(m: &Mail, uidvalidity: u32) -> String {
     if id.is_empty() { format!("uid-{uidvalidity}-{}@jobmind", m.uid) } else { id }
 }
 
+/// L'heure d'un mail reçu, en heure locale du PC (`decalage_local` : minutes d'écart de Windows avec l'heure
+/// universelle) : « 08:30 +0000 » reçu à Paris en hiver est 09:30. Rien : une date impossible.
+pub fn heure_locale(d: &jobmind_mail::DateMail, decalage_local: i32) -> Option<Moment> {
+    let s = d.secondes_utc()? + i64::from(decalage_local) * 60;
+    let jour = Jour::depuis_numero(s.div_euclid(86_400));
+    let reste = s.rem_euclid(86_400) as u32;
+    Moment::nouveau(jour.annee, jour.mois, jour.jour, reste / 3600, reste % 3600 / 60, (reste % 60).min(59))
+}
+
 /// Ce que Jobmind fait des mails d'une relève : les alertes donnent leurs offres, les réponses sont rangées ou mises à
 /// ranger, le reste n'est pas gardé. Les bulles des réponses rangées sont mises en attente (une seule fois chacune).
-pub fn traiter(b: &Base, r: &Releve, adresse: &str, maintenant: Moment) -> rusqlite::Result<Bilan> {
+/// La date de chaque mail est ramenée à l'heure locale du PC (`decalage_local`, en minutes).
+pub fn traiter(
+    b: &Base,
+    r: &Releve,
+    adresse: &str,
+    maintenant: Moment,
+    decalage_local: i32,
+) -> rusqlite::Result<Bilan> {
     let c = b.connexion();
     let (liste, _) = candidatures::lister(c)?;
     let envoyes = base_mails::envoyes(c)?;
@@ -587,7 +609,11 @@ pub fn traiter(b: &Base, r: &Releve, adresse: &str, maintenant: Moment) -> rusql
         if !adresse.is_empty() && m.de_adresse.eq_ignore_ascii_case(adresse) {
             continue;
         }
-        let recu_le = m.date.as_ref().map(jobmind_mail::DateMail::iso).filter(|d| Moment::lire_iso(d).is_some());
+        // (l'heure locale du PC ; une date que Jobmind ne sait pas convertir : celle écrite dans le mail, comme avant)
+        let local = m.date.as_ref().and_then(|d| heure_locale(d, decalage_local));
+        let recu_le = local
+            .map(|x| x.iso())
+            .or_else(|| m.date.as_ref().map(jobmind_mail::DateMail::iso).filter(|d| Moment::lire_iso(d).is_some()));
         let nouveau = NouveauMail {
             message_id: id,
             uid: Some(m.uid),
@@ -617,7 +643,9 @@ pub fn traiter(b: &Base, r: &Releve, adresse: &str, maintenant: Moment) -> rusql
             objet: m.objet.clone(),
             texte: m.texte.clone(),
             en_reponse_a: m.en_reponse_a.clone(),
-            jour: m.date.as_ref().and_then(|d| Jour::nouveau(d.annee, d.mois, d.jour)),
+            jour: local
+                .map(|x| x.jour())
+                .or_else(|| m.date.as_ref().and_then(|d| Jour::nouveau(d.annee, d.mois, d.jour))),
             masse: m.masse,
         };
         let (etat, candidature, raison) = match regles::rattacher(&vu, &liste, &envoyes) {
@@ -807,7 +835,7 @@ pub fn rubrique(v: &VueMails, aujourdhui: Jour) -> Value {
             "vue": "mail",
             "icone": "mail",
             "titre": "Ma boîte mail",
-            "intro": "Jobmind lit ta boîte Gmail pour toi : il ajoute les offres des alertes de LinkedIn, Indeed, \
+            "intro": "Jobmind lit ta boîte Gmail pour toi : elle ajoute les offres des alertes de LinkedIn, Indeed, \
                       Welcome to the Jungle et France Travail, et range les réponses des recruteurs dans le dossier de \
                       chaque candidature.",
             "branchee": v.branchee,
@@ -844,8 +872,9 @@ pub fn rubrique(v: &VueMails, aujourdhui: Jour) -> Value {
                               Jobmind essaie tout de suite.",
                 },
             ],
-            "note": "Jobmind lit seulement : il ne marque aucun mail comme lu, n'en déplace ni n'en efface aucun, et \
-                     n'envoie rien. Il regarde ta boîte au démarrage puis toutes les 15 minutes. Le mot de passe \
+            "note": "Jobmind lit ta boîte sans rien y toucher, et n'envoie une candidature que quand tu cliques sur \
+                     Envoyer. Elle ne marque aucun mail comme lu, n'en déplace ni n'en efface aucun. Elle regarde ta \
+                     boîte au démarrage puis toutes les 15 minutes. Le mot de passe \
                      d'application est chiffré sur ce PC ; tu peux l'annuler à tout moment sur la page de Google.",
             "question": "Débrancher ta boîte ? Jobmind ne la lira plus. Les mails déjà rangés restent dans tes dossiers.",
             "textes": textes(&[
@@ -908,7 +937,7 @@ pub fn onglet(v: &VueMails, liste: &[Candidature], aujourdhui: Jour) -> Value {
         "choix": choix,
         "textes": textes(&[
             ("titre", "Mails à ranger"),
-            ("intro", "Jobmind n'est pas sûr de la candidature de ce mail. Choisis-la, ou dis que ce mail n'a rien à voir."),
+            ("intro", "Jobmind n'est pas sûre de la candidature de ce mail. Choisis-la, ou dis que ce mail n'a rien à voir."),
             ("ranger_dans", "Ranger dans le dossier de"),
             ("ranger", "Ranger ici"),
             ("rien", "Rien à voir"),

@@ -365,6 +365,14 @@ pub struct Contexte<'a> {
 }
 
 impl Offres {
+    /// Une sauvegarde vient d'être remise : tout revient au départ, sauf le compteur des demandes (un vieux résultat
+    /// n'est jamais pris pour un nouveau).
+    pub fn apres_remise(&mut self) {
+        let jetons = self.jetons;
+        *self = Offres::default();
+        self.jetons = jetons;
+    }
+
     /// Ce que l'écran montre, d'après la base. Une base illisible : rien, et la raison pour le journal.
     pub fn vue(&mut self, base: Option<&Base>, cles: Option<&Cles>) -> (VueOffres, Option<String>) {
         let mut v = VueOffres {
@@ -1334,6 +1342,23 @@ mod tests {
     use super::*;
     use jobmind_sources::{adzuna, faux, jooble};
     use jobmind_storage::cles::Coffre;
+
+    /// Après la remise d'une sauvegarde : l'écran revient au départ, le compteur des demandes continue (un vieux
+    /// résultat ne passe jamais pour un nouveau).
+    #[test]
+    fn apres_remise_le_compteur_continue() {
+        let mut o = Offres { ouverte: Some(4), jetons: 7, ..Offres::default() };
+        o.apres_remise();
+        assert_eq!((o.ouverte, o.jetons), (None, 7));
+        let mut p = crate::profil::Profil::default();
+        p.cv_ouvert = Some(2);
+        p.apres_remise();
+        assert!(p.cv_ouvert.is_none());
+        let mut pr = crate::preparation::Preparation::default();
+        pr.montree = Some((1, 2));
+        pr.apres_remise();
+        assert!(pr.montree.is_none());
+    }
 
     fn m(h: u32, mi: u32) -> Moment {
         Moment::nouveau(2026, 11, 18, h, mi, 0).unwrap()

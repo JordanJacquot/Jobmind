@@ -287,3 +287,31 @@ fn bilans_et_textes() {
         "le 19 nov. à 8 h 05"
     );
 }
+
+/// L'heure d'un mail reçu est ramenée à l'heure locale du PC (avant : l'heure écrite dans le mail, quel que soit son
+/// fuseau) ; une date impossible n'est pas convertie (l'appelant garde l'ancien comportement).
+#[test]
+fn heure_des_mails_en_heure_locale() {
+    let d = |annee, mois, jour, heure, minute, decalage_minutes| jobmind_mail::DateMail {
+        annee,
+        mois,
+        jour,
+        heure,
+        minute,
+        seconde: 7,
+        decalage_minutes,
+    };
+    // 08:30 en heure universelle, lu à Paris en hiver (+60) : 09:30
+    assert_eq!(heure_locale(&d(2026, 11, 19, 8, 30, 0), 60).unwrap().iso(), "2026-11-19T09:30:07");
+    // 23:30 à New York (-300) le 18 : le 19 à 05:30 à Paris
+    assert_eq!(heure_locale(&d(2026, 11, 18, 23, 30, -300), 60).unwrap().iso(), "2026-11-19T05:30:07");
+    // 09:00 à Paris (+60), lu à Paris : inchangé ; en été (+120) : 10:00
+    assert_eq!(heure_locale(&d(2026, 11, 19, 9, 0, 60), 60).unwrap().iso(), "2026-11-19T09:00:07");
+    assert_eq!(heure_locale(&d(2026, 7, 1, 9, 0, 60), 120).unwrap().iso(), "2026-07-01T10:00:07");
+    // Le 31 décembre tard à Tokyo (+540) : le même instant à Paris
+    assert_eq!(heure_locale(&d(2027, 1, 1, 1, 0, 540), 60).unwrap().iso(), "2026-12-31T17:00:07");
+    // Des dates impossibles : rien
+    for x in [d(2026, 13, 1, 9, 0, 0), d(2026, 4, 31, 9, 0, 0), d(2026, 11, 19, 25, 0, 0), d(2026, 2, 29, 9, 0, 0)] {
+        assert_eq!(heure_locale(&x, 60), None, "{x:?}");
+    }
+}

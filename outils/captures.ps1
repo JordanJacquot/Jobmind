@@ -384,7 +384,10 @@ try {
         # the Jungle 2, France Travail 3, un site inconnu 4, une page illisible 5, LinkedIn 6), « formulaires:refus » fait
         # refuser le prochain envoi par le site imité (sans capture), « postuler » clique « Postuler sur le site » et
         # attend que la page soit lue, « po-saisie:<rang>=<valeur> » tape une valeur dans le récapitulatif comme Jordan,
-        # « po-remplir », « po-envoyer », « po-fermer-pf » (la petite fenêtre) cliquent et attendent la réponse du site
+        # « po-remplir », « po-envoyer », « po-fermer-pf » (la petite fenêtre) cliquent et attendent la réponse du site.
+        # Depuis l'audit, la page n'est remplie qu'au clic sur « Envoyer » ou « Continuer » : « postuler » attend le
+        # récapitulatif calculé sans rien remplir, « po-remplir » garde les réponses dans Jobmind, « po-envoyer » attend
+        # la suite après le remplissage, la relecture et le clic de Jobmind (ou la page qui ne montre pas tout)
         elseif ($v -eq 'offres-site') {
             [IO.File]::WriteAllText((Join-Path $donnees 'offres-site.demande'), '1', $sansBom)
             Verifier (Attendre { (Compter 'Essai : offres d''essai pour postuler ajoutées') -ge 1 } 5000) 'offres d''essai pour postuler ajoutées (journal)'
@@ -399,7 +402,9 @@ try {
         }
         elseif ($v -in 'postuler', 'po-remplir', 'po-envoyer', 'po-fermer-pf', 'po-attendre', 'po-reessayer') {
             $finsPo = {
-                (Compter 'Site : formulaire rempli et relu') + (Compter 'LECTURE CASSÉE') + (Compter 'demande une connexion pour postuler') +
+                (Compter 'récapitulatif prêt sans rien remplir') + (Compter 'gardée(s) dans Jobmind') + (Compter 'rien n''avance') +
+                (Compter 'Site : formulaire relu') + (Compter 'Site : remplissage') +
+                (Compter 'LECTURE CASSÉE') + (Compter 'demande une connexion pour postuler') +
                 (Compter 'au statut Envoyée, sur') + (Compter 'Site : envoi incertain') + (Compter 'petite fenêtre ouverte pour Jordan') +
                 (Compter 'Site : candidature arrêtée') + (Compter 'postuler sur LinkedIn par Jordan') + (Compter 'Site : clic impossible') +
                 (Compter 'Site : envoi ') + (Compter 'Site : vérification')
@@ -456,6 +461,8 @@ try {
         elseif ($v -eq 'calendrier') { Ordre '{"kit":"accueil","calendrier":true}' }
         elseif ($v -match '^jour:(\d{1,2})$') { Ordre ('{"kit":"accueil","cliquer":"cal:' + (Get-Date -Day ([int]$Matches[1]) -Format 'yyyy-MM-dd') + '"}') }
         elseif ($v -match '^clic:([a-z]{1,4}:[a-z0-9-]{1,12})$') { Ordre ('{"kit":"accueil","cliquer":"' + $Matches[1] + '"}') }
+        # (« libre:<data-k> » : la zone de texte prise puis quittée par Échap, la « zone libre »)
+        elseif ($v -match '^libre:([a-z]{1,4}:[a-z0-9-]{1,12})$') { Ordre ('{"kit":"accueil","libre":"' + $Matches[1] + '"}') }
         elseif ($v -match '^importer:(.+)$') {
             $imports = (Compter 'Profil : CV ') + (Compter 'Profil : fichier refusé')
             [IO.File]::WriteAllText((Join-Path $donnees 'import.demande'), $Matches[1], $sansBom)

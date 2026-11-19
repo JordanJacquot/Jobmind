@@ -48,7 +48,7 @@ use jobmind_core::cle::Service;
 use jobmind_sources::{ErreurSource, JobSource};
 use jobmind_storage::bulles::Demande;
 use jobmind_storage::cles::Cles;
-use jobmind_storage::{Donnees, Journal};
+use jobmind_storage::{Base, Donnees, Journal};
 use jobmind_vie::{
     Depart, DisqueReel, Environnement, Fin, Lancement, Monde, Reglages, Taille, Vie, demarrage_demande, demarrer,
     theme_choisi,
@@ -88,6 +88,12 @@ const PREP_MAX: Duration = Duration::from_secs(300);
 /// (chaque lecture a déjà son délai de 30 s).
 const PREMIERE_RELEVE: Duration = Duration::from_secs(12);
 const MAIL_MAX: Duration = Duration::from_secs(180);
+/// Étape 10 : un envoi par mail qui ne répond plus après ce temps devient « incertain » (Jordan dira s'il est parti).
+const ENVOI_MAX: Duration = Duration::from_secs(300);
+/// Une base qui ne s'est pas ouverte au démarrage pour une raison passagère (occupée par un autre programme) : un
+/// nouvel essai toutes les 30 s, 10 fois au plus (5 minutes).
+const BASE_REESSAI: Duration = Duration::from_secs(30);
+const BASE_ESSAIS: u32 = 10;
 /// Étape 12 : le rafraîchissement automatique des recherches, regardé une première fois peu après le démarrage, puis
 /// toutes les minutes (il ne part que si son rythme est passé : toutes les 6 heures au départ).
 #[cfg_attr(feature = "essai", allow(dead_code))]
@@ -125,8 +131,13 @@ struct Etat {
     /// Construction d'essai : la fausse boîte Gmail (un faux serveur IMAP local, jamais Gmail)
     #[cfg(feature = "essai")]
     faux_imap: Option<jobmind_mail::faux::FauxImap>,
-    /// Étape 10 : l'envoi par mail (le récapitulatif ouvert, l'envoi en cours)
+    /// Étape 10 : l'envoi par mail (le récapitulatif ouvert, l'envoi en cours), et depuis quand il est parti
     envoi: crate::envoi::Envoi,
+    envoi_depuis: Option<Instant>,
+    /// La copie automatique du jour reste à faire (un nouveau jour, quand rien n'est en cours)
+    copie_due: bool,
+    /// La base pas ouverte au démarrage pour une raison passagère : le prochain essai, et le nombre d'essais faits
+    base_reessai: Option<(Instant, u32)>,
     /// Construction d'essai (étape 10) : le faux serveur d'envoi (local, il garde ce qu'il reçoit, rien ne part)
     #[cfg(feature = "essai")]
     faux_smtp: Option<jobmind_mail::faux_smtp::FauxSmtp>,
@@ -283,6 +294,51 @@ fn bloquee(_mindset_exe: Option<&Path>, _systeme: &mut SystemeWindows) {
     std::process::exit(3);
 }
 
+/// Ce qui suit l'ouverture de la base : un envoi par mail ou sur un site resté en cours quand Jobmind s'est arrêtée
+/// devient « incertain » (étapes 10 et 11), puis la copie automatique du jour (étape 12).
+fn base_ouverte(b: &Base, dossier: &Path, journal: &Journal) {
+    match jobmind_storage::envois::reprendre(b.connexion()) {
+        Ok(0) => {}
+        Ok(n) => {
+            journal.ecrire(&format!("Envoi : {n} envoi(s) interrompu(s) par l'arrêt de Jobmind, notés incertains"))
+        }
+        Err(e) => journal.ecrire(&format!("Envoi : reprise impossible ({e})")),
+    }
+    match jobmind_storage::envois_site::reprendre(b.connexion()) {
+        Ok(0) => {}
+        Ok(n) => journal
+            .ecrire(&format!("Site : {n} envoi(s) sur un site interrompu(s) par l'arrêt de Jobmind, notés incertains")),
+        Err(e) => journal.ecrire(&format!("Site : reprise impossible ({e})")),
+    }
+    copie_du_jour(b, dossier, journal);
+}
+
+/// Étape 12 : une sauvegarde toute seule par jour, les 7 dernières gardées dans le dossier des données.
+fn copie_du_jour(b: &Base, dossier: &Path, journal: &Journal) {
+    match jobmind_storage::sauvegarde::automatique(b, dossier, heure::maintenant()) {
+        Ok(Some(p)) => journal.ecrire(&format!(
+            "Sauvegarde : copie du jour faite ({})",
+            p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+        )),
+        Ok(None) => {}
+        Err(e) => journal.ecrire(&format!("Sauvegarde : copie du jour pas faite ({e})")),
+    }
+}
+
+/// Une base qui ne s'est pas ouverte pour une raison qui peut passer (un autre programme la tient, le disque pas
+/// prêt) : ni une base d'une version plus récente, ni une base abîmée (ce n'est pas un nouvel essai qui les réparera).
+fn base_passagere(e: &jobmind_storage::ErreurBase) -> bool {
+    use jobmind_storage::ErreurBase;
+    use jobmind_storage::rusqlite::ErrorCode;
+    match e {
+        ErreurBase::Future { .. } => false,
+        ErreurBase::Dossier(_) => true,
+        ErreurBase::Sqlite(x) => {
+            !matches!(x.sqlite_error_code(), Some(ErrorCode::DatabaseCorrupt | ErrorCode::NotADatabase))
+        }
+    }
+}
+
 /// Le programme : ne revient jamais (`std::process::exit`).
 pub fn lancer() -> ! {
     let _ = identite::poser();
@@ -323,13 +379,18 @@ pub fn lancer() -> ! {
     // (étape 12 : une remise de sauvegarde interrompue par un arrêt de Jobmind : tout est remis comme avant)
     let reprise = jobmind_storage::sauvegarde::en_attente(&l.dossier_donnees)
         .then(|| jobmind_storage::sauvegarde::annuler(&l.dossier_donnees));
+    // (les restes d'un arrêt brutal pendant une sauvegarde ou une remise : effacés avant d'ouvrir la base)
+    let restes = jobmind_storage::sauvegarde::nettoyer_restes(&l.dossier_donnees);
     // Les données et le thème (celui de la suite pour une copie gérée, sinon le réglage)
-    let d = Donnees::ouvrir(&l.dossier_donnees, horloge, l.gere);
+    let mut d = Donnees::ouvrir(&l.dossier_donnees, horloge, l.gere);
     let journal = d.journal().clone();
     match reprise {
         None => {}
         Some(Ok(())) => journal.ecrire("Sauvegarde : remise interrompue par un arrêt, tout est remis comme avant"),
         Some(Err(e)) => journal.ecrire(&format!("Sauvegarde : remise interrompue, retour en arrière raté ({e})")),
+    }
+    for p in &restes {
+        journal.ecrire(&format!("Sauvegarde : reste d'un arrêt effacé ({})", p.display()));
     }
     let reglage = match d.reglages.lire("Theme", json!("neon")) {
         Value::String(t) => t,
@@ -355,33 +416,29 @@ pub fn lancer() -> ! {
     // d'essai)
     #[cfg(feature = "essai")]
     crate::essai::exemples_demandes(&l.dossier_donnees, d.base.as_ref(), &mut cles, heure::maintenant(), &journal);
-    // (étape 10 : un envoi par mail resté en cours quand Jobmind s'est arrêtée devient « incertain »)
     if let Some(b) = d.base.as_ref() {
-        match jobmind_storage::envois::reprendre(b.connexion()) {
-            Ok(0) => {}
-            Ok(n) => {
-                journal.ecrire(&format!("Envoi : {n} envoi(s) interrompu(s) par l'arrêt de Jobmind, notés incertains"))
-            }
-            Err(e) => journal.ecrire(&format!("Envoi : reprise impossible ({e})")),
-        }
-        // (étape 11 : un envoi sur un site resté en cours devient « incertain »)
-        match jobmind_storage::envois_site::reprendre(b.connexion()) {
-            Ok(0) => {}
-            Ok(n) => journal.ecrire(&format!(
-                "Site : {n} envoi(s) sur un site interrompu(s) par l'arrêt de Jobmind, notés incertains"
-            )),
-            Err(e) => journal.ecrire(&format!("Site : reprise impossible ({e})")),
-        }
-        // (étape 12 : une sauvegarde toute seule par jour, les 7 dernières gardées dans le dossier des données)
-        match jobmind_storage::sauvegarde::automatique(b, &l.dossier_donnees, heure::maintenant()) {
-            Ok(Some(p)) => journal.ecrire(&format!(
-                "Sauvegarde : copie du jour faite ({})",
-                p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
-            )),
-            Ok(None) => {}
-            Err(e) => journal.ecrire(&format!("Sauvegarde : copie du jour pas faite ({e})")),
-        }
+        base_ouverte(b, &l.dossier_donnees, &journal);
     }
+    // (une base qui ne s'ouvre pas pour une raison passagère, occupée par un autre programme : Jobmind réessaie)
+    let base_reessai = match d.base.as_ref() {
+        Some(_) => None,
+        None => match Base::ouvrir(&l.dossier_donnees, heure::maintenant()) {
+            Ok((b, _)) => {
+                journal.ecrire("Base : ouverte au second essai");
+                base_ouverte(&b, &l.dossier_donnees, &journal);
+                d.base = Some(b);
+                None
+            }
+            Err(e) if base_passagere(&e) => {
+                journal.ecrire(&format!("Base : occupée ({e}), nouvel essai toutes les 30 s"));
+                Some((Instant::now() + BASE_REESSAI, 0))
+            }
+            Err(e) => {
+                journal.ecrire(&format!("Base : pas d'autre essai ({e})"));
+                None
+            }
+        },
+    };
     // L'état de départ : le suivi et le profil d'après la base
     // (construction d'essai : le faux serveur local d'Adzuna et Jooble ; aucune demande de l'essai ne sort du PC)
     #[cfg(feature = "essai")]
@@ -476,6 +533,9 @@ pub fn lancer() -> ! {
             #[cfg(feature = "essai")]
             faux_imap: crate::essai::fausse_boite(&journal),
             envoi: crate::envoi::Envoi::default(),
+            envoi_depuis: None,
+            copie_due: false,
+            base_reessai,
             #[cfg(feature = "essai")]
             faux_smtp: crate::essai::faux_smtp(&journal),
             lecture_depuis: None,
@@ -636,6 +696,9 @@ fn tour(app: &AppHandle) {
             etat.ia_trop_longue(app);
             etat.releve_due(app);
             etat.mail_trop_long(app);
+            etat.envoi_trop_long(app);
+            etat.copie_si_due();
+            etat.base_a_rouvrir(app);
             etat.rafraichir_du(app);
             etat.evenements_des_sites(app);
             etat.minuteries_des_sites(app);
@@ -692,7 +755,7 @@ const SCRIPT_LECTURE: &str = "(function () { try { var d = document.documentElem
     if (String(m[k].type || '').toLowerCase() === 'password') { m[k].removeAttribute('value'); } } \
     var S = 'input,textarea,select,button'; var vv = document.querySelectorAll(S); var cc = c.querySelectorAll(S); \
     for (var n = 0; n < cc.length; n++) { cc[n].removeAttribute('data-jm-valeur'); cc[n].removeAttribute('data-jm-coche'); \
-      cc[n].removeAttribute('data-jm-cache'); cc[n].removeAttribute('data-jm-i'); } \
+      cc[n].removeAttribute('data-jm-cache'); cc[n].removeAttribute('data-jm-i'); cc[n].removeAttribute('data-jm-cible'); } \
     if (vv.length === cc.length) { for (var n2 = 0; n2 < vv.length && n2 < 3000; n2++) { var e = vv[n2], x = cc[n2]; \
       x.setAttribute('data-jm-i', String(n2)); var st = getComputedStyle(e); var r = e.getBoundingClientRect(); \
       x.setAttribute('data-jm-cache', (st.display === 'none' || st.visibility === 'hidden' || (r.width === 0 && r.height === 0)) ? '1' : '0'); \
@@ -801,15 +864,48 @@ fn script_cliquer(attendu: &str, i: usize, balise: &str) -> String {
 }
 
 /// Étape 11 : le script qui vérifie, avant d'y déposer le CV, que la case de rang `i` est bien une case de fichier de
-/// la page attendue.
-fn script_case_fichier(attendu: &str, i: usize) -> String {
+/// la page attendue, et la marque d'un jeton tiré au hasard (`data-jm-cible`) : le dépôt vise ce jeton, jamais un
+/// rang (une page qui ajoute ou retire des cases entre les deux ne détourne pas le CV ailleurs). Une autre case qui
+/// porterait déjà ce nom est démarquée.
+fn script_case_fichier(attendu: &str, i: usize, jeton: &str) -> String {
     format!(
-        "(function () {{ try {{ if (String(location.href) !== {}) {{ return 'ailleurs'; }} \
+        "(function () {{ try {{ if (String(location.href) !== {}) {{ return 'ailleurs'; }} var J = {}; \
+         var vieux = document.querySelectorAll('[data-jm-cible]'); \
+         for (var k = 0; k < vieux.length; k++) {{ vieux[k].removeAttribute('data-jm-cible'); }} \
          var e = document.querySelectorAll('input,textarea,select,button')[{i}]; \
-         return (e && String(e.tagName) === 'INPUT' && String(e.type).toLowerCase() === 'file') ? 'ok' : 'absent'; \
+         if (!(e && String(e.tagName) === 'INPUT' && String(e.type).toLowerCase() === 'file')) {{ return 'absent'; }} \
+         e.setAttribute('data-jm-cible', J); return 'ok'; \
          }} catch (e) {{ return 'erreur'; }} }})()",
         Value::String(attendu.to_string()),
+        Value::String(jeton.to_string()),
     )
+}
+
+/// Un jeton tiré au hasard (32 chiffres hexadécimaux), pour marquer la case du CV.
+fn jeton_cible() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    let tirer = |n: u64| {
+        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+        h.write_u64(n);
+        h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos()));
+        h.finish()
+    };
+    format!("{:016x}{:016x}", tirer(1), tirer(2))
+}
+
+/// Étape 11 : avant un script qui tape un mot de passe, remplit un formulaire, coche, clique ou dépose le CV, la page
+/// affichée par la vue des sites est vérifiée en Rust aussi (en plus du contrôle dans la page) : en https (la
+/// construction d'essai permet aussi son faux serveur 127.0.0.1 en http) et sur l'hôte de la page attendue.
+fn page_sure(actuelle: Option<&Url>, attendu: &str) -> bool {
+    let (Some(a), Ok(b)) = (actuelle, attendu.parse::<Url>()) else { return false };
+    let hote = |u: &Url| u.host_str().map(|h| h.trim_end_matches('.').to_ascii_lowercase());
+    let local = |u: &Url| cfg!(feature = "essai") && u.scheme() == "http" && u.host_str() == Some("127.0.0.1");
+    let schema = |u: &Url| u.scheme() == "https" || local(u);
+    schema(a)
+        && schema(&b)
+        && hote(a).is_some()
+        && hote(a) == hote(&b)
+        && a.port_or_known_default() == b.port_or_known_default()
 }
 
 /// Le texte rendu par un script (une chaîne JSON), coupé.
@@ -985,6 +1081,22 @@ fn vue_des_sites(app: &AppHandle) {
                 }
             }
             (ActionVue::Lire(no), None) => perdues.push(no),
+            // (une page qui n'est pas celle attendue, vue de Rust : rien n'est tapé)
+            (ActionVue::Taper { attendu, .. }, Some(v)) if !page_sure(v.url().ok().as_ref(), &attendu) => {
+                saisie = Some(format!("page pas sûre ({})", crate::postuler::PAGE_PAS_SURE));
+            }
+            (ActionVue::Remplir { no, attendu, .. }, Some(v)) if !page_sure(v.url().ok().as_ref(), &attendu) => {
+                let r = format!("ailleurs ({})", crate::postuler::PAGE_PAS_SURE);
+                rapporter_po(app, no, crate::postuler::Rendu::Rempli(r));
+            }
+            (ActionVue::Cliquer { no, attendu, .. }, Some(v)) if !page_sure(v.url().ok().as_ref(), &attendu) => {
+                let r = format!("ailleurs ({})", crate::postuler::PAGE_PAS_SURE);
+                rapporter_po(app, no, crate::postuler::Rendu::Clique(r));
+            }
+            (ActionVue::Fichier { no, attendu, .. }, Some(v)) if !page_sure(v.url().ok().as_ref(), &attendu) => {
+                let r = format!("page pas sûre ({})", crate::postuler::PAGE_PAS_SURE);
+                rapporter_po(app, no, crate::postuler::Rendu::Fichier(Err(r)));
+            }
             (ActionVue::Taper { attendu, mail, mdp }, Some(v)) => {
                 let mut script = script_saisie(&attendu, mail.as_deref(), mdp.as_ref().map(Secret::texte));
                 drop(mdp);
@@ -1017,7 +1129,9 @@ fn vue_des_sites(app: &AppHandle) {
             }
             (ActionVue::Fichier { no, attendu, i, chemin }, Some(v)) => {
                 let a = app.clone();
-                let r = v.eval_with_callback(script_case_fichier(&attendu, i), move |rendu| {
+                let jeton = jeton_cible();
+                let cible = jeton.clone();
+                let r = v.eval_with_callback(script_case_fichier(&attendu, i, &jeton), move |rendu| {
                     let x = rendu_texte(&rendu);
                     if x != "ok" {
                         rapporter_po(&a, no, crate::postuler::Rendu::Fichier(Err(format!("case : {x}"))));
@@ -1028,7 +1142,7 @@ fn vue_des_sites(app: &AppHandle) {
                         return;
                     };
                     let b = a.clone();
-                    let r = crate::windows::sites::deposer_fichier(&vue, i, chemin.clone(), move |x| {
+                    let r = crate::windows::sites::deposer_fichier(&vue, &cible, chemin.clone(), move |x| {
                         rapporter_po(&b, no, crate::postuler::Rendu::Fichier(x))
                     });
                     if let Err(e) = r {
@@ -1490,6 +1604,7 @@ impl Etat {
                 Some(&self.cles),
                 d.dossier(),
                 self.offres.ouverte,
+                self.preparation.montree.map(|(_, p)| p),
                 heure::maintenant(),
             );
             if let Some(r) = raison {
@@ -1648,7 +1763,8 @@ impl Etat {
                 let gmail = crate::mail::branchee(&etat.cles)
                     .then(|| etat.cles.lire(jobmind_core::cle::Cle::GmailAdresse))
                     .flatten();
-                let ctx = crate::postuler::Contexte { base: d.base.as_ref(), dossier: &dossier, gmail };
+                let montree = etat.preparation.montree.map(|(_, p)| p);
+                let ctx = crate::postuler::Contexte { base: d.base.as_ref(), dossier: &dossier, gmail, montree };
                 return etat.coulisse.po_geste(&ctx, id, valeur, maintenant);
             }
             if crate::envoi::est_geste(id) {
@@ -1958,6 +2074,7 @@ impl Etat {
         let mut mdp = mdp;
         let acces = self.acces_envoi(&adresse, &mdp);
         coulisse::effacer(&mut mdp);
+        self.envoi_depuis = Some(Instant::now());
         let a = app.clone();
         let r = std::thread::Builder::new().name("envoi-mail".into()).spawn(move || {
             let resultat = jobmind_mail::smtp::envoyer(&acces, &t.brouillon);
@@ -2008,7 +2125,87 @@ impl Etat {
 
     /// Étape 10 : ce qu'a donné l'envoi.
     fn retour_envoi(&mut self, app: &AppHandle, r: crate::envoi::Retour) {
+        if self.envoi.jeton_en_cours() == Some(r.jeton) {
+            self.envoi_depuis = None;
+        }
         self.faire(app, |etat, d| etat.envoi.fini(d.base.as_ref(), r, heure::maintenant()));
+    }
+
+    /// Étape 10 : un envoi par mail sans réponse après 5 minutes devient « incertain » (Jordan regarde dans Gmail) ;
+    /// un résultat arrivé ensuite est laissé.
+    fn envoi_trop_long(&mut self, app: &AppHandle) {
+        if self.envoi_depuis.is_some_and(|t| t.elapsed() > ENVOI_MAX) {
+            self.envoi_depuis = None;
+            self.faire(app, |etat, d| etat.envoi.trop_long(d.base.as_ref(), heure::maintenant()));
+        }
+    }
+
+    /// Étape 12 : la copie automatique d'un nouveau jour, faite dès que rien n'est en cours ; le journal raccourci s'il
+    /// est trop gros (une fois par jour).
+    fn copie_si_due(&mut self) {
+        if !self.copie_due || self.occupee().is_some() || self.bord.boite || self.bord.attente.is_some() {
+            return;
+        }
+        let Ok(d) = self.donnees.try_borrow() else { return };
+        let Some(d) = d.as_ref() else { return };
+        self.copie_due = false;
+        jobmind_storage::journal::raccourcir(self.journal.fichier());
+        if let Some(b) = d.base.as_ref() {
+            copie_du_jour(b, d.dossier(), &self.journal);
+        }
+    }
+
+    /// La base pas ouverte au démarrage pour une raison passagère : un nouvel essai toutes les 30 s, 10 fois au plus.
+    /// L'écran le dit simplement.
+    fn base_a_rouvrir(&mut self, app: &AppHandle) {
+        let Some((quand, n)) = self.base_reessai else { return };
+        if Instant::now() < quand {
+            return;
+        }
+        let dossier = self.donnees_appli.clone();
+        let journal = self.journal.clone();
+        let mut prochain = None;
+        let mut essaye = false;
+        self.faire(app, |_, d| {
+            essaye = true;
+            if d.base.is_some() {
+                return Fait::default();
+            }
+            match Base::ouvrir(&dossier, heure::maintenant()) {
+                Ok((b, appliquees)) => {
+                    journal.ecrire(&b.ligne_journal(&appliquees));
+                    base_ouverte(&b, &dossier, &journal);
+                    d.base = Some(b);
+                    Fait {
+                        message: Some("Tes données sont de nouveau là.".into()),
+                        journal: Some(format!("Base : ouverte à l'essai {}", n + 1)),
+                        change: true,
+                        ..Fait::default()
+                    }
+                }
+                Err(e) if n + 1 < BASE_ESSAIS && base_passagere(&e) => {
+                    prochain = Some((Instant::now() + BASE_REESSAI, n + 1));
+                    Fait {
+                        message: (n == 0).then(|| {
+                            "Tes données sont occupées par un autre programme. Jobmind réessaie toute seule dans un \
+                             instant."
+                                .to_string()
+                        }),
+                        journal: Some(format!("Base : toujours pas ouverte à l'essai {} ({e})", n + 1)),
+                        ..Fait::default()
+                    }
+                }
+                Err(e) => Fait {
+                    message: Some("Jobmind n'arrive pas à ouvrir tes données. Ferme-la, puis rouvre-la.".to_string()),
+                    journal: Some(format!("Base : abandon après {} essais ({e})", n + 1)),
+                    ..Fait::default()
+                },
+            }
+        });
+        // (les données occupées : au prochain pas, le même essai)
+        if essaye {
+            self.base_reessai = prochain;
+        }
     }
 
     /// Étape 8 : ce que Claude a rendu pour la candidature.
@@ -2486,6 +2683,8 @@ impl Etat {
         self.jour = jour;
         if self.renvoyer(app) {
             self.journal.ecrire(&format!("Suivi : nouveau jour ({})", jour.iso()));
+            // (étape 12 : la copie automatique de ce jour, dès que rien n'est en cours)
+            self.copie_due = true;
         } else {
             // (les données occupées : au prochain pas)
             self.jour = avant;
@@ -2586,18 +2785,25 @@ impl Etat {
             Some("l'import de ton CV")
         } else if self.attente_vue.is_some() || self.connexion_vue.is_some() {
             Some("ce que Jobmind fait sur le site")
+        } else if self.coulisse.po_occupe() {
+            Some("ta candidature sur le site (ferme-la d'abord)")
         } else {
             None
         }
     }
 
-    /// Une sauvegarde vient d'être remise : ce qui était ouvert à l'écran ne veut plus rien dire.
+    /// Une sauvegarde vient d'être remise : ce qui était ouvert à l'écran ne veut plus rien dire. Les compteurs des
+    /// demandes (offres, préparation, envoi, import) sont gardés : un vieux résultat ne passe jamais pour un nouveau.
     fn apres_remise(&mut self) {
         self.suivi = Suivi::default();
-        self.profil = Profil::default();
-        self.offres = Offres::default();
-        self.preparation = crate::preparation::Preparation::default();
-        self.envoi = crate::envoi::Envoi::default();
+        self.profil.apres_remise();
+        self.offres.apres_remise();
+        self.preparation.apres_remise();
+        self.envoi.apres_remise();
+        self.boite.ouvert = None;
+        if self.coulisse.apres_remise() {
+            self.programmer(Ordre::Cacher);
+        }
     }
 
     /// L'onglet Offres est montré : les nouvelles offres trouvées toutes seules sont vues (la carte de Mindset suit).
@@ -3031,4 +3237,67 @@ pub fn quitter_sans_rien_lacher<T: 'static>(etat: &'static LocalKey<RefCell<Opti
     let reste = etat.with(|e| e.try_borrow_mut().ok().and_then(|mut e| e.take()));
     std::mem::forget(reste);
     std::process::exit(code)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn u(a: &str) -> Url {
+        a.parse().unwrap()
+    }
+
+    /// Avant de taper un mot de passe, remplir, cliquer ou déposer le CV : la page vue de Rust doit être en https et
+    /// sur l'hôte attendu.
+    #[test]
+    fn la_page_vue_de_rust() {
+        let attendu = "https://smartapply.indeed.com/postuler/coordonnees";
+        assert!(page_sure(Some(&u("https://smartapply.indeed.com/postuler/coordonnees")), attendu));
+        assert!(page_sure(Some(&u("https://SMARTAPPLY.indeed.com./postuler/cv")), attendu));
+        for autre in [
+            "https://exemple-piege.fr/postuler/coordonnees",
+            "https://smartapply.indeed.com.exemple-piege.fr/",
+            "http://smartapply.indeed.com/postuler/coordonnees",
+            "https://smartapply.indeed.com:8443/postuler/coordonnees",
+            "about:blank",
+            "data:text/html,salut",
+        ] {
+            assert!(!page_sure(Some(&u(autre)), attendu), "{autre}");
+        }
+        assert!(!page_sure(None, attendu));
+        assert!(!page_sure(Some(&u("https://smartapply.indeed.com/")), "pas une adresse"));
+        // (une page attendue en http : jamais rien tapé, sauf le faux serveur de la construction d'essai)
+        assert!(!page_sure(Some(&u("http://emplois.exemple.fr/")), "http://emplois.exemple.fr/"));
+        assert_eq!(
+            page_sure(Some(&u("http://127.0.0.1:4000/site/x")), "http://127.0.0.1:4000/site/y"),
+            cfg!(feature = "essai")
+        );
+    }
+
+    /// Le CV est déposé dans la case marquée d'un jeton tiré au hasard, jamais par son rang.
+    #[test]
+    fn la_case_du_cv_marquee_d_un_jeton() {
+        let a = jeton_cible();
+        let b = jeton_cible();
+        assert_eq!(a.len(), 32);
+        assert!(a.bytes().all(|x| x.is_ascii_hexdigit()));
+        assert_ne!(a, b);
+        let s = script_case_fichier("https://exemple.fr/p", 3, &a);
+        assert!(s.contains(&format!("\"{a}\"")) && s.contains("data-jm-cible") && s.contains("[3]"));
+        assert!(SCRIPT_LECTURE.contains("removeAttribute('data-jm-cible')"));
+    }
+
+    /// Une base qui ne s'ouvre pas : un nouvel essai seulement si la raison peut passer.
+    #[test]
+    fn base_occupee_ou_abimee() {
+        use jobmind_storage::ErreurBase;
+        use jobmind_storage::rusqlite::{Error, ffi};
+        let sqlite = |code| ErreurBase::Sqlite(Error::SqliteFailure(ffi::Error::new(code), None));
+        assert!(base_passagere(&sqlite(ffi::SQLITE_BUSY)));
+        assert!(base_passagere(&sqlite(ffi::SQLITE_CANTOPEN)));
+        assert!(base_passagere(&ErreurBase::Dossier(std::io::Error::other("verrou"))));
+        assert!(!base_passagere(&sqlite(ffi::SQLITE_CORRUPT)));
+        assert!(!base_passagere(&sqlite(ffi::SQLITE_NOTADB)));
+        assert!(!base_passagere(&ErreurBase::Future { trouvee: 99, connue: 12 }));
+    }
 }

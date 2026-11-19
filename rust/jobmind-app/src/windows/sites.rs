@@ -91,14 +91,14 @@ pub fn dans_la_fenetre(principale: usize, h: usize) -> bool {
     h == principale || unsafe { IsChild(super::hwnd(principale), super::hwnd(h)) }.as_bool()
 }
 
-/// Étape 11 : dépose un fichier (le CV de Mon CV, choisi par Jobmind, jamais par la page) dans la case de rang `i`
-/// de la page (`input`, `textarea`, `select`, `button`, dans l'ordre de la page), par le protocole des outils de
-/// WebView2 : `DOM.getDocument`, `DOM.querySelectorAll`, puis `DOM.setFileInputFiles`. Une page ne peut pas poser
+/// Étape 11 : dépose un fichier (le CV de Mon CV, choisi par Jobmind, jamais par la page) dans la case marquée par le
+/// script de vérification (`[data-jm-cible="<jeton>"]`, un jeton tiré au hasard, jamais un rang), par le protocole des
+/// outils de WebView2 : `DOM.getDocument`, `DOM.querySelector`, puis `DOM.setFileInputFiles`. Une page ne peut pas poser
 /// elle-même un fichier dans sa case (le navigateur l'interdit) ; ce chemin ne passe pas par la page, et la vue des
 /// sites n'a toujours accès à aucune commande de Jobmind. Le résultat est rendu à `rendre`, sur le fil de la fenêtre.
 pub fn deposer_fichier(
     v: &Webview,
-    i: usize,
+    jeton: &str,
     chemin: String,
     rendre: impl FnOnce(Result<(), String>) + Send + 'static,
 ) -> tauri::Result<()> {
@@ -112,6 +112,12 @@ pub fn deposer_fichier(
             f(x);
         }
     }
+    // (le jeton ne vient que de Jobmind : 32 chiffres hexadécimaux ; autre chose n'est jamais mis dans un sélecteur)
+    if jeton.len() != 32 || !jeton.bytes().all(|b| b.is_ascii_hexdigit()) {
+        rendre(Err("jeton de la case invalide".into()));
+        return Ok(());
+    }
+    let selecteur = format!("input[type=file][data-jm-cible=\"{jeton}\"]");
     v.with_webview(move |pw| {
         let rendre: Rendre = Rc::new(RefCell::new(Some(Box::new(rendre))));
         let r0 = Rc::clone(&rendre);
@@ -138,7 +144,8 @@ pub fn deposer_fichier(
                         let id = res
                             .ok()
                             .and_then(|_| serde_json::from_str::<serde_json::Value>(&json).ok())
-                            .and_then(|v| v.get("nodeIds").and_then(|l| l.get(i)).and_then(serde_json::Value::as_i64));
+                            .and_then(|v| v.get("nodeId").and_then(serde_json::Value::as_i64))
+                            .filter(|id| *id > 0);
                         let Some(id) = id else {
                             finir(&r2, Err("case introuvable".into()));
                             return Ok(());
@@ -159,10 +166,9 @@ pub fn deposer_fichier(
                         }
                         Ok(())
                     }));
-                    let p =
-                        serde_json::json!({ "nodeId": racine, "selector": "input,textarea,select,button" }).to_string();
+                    let p = serde_json::json!({ "nodeId": racine, "selector": selecteur }).to_string();
                     if let Err(e) = w1.CallDevToolsProtocolMethod(
-                        &windows::core::HSTRING::from("DOM.querySelectorAll"),
+                        &windows::core::HSTRING::from("DOM.querySelector"),
                         &windows::core::HSTRING::from(p),
                         &h2,
                     ) {

@@ -2410,7 +2410,9 @@
     const attend = poEnAttente(p);
     const nom = o.bouton?.suivant === true ? t('continuer') : t('envoyer');
     const peut = o.peut === true && !attend && o.phase === 'pret';
-    const moi = ['pret', 'bloque'].includes(o.phase) ? bouton('po-moi', 'po:moi', t('moi'), 'ext', 'discret') : '';
+    // (jamais deux fois le même bouton : quand la phrase du haut propose déjà la page du site, le bas ne la redit pas)
+    const voirEnHaut = o.phase === 'bloque' && texteSur(a.texte) && a.genre !== 'connexion';
+    const moi = ['pret', 'bloque'].includes(o.phase) && !voirEnHaut ? bouton('po-moi', 'po:moi', t('moi'), 'ext', 'discret') : '';
     h += `<div class="jm-e-bas">${icone('cadenas')}<span>${esc(t('cadenas'))}</span>${moi}${bouton('po-remplir', 'po:remplir', t('remplir'), 'envoi', 'second', attend && o.phase === 'pret' ? '' : ' hidden')}${o.phase === 'pret' ? bouton('po-envoyer', 'po:envoyer', nom, o.bouton?.suivant === true ? 'droite' : 'envoi', 'principal', peut ? '' : ' disabled') : ''}</div></div>`;
     return h;
   }
@@ -2851,6 +2853,12 @@
       // (pour les captures) un clic sur un élément de l'écran, par son data-k (« cal:2026-11-10 », « f:enregistrer »)
       if (typeof o.cliquer === 'string' && /^[a-z]{1,4}:[a-z0-9-]{1,12}$/.test(o.cliquer)) {
         hote.querySelector(`#jm [data-k="${o.cliquer}"]`)?.click();
+        return;
+      }
+      // (pour les captures) une zone de texte prise puis quittée par Échap : la « zone libre »
+      if (typeof o.libre === 'string' && /^[a-z]{1,4}:[a-z0-9-]{1,12}$/.test(o.libre)) {
+        const z = hote.querySelector(`#jm textarea[data-k="${o.libre}"]`);
+        if (z) { z.focus({ preventScroll: true }); libre(z, true); }
         return;
       }
       // (étape 7) un mail à ranger ouvert (pour les captures, et après « Rien à voir » : le suivant)

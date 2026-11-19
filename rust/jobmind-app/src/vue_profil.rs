@@ -136,7 +136,7 @@ fn rubrique_cv(v: &VueProfil, aujourdhui: Jour) -> Value {
             "longueur": CV_TEXTE_MAX,
             "vide": {
                 "titre": "Aucun CV pour l'instant.",
-                "texte": "Donne ton CV à Jobmind : il s'en servira pour préparer chaque candidature. Choisis le \
+                "texte": "Donne ton CV à Jobmind : elle s'en servira pour préparer chaque candidature. Choisis le \
                           fichier de ton CV, ou colle son texte.",
                 "note": "Le fichier reste sur ce PC. Il sera joint à tes candidatures.",
             },

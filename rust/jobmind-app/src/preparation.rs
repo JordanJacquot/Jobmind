@@ -18,7 +18,7 @@
 
 use jobmind_core::Jour;
 use jobmind_core::cle::Service;
-use jobmind_core::preparation::{self as prep, morceaux, retirer_phrase, verifier_consigne, verifier_lettre};
+use jobmind_core::preparation::{self as prep, morceaux, verifier_consigne, verifier_lettre};
 use jobmind_core::style::Intensite;
 use jobmind_humanizer::reecriture::{self, Depart, Sources, Stylee};
 use jobmind_humanizer::{Regles, plancher, score, surlignage};
@@ -241,6 +241,13 @@ fn quand(m: Moment, aujourdhui: Jour) -> String {
 }
 
 impl Preparation {
+    /// Une sauvegarde vient d'être remise : tout revient au départ, sauf le compteur des demandes.
+    pub fn apres_remise(&mut self) {
+        let jetons = self.jetons;
+        *self = Preparation::default();
+        self.jetons = jetons;
+    }
+
     /// La demande en cours est pour cette offre.
     pub fn jeton_en_cours(&self) -> Option<u64> {
         self.en_cours.as_ref().map(|e| e.jeton)
@@ -259,8 +266,8 @@ impl Preparation {
             RETIRER => marquer(base, v, true, maintenant),
             STYLER => self.styler(base, ctx.cles, v, maintenant),
             CHOISIR => choisir(base, v),
-            S_JUSTE => marquer_style(base, v, false),
-            S_RETIRER => marquer_style(base, v, true),
+            S_JUSTE => marquer_style(base, v, false, maintenant),
+            S_RETIRER => marquer_style(base, v, true, maintenant),
             COPIE => Ok(Fait {
                 journal: Some(format!(
                     "Préparation : {} copiée",
@@ -973,6 +980,21 @@ fn choisir(base: &Base, v: &Value) -> rusqlite::Result<Fait> {
         Choix::Style => "C'est noté : tu gardes la lettre dans ton style.",
         Choix::Moi => "C'est noté : tu gardes ta lettre.",
     };
+    // (une phrase que Jordan a retirée est encore dans la lettre qu'il vient de choisir : il le sait tout de suite,
+    // et l'envoi est bloqué tant qu'elle y est)
+    let retirees = base_prep::retirees_dans_la_gardee(base.connexion(), id)?;
+    if !retirees.is_empty() {
+        return Ok(Fait {
+            message: Some(format!("{} {}", t, phrase_retirees(&retirees))),
+            journal: Some(format!(
+                "Style : version {id}, lettre gardée : {}, avec {} phrase(s) retirée(s) encore dedans",
+                choix.code(),
+                retirees.len()
+            )),
+            change: true,
+            ..Fait::default()
+        });
+    }
     Ok(Fait {
         message: Some(t.into()),
         bravo: true,
@@ -982,38 +1004,69 @@ fn choisir(base: &Base, v: &Value) -> rusqlite::Result<Fait> {
     })
 }
 
-/// « C'est juste » ou « Retirer » dans la version dans le style de Jordan.
-fn marquer_style(base: &Base, v: &Value, retirer: bool) -> rusqlite::Result<Fait> {
+/// La phrase qui dit à Jordan qu'une phrase qu'il a retirée est encore dans la lettre qu'il garde (montrée telle
+/// quelle, coupée si elle est longue).
+pub fn phrase_retirees(retirees: &[String]) -> String {
+    let citees: Vec<String> = retirees.iter().take(3).map(|p| format!("« {} »", couper_phrase(p))).collect();
+    let fin = "Retire-la de cette lettre, ou garde une autre lettre, avant d'envoyer.";
+    if retirees.len() == 1 {
+        format!("Attention : cette lettre contient encore une phrase que tu as retirée : {}. {fin}", citees[0])
+    } else {
+        format!(
+            "Attention : cette lettre contient encore des phrases que tu as retirées : {}. Retire-les de cette lettre, \
+             ou garde une autre lettre, avant d'envoyer.",
+            citees.join(", ")
+        )
+    }
+}
+
+/// Une phrase coupée à 120 caractères (avec « ... »).
+fn couper_phrase(p: &str) -> String {
+    let p = p.trim();
+    if p.chars().count() <= 120 { p.to_string() } else { format!("{}...", p.chars().take(117).collect::<String>()) }
+}
+
+/// Le message de « Retirer » : la phrase est partie, ou elle reste dans la lettre que Jordan garde (celle de Claude,
+/// jamais changée, ou celle dans son style où elle n'a pas pu être retirée).
+fn fait_retrait(r: &base_prep::Retrait, id: i64, ou: &str) -> Fait {
+    let message = if r.encore_dans_la_gardee {
+        "Cette phrase est encore dans la lettre que tu gardes. Garde ta lettre ou celle dans ton style, ou modifie-la, \
+         avant d'envoyer."
+            .to_string()
+    } else {
+        format!("La phrase est retirée {ou}.")
+    };
+    Fait {
+        message: Some(message),
+        journal: Some(format!(
+            "Préparation : phrase à vérifier retirée partout (version {id} ; lettre {}, style {}, encore dans la gardée : \
+             {})",
+            r.retiree_lettre, r.retiree_style, r.encore_dans_la_gardee
+        )),
+        change: true,
+        ..Fait::default()
+    }
+}
+
+/// « C'est juste » ou « Retirer » dans la version dans le style de Jordan. « Retirer » enlève la phrase de toutes les
+/// lettres modifiables de la version (la sienne et celle dans son style), sans changer la lettre qu'il garde.
+fn marquer_style(base: &Base, v: &Value, retirer: bool, maintenant: Moment) -> rusqlite::Result<Fait> {
     let c = base.connexion();
     let (Some(id), Some(n)) = (numero(v, "id"), v.get("n").and_then(Value::as_u64)) else { return Ok(Fait::default()) };
     let Some(p) = base_prep::lire(c, id)? else { return Ok(Fait { change: true, ..Fait::default() }) };
     let (Some(lettre), Some(phrase)) = (p.lettre_style.clone(), p.style_a_verifier.get(n as usize).cloned()) else {
         return Ok(Fait { change: true, ..Fait::default() });
     };
-    let mut l = p.style_a_verifier.clone();
-    let mut t = lettre;
     if retirer {
-        l.remove(n as usize);
-        if let Some(x) = retirer_phrase(&t, &phrase.texte).filter(|x| !x.is_empty()) {
-            t = x;
-        }
-    } else {
-        l[n as usize].vue = true;
+        let r = base_prep::retirer_phrase_partout(c, id, &phrase.texte, maintenant)?;
+        return Ok(fait_retrait(&r, id, "de la lettre dans ton style"));
     }
-    base_prep::changer_style(c, id, &t, &l)?;
+    let mut l = p.style_a_verifier.clone();
+    l[n as usize].vue = true;
+    base_prep::changer_style(c, id, &lettre, &l)?;
     Ok(Fait {
-        message: Some(
-            if retirer {
-                "La phrase est retirée de la lettre dans ton style."
-            } else {
-                "C'est noté : la phrase reste."
-            }
-            .into(),
-        ),
-        journal: Some(format!(
-            "Style : phrase à vérifier {} (version {id})",
-            if retirer { "retirée" } else { "gardée" }
-        )),
+        message: Some("C'est noté : la phrase reste.".into()),
+        journal: Some(format!("Style : phrase à vérifier gardée (version {id})")),
         change: true,
         ..Fait::default()
     })
@@ -1089,24 +1142,17 @@ fn marquer(base: &Base, v: &Value, retirer: bool, maintenant: Moment) -> rusqlit
     let Some(p) = base_prep::lire(c, id)? else { return Ok(Fait { change: true, ..Fait::default() }) };
     let n = n as usize;
     let Some(phrase) = p.a_verifier.get(n).cloned() else { return Ok(Fait { change: true, ..Fait::default() }) };
-    let mut l = p.a_verifier.clone();
     if retirer {
-        l.remove(n);
-        if let Some(t) = retirer_phrase(&p.lettre, &phrase.texte).filter(|t| !t.is_empty()) {
-            base_prep::modifier_lettre(c, id, &t, maintenant)?;
-        }
-    } else {
-        l[n].vue = true;
+        // (de toutes les lettres modifiables ; la lettre gardée ne change pas : modifier_texte_lettre)
+        let r = base_prep::retirer_phrase_partout(c, id, &phrase.texte, maintenant)?;
+        return Ok(fait_retrait(&r, id, "de ta lettre"));
     }
+    let mut l = p.a_verifier.clone();
+    l[n].vue = true;
     base_prep::changer_a_verifier(c, id, &l)?;
     Ok(Fait {
-        message: Some(
-            if retirer { "La phrase est retirée de ta lettre." } else { "C'est noté : la phrase reste." }.into(),
-        ),
-        journal: Some(format!(
-            "Préparation : phrase à vérifier {} (version {id})",
-            if retirer { "retirée" } else { "gardée" }
-        )),
+        message: Some("C'est noté : la phrase reste.".into()),
+        journal: Some(format!("Préparation : phrase à vérifier gardée (version {id})")),
         change: true,
         ..Fait::default()
     })

@@ -237,11 +237,16 @@ l'étape 13.
     nom de chaque case vérifiés, rien de la page exécuté) ; le CV est déposé par le protocole des outils de WebView2
     (`DOM.setFileInputFiles`, avec le fichier de Mon CV, jamais un fichier choisi par la page) ; sinon Jordan le joint
     lui-même dans la petite fenêtre ;
-  - le récapitulatif (maquette C, comme l'envoi par mail), RELU sur la page après le remplissage : chaque champ du
-    site, ce qu'il contient, d'où ça vient (ton profil, ton CV, ta lettre, réponse préparée, tapé par toi), ce qui
-    reste à compléter (une case, une liste ou des choix dans Jobmind, puis « Mettre mes réponses sur le site ») ; les
-    étapes déjà passées ; « Le faire moi-même sur la page » (la petite fenêtre, sans recharger ; en la fermant, la page
-    est relue et ce que Jordan y a mis est gardé) ;
+  - le récapitulatif (maquette C, comme l'envoi par mail), calculé en Rust d'après le formulaire LU, SANS rien taper
+    dans la page (audit : le JavaScript du site ne voit ni les coordonnées, ni la lettre, ni le CV avant le clic de
+    Jordan) : chaque champ du site, ce que Jobmind y mettra, d'où ça vient (ton profil, ton CV, ta lettre, réponse
+    préparée, tapé par toi), ce qui reste à compléter (une case, une liste ou des choix dans Jobmind, puis « Garder mes
+    réponses ») ; une page qui n'est sur aucun des quatre sites connus est nommée en clair (« Cette page est sur
+    exemple.com ») avant le premier remplissage ; les étapes déjà passées ; « Voir la page du site » (la petite
+    fenêtre, sans recharger ni remplir ; en la fermant, la page est relue et ce que Jordan y a mis est gardé) ;
+  - au clic de Jordan sur « Continuer sur le site » ou « Envoyer », Jobmind remplit la page de cette étape (le CV par
+    la case marquée d'un jeton tiré au hasard, jamais par son rang ; la page vérifiée aussi côté Rust : https et hôte
+    attendu, avant tout script qui tape ou clique), la relit, et n'avance que si elle montre bien tout ;
   - rien n'est validé sans le clic de Jordan : « Continuer sur le site » pour une étape, « Envoyer » pour l'envoi
     (tout vérifié en Rust, une minute entre deux envois et 20 par jour, l'envoi noté dans la base AVANT le clic de
     Jobmind sur le bouton du site) ; ce qui revient : la page de confirmation (la candidature entre dans le suivi au
@@ -278,6 +283,16 @@ l'étape 13.
     France Travail ; aucune lecture par Claude ; le réseau coupé ou le plafond arrêtent le tour ; chaque recherche notée
     (table `rafraichissements`) ; la bulle « 17 nouvelles offres » une seule fois par tour (un clic ouvre l'onglet
     Offres), « 17 nouvelles offres » sur la carte de Mindset jusqu'à ce que Jordan ouvre l'onglet Offres ; migration 12.
+- [x] **Audit, partie 2 (appli)** : le suivi tient compte des réponses arrivées (« Une réponse est arrivée, regarde-la. »
+  à la place d'une relance, ni bulle ni relance comptée sur la carte de Mindset) ; « Renvoyée par mail » dans la frise ;
+  le chiffre de l'onglet Candidatures sans doublon, avec tous les mails à ranger ; une sauvegarde se remet aussi quand
+  la base est abîmée ou absente (la base abîmée gardée telle quelle dans `sauvegardes`), les restes d'un arrêt brutal
+  effacés au démarrage ; une phrase « Retirée » part de toutes les lettres modifiables, et RIEN ne part (mail ou site)
+  tant que la lettre gardée la contient ; la version regardée est celle qui part ; l'heure des mails reçus en heure
+  locale ; un envoi par mail sans réponse après 5 minutes, ou parti mais pas noté, devient « incertain » ; la remise
+  oublie ce qui était ouvert sans remettre les compteurs à zéro, et attend la fin d'une candidature sur un site ; la
+  copie automatique et le journal raccourci chaque jour ; une base occupée au démarrage est réessayée toutes les 30 s
+  (5 minutes) ; la vue des sites refuse le réseau local (box, imprimante, `*.local`) ; Jobmind au féminin partout.
 - [ ] **13. Publication** : dépôt GitHub privé ; dans Mindset, une appli réservée au PC de Jordan et lue depuis un dépôt
   privé ; essais en vrai.
 
@@ -345,7 +360,8 @@ livrée :
   y tape le chemin et clique « Importer ». Les vues
   `calendrier` (le petit calendrier de la date ouverte, dans « ajouter », « modifier » ou « entretien »), `jour:<n>`
   (un clic sur le jour n du mois en cours : le champ se remplit) et `clic:<data-k>` (un clic sur un élément, par
-  exemple `clic:f:enregistrer` ou `clic:e:ok`) montrent les dates, par exemple
+  exemple `clic:f:enregistrer` ou `clic:e:ok`) montrent les dates (`libre:<data-k>` : une zone de texte prise puis
+  quittée par Échap, la « zone libre », par exemple `clic:p:notes,libre:p:notes`), par exemple
   `-Vues 'candidature:1,modifier,calendrier,jour:10,clic:f:enregistrer,candidature:2,entretien,calendrier,jour:25,clic:e:ok'`.
   L'onglet Offres (étape 4) : la construction d'essai envoie ses recherches à un faux serveur local qui imite Adzuna et
   Jooble (jamais internet ; `-Exemples` donne aussi des recherches tirées du profil inventé) ; `chercher` clique
@@ -386,10 +402,11 @@ livrée :
   exemple `-Exemples -Vues 'offres,chercher,boite:brancher,importer:<un CV en PDF>,cle:claude,offre:16,preparer,clic:pr:r-0,envoi:ouvrir,smtp:destinataire,envoyer-mail,smtp:normal,envoyer-mail,clic:en:dossier'` ;
   l'envoi sur le site (étape 11) : les formulaires imités du faux serveur local (jamais un vrai site, aucune vraie
   candidature) ; `offres-site` ajoute leurs offres inventées (dans une base neuve : Indeed 1, Welcome to the Jungle 2,
-  France Travail 3, un site inconnu 4, une page illisible 5, LinkedIn 6), `postuler` clique « Postuler sur le site » et
-  attend la page lue, `po-saisie:<rang>=<valeur>` tape une valeur dans le récapitulatif, `clic:po:a-<rang>` coche
-  « Je suis d'accord », `po-remplir`, `po-envoyer` et `po-attendre` cliquent (ou attendent) puis attendent la réponse
-  du site au journal, `formulaires:refus` fait refuser le prochain envoi, `clic:pf:fait` dit « C'est envoyé », par
+  France Travail 3, un site inconnu 4, une page illisible 5, LinkedIn 6), `postuler` clique « Postuler sur ... » et
+  attend le récapitulatif (rien n'est rempli), `po-saisie:<rang>=<valeur>` tape une valeur dans le récapitulatif,
+  `clic:po:a-<rang>` coche « Je suis d'accord », `po-remplir` (« Garder mes réponses »), `po-envoyer` (le
+  remplissage, la relecture puis le clic de Jobmind) et `po-attendre` cliquent (ou attendent) puis attendent la
+  réponse du site au journal, `formulaires:refus` fait refuser le prochain envoi, `clic:pf:fait` dit « C'est envoyé », par
   exemple `-Exemples -Vues 'offres-site,importer:<un CV en PDF>,cle:claude,offre:1,preparer,postuler,po-envoyer'` ;
   l'étape 12 : `bilan` ouvre Mon bilan, `sauver:<chemin>`, `csv:<chemin>` et `pdf:<chemin>` cliquent le bouton de
   Réglages et enregistrent à ce chemin à la place de la boîte « Enregistrer sous » (`fichier.essai` ; `{essai}` : le

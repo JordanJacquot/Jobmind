@@ -134,6 +134,13 @@ pub struct Profil {
 }
 
 impl Profil {
+    /// Une sauvegarde vient d'être remise : tout revient au départ, sauf le compteur des imports.
+    pub fn apres_remise(&mut self) {
+        let jetons = self.jetons;
+        *self = Profil::default();
+        self.jetons = jetons;
+    }
+
     /// Ce que l'écran montre, d'après la base et les clés. Une base illisible : rien, et la raison pour le journal.
     pub fn vue(&mut self, base: Option<&Base>, cles: Option<&Cles>) -> (VueProfil, Option<String>) {
         let mut v = VueProfil {

@@ -11,12 +11,15 @@
 //!    un choix seulement s'il se lit clairement dans la réponse) ; rien d'autre n'est inventé : le reste est « à
 //!    compléter » par Jordan dans le récapitulatif (ou lui-même dans la petite fenêtre du site) ; une case « j'accepte »
 //!    n'est cochée que si Jordan la coche dans Jobmind ;
-//! 3. Jobmind remplit la page (un script qui pose les valeurs comme au clavier, sans rien exécuter venu de la page ;
-//!    le CV par le protocole des outils de WebView2, `DOM.setFileInputFiles`, avec le fichier de Mon CV), puis RELIT
-//!    la page : le récapitulatif montre ce que la page contient vraiment, champ par champ ;
+//! 3. le récapitulatif est calculé en Rust à partir du formulaire LU, sans rien taper dans la page : le JavaScript du
+//!    site ne voit ni les coordonnées, ni la lettre, ni le CV avant le clic de Jordan. Une page qui n'est pas sur un des
+//!    quatre sites connus est nommée en clair (« Cette page est sur exemple.com ») avant le premier remplissage ;
 //! 4. rien ne part sans le clic de Jordan sur « Envoyer » (ou « Continuer sur le site » pour une étape) : tout est
-//!    vérifié en Rust, l'envoi est noté dans la base AVANT le clic de Jobmind sur le bouton du site, puis la page qui
-//!    revient dit ce qui s'est passé : la confirmation du site (la candidature entre dans le suivi, avec le contenu
+//!    vérifié en Rust, PUIS Jobmind remplit la page de cette étape (un script qui pose les valeurs comme au clavier,
+//!    sans rien exécuter venu de la page ; le CV par le protocole des outils de WebView2, `DOM.setFileInputFiles`,
+//!    avec le fichier de Mon CV) et la RELIT : si la page ne montre pas ce que Jobmind y a mis, rien n'avance et
+//!    Jordan le voit ; sinon l'envoi est noté dans la base AVANT le clic de Jobmind sur le bouton du site, puis la page
+//!    qui revient dit ce qui s'est passé : la confirmation du site (la candidature entre dans le suivi, avec le contenu
 //!    exact de chaque champ), un refus (rien n'est parti, l'erreur du site est montrée), une nouvelle étape, ou rien
 //!    de sûr (Jordan regarde la page et dit « C'est envoyé » ou « Ce n'est pas parti ») ;
 //! 5. un captcha, une connexion, un code : la petite fenêtre du site, Jordan fait lui-même, Jobmind reprend. Aucun
@@ -57,6 +60,10 @@ const GESTES: [&str; 7] = [OUVRIR, FERMER, REMPLIR, ENVOYER, VOIR, FAIT, PAS_PAR
 pub fn est_geste(id: &str) -> bool {
     GESTES.contains(&id)
 }
+
+/// Ce que le programme rend quand l'adresse de la page, vue de Rust, n'est pas celle attendue ou pas en https : rien
+/// n'est posé sur la page.
+pub const PAGE_PAS_SURE: &str = "adresse vue par Jobmind";
 
 /// Les liens ou boutons « Postuler » suivis au plus avant de trouver le formulaire.
 const SAUTS_MAX: u32 = 2;
@@ -143,14 +150,21 @@ pub struct Ligne {
     pub relu: String,
     pub conforme: bool,
     pub max: Option<usize>,
+    /// Pas encore posé sur la page : le récapitulatif montre ce que Jobmind y mettra au clic de Jordan
+    pub prevu: bool,
 }
 
 impl Ligne {
-    /// « ok », « a_completer », « different », « accord », « facultatif », « a_joindre »
+    /// « ok », « a_completer », « different », « accord », « facultatif », « a_joindre ». Une ligne prévue (pas encore
+    /// posée sur la page) est jugée sur ce que Jobmind y mettra.
     pub fn etat(&self) -> &'static str {
-        let vide = self.relu.trim().is_empty();
+        let (vide, conforme) = if self.prevu && self.voulu.is_some() {
+            (false, true)
+        } else {
+            (self.relu.trim().is_empty(), self.conforme)
+        };
         match (self.genre, self.sorte) {
-            (Genre::Consentement, _) if !self.conforme || self.voulu.as_deref() != Some("1") => {
+            (Genre::Consentement, _) if !conforme || self.voulu.as_deref() != Some("1") => {
                 if self.obligatoire {
                     "accord"
                 } else {
@@ -164,7 +178,7 @@ impl Ligne {
                     "facultatif"
                 }
             }
-            _ if self.voulu.is_some() && !self.conforme => "different",
+            _ if self.voulu.is_some() && !conforme => "different",
             _ if vide && self.obligatoire => "a_completer",
             _ if vide => "facultatif",
             _ => "ok",
@@ -228,13 +242,21 @@ pub struct Postuler {
     pub clic_apres_captcha: bool,
     /// La prochaine relecture garde ce que Jordan a mis lui-même sur la page (après la petite fenêtre)
     pub importer_page: bool,
+    /// Les valeurs de cette étape sont posées sur la page (au clic de Jordan, juste avant d'avancer)
+    pub posee: bool,
+    /// Après le remplissage et la relecture, Jobmind avance (le clic de Jordan sur « Envoyer » ou « Continuer »)
+    pub avancer: bool,
+    /// La page a déjà été remplie une fois pour cette candidature
+    pub remplie_une_fois: bool,
 }
 
-/// Ce qu'il faut aux gestes.
+/// Ce qu'il faut aux gestes. `montree` : la version de la candidature préparée que Jordan regarde (la même part par
+/// mail et sur le site).
 pub struct Contexte<'a> {
     pub base: Option<&'a Base>,
     pub dossier: &'a Path,
     pub gmail: Option<String>,
+    pub montree: Option<i64>,
 }
 
 /// Ce qu'un ordre à la vue a donné (rendu par le programme).
@@ -272,6 +294,18 @@ fn nom_site(s: Site) -> &'static str {
     if s == Site::Autre { "le site" } else { s.nom() }
 }
 
+/// Le vrai nom du bouton qui commence la candidature (« Postuler sur Indeed », « Postuler sur le site »).
+pub fn nom_bouton(s: Site) -> String {
+    format!("Postuler sur {}", nom_site(s))
+}
+
+/// L'hôte d'une page de candidature qui n'est sur aucun des quatre sites connus (« emplois.exemple.fr ») : à nommer
+/// en clair à Jordan avant de remplir. Rien : un site connu, ou une adresse illisible.
+pub fn hote_inconnu(adresse: &str) -> Option<String> {
+    let a = Adresse::lire(adresse)?;
+    (Site::depuis_hote(&a.hote) == Site::Autre).then(|| a.hote.trim_start_matches("www.").to_string())
+}
+
 /// L'adresse de candidature d'une offre : le premier lien http(s) de son groupe.
 fn adresse_offre(o: &base_offres::OffreComplete) -> Option<String> {
     o.liens.iter().map(|l| l.url.trim().to_string()).find(|u| Adresse::lire(u).is_some())
@@ -287,13 +321,20 @@ fn lire_donnees(
     c: &rusqlite::Connection,
     dossier: &Path,
     offre: i64,
+    montree: Option<i64>,
     gmail: Option<String>,
 ) -> rusqlite::Result<Result<Donnees, String>> {
     let mut d = Donnees::default();
-    let Some(p) = base_prep::lister(c, offre)?.into_iter().next() else {
+    // (la version que Jordan regarde, la même que pour l'envoi par mail)
+    let Some(p) = crate::envoi::version_envoyee(c, offre, montree)? else {
         return Ok(Err("Prépare d'abord ta candidature : il n'y a pas encore de lettre.".into()));
     };
     let lettre = p.lettre_gardee().trim().to_string();
+    // (une phrase retirée par Jordan, encore dans la lettre qu'il garde : rien ne part)
+    let retirees = base_prep::retirees_dans_la_gardee(c, p.id)?;
+    if !retirees.is_empty() {
+        return Ok(Err(crate::preparation::phrase_retirees(&retirees)));
+    }
     let liste = if p.choix() == base_prep::Choix::Style { &p.style_a_verifier } else { &p.a_verifier };
     if liste.iter().any(|x| !x.vue && lettre.contains(&x.texte)) {
         return Ok(Err(
@@ -369,6 +410,17 @@ fn lire_donnees(
     Ok(Ok(d))
 }
 
+/// Les tests (envoi par mail et site) : ce que Jobmind sait de Jordan pour remplir, pour cette version.
+#[cfg(test)]
+pub(crate) fn tests_lire_donnees(
+    c: &rusqlite::Connection,
+    dossier: &Path,
+    offre: i64,
+    montree: Option<i64>,
+) -> Result<Donnees, String> {
+    lire_donnees(c, dossier, offre, montree, None).expect("base lisible")
+}
+
 impl Postuler {
     /// Ce que Jobmind met dans chaque champ du formulaire lu (les saisies de Jordan d'abord).
     fn planifier(&mut self, f: &Formulaire) {
@@ -442,10 +494,24 @@ impl Postuler {
                 relu: String::new(),
                 conforme: false,
                 max: c.max,
+                prevu: true,
             });
         }
         self.lignes = lignes;
         self.relire(f);
+    }
+
+    /// Les lignes sont prévues (rien posé par Jobmind) ou posées (relues après le remplissage).
+    fn prevoir(&mut self, prevu: bool) {
+        for l in &mut self.lignes {
+            l.prevu = prevu;
+        }
+    }
+
+    /// La page de cette étape doit encore être remplie par Jobmind (une valeur prévue pas encore sur la page, ou le
+    /// CV à déposer).
+    fn a_remplir(&self) -> bool {
+        !self.actions().is_empty() || self.case_fichier().is_some()
     }
 
     /// Ce que la page montre pour chaque ligne, et s'il est bien ce que Jobmind voulait.
@@ -595,7 +661,21 @@ impl Coulisse {
         r.unwrap_or_else(|e| Fait::refus(PAS_ENREGISTRE, format!("Site : {id} non enregistré ({e})")))
     }
 
-    /// « Postuler sur le site » : la page de l'offre chargée en coulisse (LinkedIn : montrée à Jordan).
+    /// Après une connexion réussie à ce site : la phrase « ... demande de te connecter » de la candidature en cours
+    /// n'a plus lieu d'être ; elle dit de reprendre.
+    pub fn po_connecte(&mut self, s: Site) {
+        if let Some(p) = self.postuler.as_mut()
+            && p.site == s
+            && p.annonce.as_ref().is_some_and(|a| a.1 == "connexion")
+        {
+            p.annonce = Some((
+                format!("Tu es connecté à {}. Clique « Réessayer » pour reprendre ta candidature.", s.nom()),
+                "ok",
+            ));
+        }
+    }
+
+    /// « Postuler sur ... » : la page de l'offre chargée en coulisse (LinkedIn : montrée à Jordan).
     fn po_ouvrir(&mut self, ctx: &Contexte, base: &Base, v: &Value) -> rusqlite::Result<Fait> {
         let c = base.connexion();
         let Some(id) = v.get("id").and_then(Value::as_i64).filter(|n| *n > 0) else { return Ok(Fait::default()) };
@@ -610,7 +690,7 @@ impl Coulisse {
         let Some(url) = adresse_offre(&o) else {
             return Ok(message("Cette offre n'a pas de lien vers un site : Jobmind ne peut pas y postuler."));
         };
-        let donnees = match lire_donnees(c, ctx.dossier, offre, ctx.gmail.clone())? {
+        let donnees = match lire_donnees(c, ctx.dossier, offre, ctx.montree, ctx.gmail.clone())? {
             Ok(d) => d,
             Err(m) => return Ok(message(m)),
         };
@@ -640,6 +720,9 @@ impl Coulisse {
             fichier: None,
             clic_apres_captcha: false,
             importer_page: false,
+            posee: false,
+            avancer: false,
+            remplie_une_fois: false,
         };
         let journal;
         let o = if linkedin {
@@ -689,7 +772,7 @@ impl Coulisse {
     }
 
     /// Ce que Jordan a tapé ou choisi dans le récapitulatif : vérifié, gardé (ses coordonnées aussi, pour la prochaine
-    /// fois), puis posé sur la page et relu.
+    /// fois) ; rien n'est posé sur la page avant son clic sur « Envoyer » ou « Continuer sur le site ».
     fn po_remplir(&mut self, base: &Base, v: &Value) -> Fait {
         let Some(p) = self.postuler.as_mut() else { return Fait::default() };
         if p.phase != Phase::Pret {
@@ -777,9 +860,9 @@ impl Coulisse {
             }
         }
         let n = p.saisies.len();
-        let mut f = self.po_remplir_page();
+        let mut f = self.po_preparer();
         f.journal = Some(format!(
-            "Site : {n} réponse(s) de Jordan posée(s) sur la page{}",
+            "Site : {n} réponse(s) de Jordan gardée(s) dans Jobmind, pas encore sur la page{}",
             if gardees.is_empty() {
                 String::new()
             } else {
@@ -789,7 +872,28 @@ impl Coulisse {
         f
     }
 
-    /// Prépare et pose les valeurs sur la page (puis le fichier du CV), avant de la relire.
+    /// Le récapitulatif d'après le formulaire LU, sans rien poser sur la page : ce que Jobmind y mettra au clic de
+    /// Jordan (les lignes prévues). La candidature attend Jordan.
+    fn po_preparer(&mut self) -> Fait {
+        if self.attente.as_ref().is_some_and(|a| a.but == But::Postuler) {
+            self.attente = None;
+            self.attendue = None;
+        }
+        let Some(p) = self.postuler.as_mut() else { return Fait::default() };
+        if let Some(f) = p.form.clone() {
+            p.planifier(&f);
+        }
+        p.prevoir(true);
+        p.posee = false;
+        p.avancer = false;
+        p.phase = Phase::Pret;
+        p.lectures = 0;
+        p.no = None;
+        Fait { change: true, ..Fait::default() }
+    }
+
+    /// Pose les valeurs prévues sur la page (puis le fichier du CV), avant de la relire : seulement au clic de Jordan
+    /// sur « Envoyer » ou « Continuer sur le site ».
     fn po_remplir_page(&mut self) -> Fait {
         let (site, page) = match self.postuler.as_ref() {
             Some(p) => (p.site, p.page.clone()),
@@ -805,6 +909,7 @@ impl Coulisse {
         let Some(p) = self.postuler.as_mut() else { return Fait::default() };
         p.phase = Phase::Remplissage;
         p.annonce = None;
+        p.remplie_une_fois = true;
         p.fichier = p.case_fichier();
         let actions = p.actions();
         p.no = Some(no);
@@ -820,10 +925,17 @@ impl Coulisse {
         if p.no != Some(no) || p.phase != Phase::Remplissage {
             return Fait::default();
         }
-        if r == "ailleurs" {
+        if r.contains(PAGE_PAS_SURE) {
             return self.po_bloquer(
-                "La page du site a changé pendant que Jobmind la remplissait. Ferme, puis clique de nouveau « Postuler sur le site ».",
-                "Site : remplissage abandonné, la page a changé",
+                "Jobmind ne met rien sur cette page : elle n'est pas sécurisée (pas en https), ou ce n'est plus celle du formulaire. Rien n'est parti. Regarde la page du site.",
+                &format!("Site : remplissage refusé, adresse de la page pas sûre ({r})"),
+            );
+        }
+        if r.starts_with("ailleurs") {
+            let bouton = nom_bouton(p.site);
+            return self.po_bloquer(
+                &format!("La page du site a changé pendant que Jobmind la remplissait. Rien n'est parti. Ferme, puis clique de nouveau « {bouton} »."),
+                &format!("Site : remplissage abandonné, la page a changé ({r})"),
             );
         }
         let manque = r.split(',').filter(|x| *x == "x").count();
@@ -899,6 +1011,28 @@ impl Coulisse {
         Fait { journal: Some(journal.to_string()), change: true, ..Fait::default() }
     }
 
+    /// Après le remplissage et la relecture de la page, au clic de Jordan : la vérification du site d'abord s'il y en a
+    /// une (Jordan la fait dans la petite fenêtre, Jobmind clique ensuite), sinon le clic de Jobmind sur le bouton.
+    fn po_avancer(&mut self, base: &Base, maintenant: Moment) -> Fait {
+        let Some(p) = self.postuler.clone() else { return Fait::default() };
+        let Some(f) = p.form.clone() else { return Fait::default() };
+        if f.captcha && !f.captcha_fait {
+            // (la vérification du site, faite par Jordan dans la petite fenêtre ; Jobmind clique ensuite)
+            if let Some(q) = self.postuler.as_mut() {
+                q.phase = Phase::Captcha;
+                q.clic_apres_captcha = true;
+            }
+            self.po_attendre(p.site, &p.page);
+            let mut fait = self.demander_personne(p.site, Raison::Captcha, "captcha dans le formulaire, avant l'envoi");
+            fait.journal = Some(format!(
+                "Site : captcha dans le formulaire, petite fenêtre ouverte pour Jordan (offre {})",
+                p.offre
+            ));
+            return fait;
+        }
+        self.po_cliquer(base, maintenant)
+    }
+
     /// Une page lue pour la candidature.
     pub fn po_lu(&mut self, base: Option<&Base>, l: Lecture, maintenant: Moment) -> Fait {
         let Some(p) = self.postuler.clone() else {
@@ -948,6 +1082,11 @@ impl Coulisse {
                 p.form = Some(f.clone());
                 p.phase = Phase::Pret;
                 p.lectures = 0;
+                // (relue après le remplissage de Jobmind, au clic de Jordan : la page dit vraiment ce qu'elle contient ;
+                // après la petite fenêtre : rien n'est encore posé par Jobmind, les lignes restent prévues)
+                let avancer = std::mem::take(&mut p.avancer);
+                p.prevoir(!avancer);
+                p.posee = avancer;
                 let n = p.lignes.iter().filter(|x| x.etat() == "ok").count();
                 let reste = p.lignes.iter().filter(|x| x.bloque()).count();
                 if !f.erreurs.is_empty() && p.annonce.is_none() {
@@ -956,14 +1095,29 @@ impl Coulisse {
                         "attention",
                     ));
                 }
-                Fait {
-                    journal: Some(format!(
-                        "Site : formulaire rempli et relu ({n} champ(s) justes, {reste} à compléter par Jordan{})",
-                        if f.captcha { ", captcha dans le formulaire" } else { "" }
-                    )),
-                    change: true,
-                    ..Fait::default()
+                let journal = format!(
+                    "Site : formulaire {} ({n} champ(s) justes, {reste} à compléter par Jordan{})",
+                    if avancer { "rempli et relu" } else { "relu" },
+                    if f.captcha { ", captcha dans le formulaire" } else { "" }
+                );
+                let mut journal = journal;
+                if avancer {
+                    if reste > 0 {
+                        journal.push_str(" ; rien n'avance, la page ne montre pas tout");
+                        p.annonce = Some((
+                            "La page du site ne montre pas tout ce que Jobmind y a mis. Rien n'est parti : regarde les \
+                             lignes à revoir, puis réessaie."
+                                .to_string(),
+                            "attention",
+                        ));
+                    } else if let Some(b) = base {
+                        let mut fait = self.po_avancer(b, maintenant);
+                        fait.journal = Some(format!("{journal} ; {}", fait.journal.unwrap_or_default()));
+                        fait.change = true;
+                        return fait;
+                    }
                 }
+                Fait { journal: Some(journal), change: true, ..Fait::default() }
             }
             Phase::Envoi { suivant } => self.po_lu_envoi(base, l, f, suivant, &trace, maintenant),
             _ => Fait::default(),
@@ -982,8 +1136,13 @@ impl Coulisse {
             p.page_site = l.comprise.adresse.clone();
             p.form = Some(f.clone());
             p.lectures = 0;
-            let mut fait = self.po_remplir_page();
-            fait.journal = Some(format!("Site : formulaire de candidature lu sur {} ; {trace}", site.code()));
+            // (rien n'est tapé dans la page : le récapitulatif vient du formulaire lu)
+            let mut fait = self.po_preparer();
+            fait.journal = Some(format!(
+                "Site : formulaire de candidature lu sur {} ({}), récapitulatif prêt sans rien remplir ; {trace}",
+                site.code(),
+                jobmind_core::offre::hote(&l.comprise.adresse)
+            ));
             return fait;
         }
         match c.ecran {
@@ -994,7 +1153,10 @@ impl Coulisse {
         if f.connexion || matches!(c.ecran, Ecran::Connexion(_)) {
             self.connecte[crate::coulisse::indice(site)] = Some(false);
             let mut fait = self.po_bloquer(
-                &format!("{} demande de te connecter pour postuler. Connecte-toi, puis clique de nouveau « Postuler sur le site ».", sujet(site)),
+                &format!(
+                    "{} demande de te connecter pour postuler. Connecte-toi, puis clique « Réessayer ».",
+                    sujet(site)
+                ),
                 &format!("Site : {} demande une connexion pour postuler ; {trace}", site.code()),
             );
             if let Some(p) = self.postuler.as_mut() {
@@ -1112,7 +1274,8 @@ impl Coulisse {
                 q.page = l.brute.clone();
                 q.page_site = l.comprise.adresse.clone();
                 q.form = Some(f);
-                let mut fait = self.po_remplir_page();
+                // (le récapitulatif refait d'après la page qui revient ; rien n'y est retapé avant le clic de Jordan)
+                let mut fait = self.po_preparer();
                 if let Some(q) = self.postuler.as_mut() {
                     q.annonce = Some((erreur, "erreur"));
                 }
@@ -1148,8 +1311,9 @@ impl Coulisse {
             q.page_site = l.comprise.adresse.clone();
             q.form = Some(f);
             let n = q.etapes;
-            let mut fait = self.po_remplir_page();
-            fait.journal = Some(format!("Site : étape {n} du formulaire ; {trace}"));
+            let mut fait = self.po_preparer();
+            fait.journal =
+                Some(format!("Site : étape {n} du formulaire, récapitulatif prêt sans rien remplir ; {trace}"));
             return fait;
         }
         match c.ecran {
@@ -1204,11 +1368,13 @@ impl Coulisse {
     ) -> Fait {
         let Some(b) = base else { return Fait::refus(SANS_BASE, "Site : base fermée".into()) };
         let c = b.connexion();
+        let mut notee = p.tente;
         let r = (|| -> rusqlite::Result<Result<i64, String>> {
             let tente = match p.tente {
                 Some(t) => t,
                 None => base_site::commencer(c, &tentative(p), maintenant)?,
             };
+            notee = Some(tente);
             let Some(o) = base_offres::lire(c, p.offre)? else { return Ok(Err("offre disparue".into())) };
             let cv = p.donnees.cv.as_ref().map(|x| x.1.clone()).unwrap_or_default();
             // (ce que j'ai envoyé : la lettre mise dans le formulaire, sinon chaque champ et ce qu'il contenait)
@@ -1246,12 +1412,42 @@ impl Coulisse {
                     ..ordres(o, true)
                 }
             }
-            Ok(Err(m)) => Fait::refus(PAS_ENREGISTRE, format!("Site : candidature non gardée ({m})")),
-            Err(e) => Fait::refus(PAS_ENREGISTRE, format!("Site : candidature non gardée ({e})")),
+            // (partie, mais le suivi n'a pas pu la noter : jamais « en cours » pour toujours ; Jordan dira si elle
+            // est partie)
+            Ok(Err(m)) => self.po_pas_notee(c, notee, &m, maintenant),
+            Err(e) => self.po_pas_notee(c, notee, &e.to_string(), maintenant),
         }
     }
 
-    /// « Envoyer » (ou « Continuer sur le site ») : tout vérifié en Rust, l'envoi noté, puis le clic de Jobmind.
+    /// La candidature n'a pas pu entrer dans le suivi : l'envoi noté devient « incertain » (Jordan regarde la page et
+    /// dit si elle est partie), jamais « en cours ».
+    fn po_pas_notee(&mut self, c: &rusqlite::Connection, tente: Option<i64>, raison: &str, maintenant: Moment) -> Fait {
+        let note = tente.map(|t| base_site::rendre_incertain(c, t, "partie, pas notée dans le suivi", maintenant));
+        if let Some(q) = self.postuler.as_mut() {
+            q.tente = tente;
+            q.phase = Phase::Incertain;
+            q.annonce = Some((
+                "Jobmind n'a pas pu noter ta candidature dans ton suivi. Regarde la page du site, puis dis à Jobmind si elle est partie."
+                    .into(),
+                "attention",
+            ));
+        }
+        Fait {
+            journal: Some(format!(
+                "Site : candidature non gardée ({raison}){}",
+                match (tente, note) {
+                    (Some(t), Some(Ok(_))) => format!(", envoi {t} noté incertain"),
+                    (Some(t), Some(Err(e))) => format!(", envoi {t} pas noté incertain ({e})"),
+                    _ => String::new(),
+                }
+            )),
+            change: true,
+            ..Fait::default()
+        }
+    }
+
+    /// « Envoyer » (ou « Continuer sur le site ») : tout vérifié en Rust ; puis Jobmind remplit la page de cette étape
+    /// et la relit ; si elle montre bien tout, l'envoi est noté, puis le clic de Jobmind.
     fn po_envoyer(&mut self, base: &Base, _v: &Value, maintenant: Moment) -> rusqlite::Result<Fait> {
         let c = base.connexion();
         let Some(p) = self.postuler.clone() else { return Ok(Fait::default()) };
@@ -1261,9 +1457,19 @@ impl Coulisse {
         let Some(f) = p.form.clone() else { return Ok(Fait::default()) };
         let Some(b) = f.bouton.clone() else {
             return Ok(message(
-                "Jobmind ne trouve pas le bouton d'envoi de ce site. Utilise « Le faire moi-même sur la page ».",
+                "Jobmind ne trouve pas le bouton d'envoi de ce site. Choisis « Voir la page du site » pour le faire toi-même.",
             ));
         };
+        // (une phrase que Jordan a retirée, encore dans la lettre de cette candidature : rien ne part)
+        if let Some(v) = p.donnees.version {
+            let retirees: Vec<String> = base_prep::phrases_retirees(c, v)?
+                .into_iter()
+                .filter(|x| !x.is_empty() && p.donnees.lettre.contains(x.as_str()))
+                .collect();
+            if !retirees.is_empty() {
+                return Ok(message(crate::preparation::phrase_retirees(&retirees)));
+            }
+        }
         if let Some(l) = p.lignes.iter().find(|l| l.bloque()) {
             return Ok(message(match l.etat() {
                 "accord" => format!("Coche « {} » si tu es d'accord : seul toi peux le faire.", l.libelle),
@@ -1284,21 +1490,20 @@ impl Coulisse {
                 return Ok(message(t));
             }
         }
-        if f.captcha && !f.captcha_fait {
-            // (la vérification du site, faite par Jordan dans la petite fenêtre ; Jobmind clique ensuite)
+        // (la page de cette étape remplie maintenant, au clic de Jordan, puis relue avant d'avancer)
+        if !p.posee || p.a_remplir() {
             if let Some(q) = self.postuler.as_mut() {
-                q.phase = Phase::Captcha;
-                q.clic_apres_captcha = true;
+                q.avancer = true;
             }
-            self.po_attendre(p.site, &p.page);
-            let mut fait = self.demander_personne(p.site, Raison::Captcha, "captcha dans le formulaire, avant l'envoi");
+            let mut fait = self.po_remplir_page();
             fait.journal = Some(format!(
-                "Site : captcha dans le formulaire, petite fenêtre ouverte pour Jordan (offre {})",
-                p.offre
+                "Site : clic de Jordan sur « {} », Jobmind remplit la page ({}) puis la relit",
+                b.texte,
+                jobmind_core::offre::hote(if p.page_site.is_empty() { &p.url } else { &p.page_site })
             ));
             return Ok(fait);
         }
-        Ok(self.po_cliquer(base, maintenant))
+        Ok(self.po_avancer(base, maintenant))
     }
 
     /// Le clic de Jobmind sur le bouton du site (l'envoi noté avant s'il envoie).
@@ -1391,8 +1596,9 @@ impl Coulisse {
                 ..Fait::default()
             }
         } else {
+            let bouton = nom_bouton(p.site);
             self.po_bloquer(
-                "La vérification n'est pas finie. Ferme, puis clique de nouveau « Postuler sur le site » quand tu veux.",
+                &format!("La vérification n'est pas finie. Ferme, puis clique de nouveau « {bouton} » quand tu veux."),
                 "Site : vérification abandonnée par Jordan",
             )
         };
@@ -1400,8 +1606,8 @@ impl Coulisse {
         f
     }
 
-    /// « Le faire moi-même sur la page » : la petite fenêtre sur la page du formulaire telle qu'elle est (sans la
-    /// recharger) ; en la fermant, Jobmind relit la page.
+    /// « Voir la page du site » : la petite fenêtre sur la page du formulaire telle qu'elle est (sans la recharger ni
+    /// la remplir) ; Jordan y complète ou envoie lui-même ; en la fermant, Jobmind relit la page.
     fn po_voir(&mut self) -> Fait {
         let Some(p) = self.postuler.as_mut() else { return Fait::default() };
         if !matches!(p.phase, Phase::Pret | Phase::Bloque | Phase::Incertain) {
@@ -1491,7 +1697,7 @@ impl Coulisse {
             return Ok(Fait::default());
         }
         let preuve = if p.linkedin {
-            "Envoyée par toi sur LinkedIn. Jobmind t'a proposé ces textes ; il ne voit pas ce que tu as mis dans le formulaire."
+            "Envoyée par toi sur LinkedIn. Jobmind t'a proposé ces textes ; elle ne voit pas ce que tu as mis dans le formulaire."
         } else if p.phase == Phase::Incertain {
             "Dit par toi après avoir regardé la page du site"
         } else {
@@ -1592,11 +1798,11 @@ impl Coulisse {
             "site": site.code(),
             "site_nom": nom_site(site),
             "linkedin": site == Site::LinkedIn,
-            "bouton": if site == Site::LinkedIn { "Postuler sur LinkedIn".to_string() } else if site == Site::Autre { "Postuler sur le site".to_string() } else { format!("Postuler sur {}", site.nom()) },
+            "bouton": nom_bouton(site),
             "note": if site == Site::LinkedIn {
                 "La page de LinkedIn s'ouvre dans Jobmind : tu postules toi-même, avec tes textes à côté."
             } else {
-                "Jobmind remplit le formulaire du site. Tu relis tout avant l'envoi."
+                "Jobmind lit le formulaire du site. Tu relis tout ; rien n'est mis sur le site avant ton clic sur Envoyer."
             },
             "occupe": self.po_occupe() && p.is_none(),
             "envoyee": envoyee.map(|(k, q)| json!({ "candidature": k, "texte": format!("Envoyée sur le site {}", quand(q, aujourdhui)) })),
@@ -1682,9 +1888,22 @@ fn recap_vue(p: &Postuler, occupe: bool, _aujourdhui: jobmind_core::Jour) -> Val
         .iter()
         .filter(|l| !(l.genre == Genre::Autre && l.relu.is_empty() && !l.obligatoire))
         .map(|l| {
+            // (une ligne prévue montre ce que Jobmind mettra ; une ligne posée, ce que la page montre)
+            let prevue = l.prevu && l.voulu.is_some();
             let montre = match l.sorte {
                 Sorte::Liste | Sorte::Ronds => l.voulu.as_ref().map(|v| texte_choix(l, v)).unwrap_or_else(|| l.relu.clone()),
+                Sorte::Case if prevue => if l.voulu.as_deref() == Some("1") { "Cochée".into() } else { String::new() },
                 Sorte::Case => if l.relu.is_empty() { String::new() } else { "Cochée".into() },
+                Sorte::Cases if prevue => l
+                    .voulu
+                    .as_deref()
+                    .unwrap_or_default()
+                    .split('\n')
+                    .filter(|x| !x.is_empty())
+                    .map(|v| texte_choix(l, v))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                _ if prevue => l.voulu.clone().unwrap_or_default(),
                 _ => if l.relu.is_empty() { l.voulu.clone().unwrap_or_default() } else { l.relu.clone() },
             };
             json!({
@@ -1712,6 +1931,29 @@ fn recap_vue(p: &Postuler, occupe: bool, _aujourdhui: jobmind_core::Jour) -> Val
         Phase::Parti { candidature, preuve, par_jordan } => (Some(*candidature), preuve.clone(), *par_jordan),
         _ => (None, String::new(), false),
     };
+    // (une page qui n'est sur aucun des quatre sites connus : son hôte nommé en clair avant le premier remplissage)
+    let adresse = if p.page_site.is_empty() { p.url.as_str() } else { p.page_site.as_str() };
+    let hote = hote_inconnu(adresse).filter(|_| !p.remplie_une_fois && p.phase == Phase::Pret);
+    let annonce = p.annonce.as_ref().map(|(t, g)| json!({ "texte": t, "genre": g, "site": p.site.code() })).or_else(|| {
+        hote.as_ref().map(|h| {
+            json!({
+                "texte": format!(
+                    "Cette page est sur {h}, pas sur LinkedIn, Indeed, Welcome to the Jungle ni France Travail. Vérifie que c'est bien le site de l'entreprise avant d'envoyer : tes coordonnées, ta lettre et ton CV y seront mis à ce moment-là."
+                ),
+                "genre": "attention",
+                "site": p.site.code(),
+            })
+        })
+    });
+    let prevues = p.lignes.iter().any(|l| l.prevu);
+    let mut t = textes(nom);
+    if prevues && let Some(o) = t.as_object_mut() {
+        o.insert("champs_t".into(), json!("Ce que Jobmind mettra sur le site"));
+        o.insert(
+            "champs_s".into(),
+            json!("Rien n'est encore sur la page du site. Jobmind la remplit au moment où tu cliques, puis la relit avant d'avancer."),
+        );
+    }
     json!({
         "phase": match p.phase {
             Phase::Ouverture | Phase::Bouton | Phase::Remplissage | Phase::Envoi { .. } | Phase::Captcha => "attente",
@@ -1725,7 +1967,8 @@ fn recap_vue(p: &Postuler, occupe: bool, _aujourdhui: jobmind_core::Jour) -> Val
         "titre": p.titre,
         "entreprise": p.entreprise,
         "attente": attente,
-        "annonce": p.annonce.as_ref().map(|(t, g)| json!({ "texte": t, "genre": g, "site": p.site.code() })),
+        "annonce": annonce,
+        "hote": hote,
         "etape": f.and_then(|f| f.etape).map(|(a, b)| format!("Étape {a} sur {b} du site")).or_else(|| (p.etapes > 1).then(|| format!("Étape {} du site", p.etapes))),
         "lignes": lignes,
         "faites": p.faites.iter().map(|(l, r, s)| json!({ "libelle": l, "valeur": r, "source": s })).collect::<Vec<_>>(),
@@ -1739,7 +1982,7 @@ fn recap_vue(p: &Postuler, occupe: bool, _aujourdhui: jobmind_core::Jour) -> Val
             "texte": if par_jordan { format!("C'est noté. Ta candidature sur {nom} est dans ton suivi.") } else { format!("{} a confirmé ta candidature. Elle est dans ton suivi, avec ce que tu as envoyé.", if p.site == Site::Autre { "Le site" } else { nom }) },
             "preuve": if par_jordan { String::new() } else { format!("La page du site dit : « {preuve} »") },
         })),
-        "textes": textes(nom),
+        "textes": t,
     })
 }
 
@@ -1751,8 +1994,8 @@ fn textes(site: &str) -> Value {
         ("cadenas", "Rien ne part sans ton clic. Ensuite, la candidature passe toute seule dans ton suivi.".into()),
         ("envoyer", "Envoyer".into()),
         ("continuer", "Continuer sur le site".into()),
-        ("remplir", "Mettre mes réponses sur le site".into()),
-        ("moi", "Le faire moi-même sur la page".into()),
+        ("remplir", "Garder mes réponses".into()),
+        ("moi", "Voir la page du site".into()),
         ("voir", "Voir la page du site".into()),
         ("fait", "C'est envoyé".into()),
         ("pas_parti", "Ce n'est pas parti".into()),
@@ -1779,7 +2022,7 @@ fn textes(site: &str) -> Value {
         ("voir_dossier", "Voir le dossier".into()),
         ("revenir", "Revenir à l'offre".into()),
         ("connecter", "Me connecter".into()),
-        ("page_site", "Utiliser la page du site".into()),
+        ("page_site", "Me connecter sur la page du site".into()),
         ("incertain_t", "Envoi incertain".into()),
         ("oui", "Oui".into()),
         ("reessayer", "Réessayer".into()),

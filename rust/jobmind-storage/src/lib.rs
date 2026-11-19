@@ -55,7 +55,7 @@ pub mod style;
 pub mod valeurs;
 
 pub use base::{Base, ErreurBase};
-pub use carte::{Carte, EtatMindset, etat_carte, etat_carte_avec, etat_carte_complete};
+pub use carte::{Carte, EtatMindset, etat_carte, etat_carte_avec, etat_carte_complete, etat_carte_reponses};
 pub use donnees::Donnees;
 pub use fichiers::{FichierRelu, Fichiers};
 pub use journal::{Horloge, Journal, horloge_figee};

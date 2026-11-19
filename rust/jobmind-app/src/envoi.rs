@@ -139,13 +139,42 @@ fn adresse_proposee(c: &rusqlite::Connection, offre: i64, description: &str) -> 
 }
 
 /// Le refus quand la lettre gardée a encore des phrases à vérifier.
-const A_VERIFIER: &str = "Ta lettre a encore des phrases à vérifier (elles parlent de toi, mais ton CV ne les dit pas).                           Dis « C'est juste » ou « Retirer » dans Ma candidature, puis envoie.";
+const A_VERIFIER: &str = "Ta lettre a encore des phrases à vérifier (elles parlent de toi, mais ton CV ne les dit pas). \
+                          Dis « C'est juste » ou « Retirer » dans Ma candidature, puis envoie.";
 
-/// Les phrases « à vérifier » encore dans la lettre que Jordan garde (celles qu'il n'a pas dites justes).
-fn a_verifier(p: &base_prep::Preparation) -> Vec<String> {
+/// Le récapitulatif quand la lettre gardée contient encore une phrase que Jordan a retirée (montrée en dessous).
+const RETIREE: &str = "Ta lettre contient encore une phrase que tu as retirée. Retire-la de la lettre que tu gardes, ou \
+                       garde une autre lettre, puis envoie.";
+
+/// Les phrases « à vérifier » encore dans la lettre que Jordan garde (celles qu'il n'a pas dites justes), puis celles
+/// qu'il a retirées et que cette lettre contient encore (il garde la lettre de Claude, jamais changée, ou celle dans son
+/// style) : rien ne part tant qu'il en reste.
+pub(crate) fn a_verifier(c: &rusqlite::Connection, p: &base_prep::Preparation) -> rusqlite::Result<Vec<String>> {
     let lettre = p.lettre_gardee();
     let liste = if p.choix() == base_prep::Choix::Style { &p.style_a_verifier } else { &p.a_verifier };
-    liste.iter().filter(|x| !x.vue && lettre.contains(&x.texte)).map(|x| x.texte.clone()).collect()
+    let mut l: Vec<String> =
+        liste.iter().filter(|x| !x.vue && lettre.contains(&x.texte)).map(|x| x.texte.clone()).collect();
+    for x in base_prep::retirees_dans_la_gardee(c, p.id)? {
+        if !l.contains(&x) {
+            l.push(x);
+        }
+    }
+    Ok(l)
+}
+
+/// La version de la candidature préparée que Jordan regarde pour cette offre (la version montrée dans « Ma
+/// candidature », sinon la plus récente) : c'est elle qui part, par mail comme sur le site.
+pub(crate) fn version_envoyee(
+    c: &rusqlite::Connection,
+    offre: i64,
+    montree: Option<i64>,
+) -> rusqlite::Result<Option<base_prep::Preparation>> {
+    if let Some(id) = montree
+        && let Some(p) = base_prep::lire(c, id)?.filter(|p| p.offre_id == offre)
+    {
+        return Ok(Some(p));
+    }
+    Ok(base_prep::lister(c, offre)?.into_iter().next())
 }
 
 /// « le 19 nov. à 14 h 05 », « aujourd'hui à 9 h 30 ».
@@ -162,6 +191,35 @@ fn quand(m: Moment, aujourdhui: Jour) -> String {
 }
 
 impl Envoi {
+    /// Une sauvegarde vient d'être remise : tout revient au départ, sauf le compteur des envois (un vieux résultat
+    /// n'est jamais pris pour un nouveau).
+    pub fn apres_remise(&mut self) {
+        let jetons = self.jetons;
+        *self = Envoi::default();
+        self.jetons = jetons;
+    }
+
+    /// L'envoi ne répond plus (5 minutes) : il devient « incertain », Jordan regarde dans Gmail et le dit. Un résultat
+    /// qui arriverait ensuite est laissé.
+    pub fn trop_long(&mut self, base: Option<&Base>, maintenant: Moment) -> Fait {
+        let Some(e) = self.en_cours.take() else { return Fait::default() };
+        self.issue = None;
+        let note = base.map(|b| base_envois::rendre_incertain(b.connexion(), e.tente, "trop long", maintenant));
+        Fait {
+            journal: Some(format!(
+                "Envoi : envoi {} sans réponse après 5 minutes, noté incertain{}",
+                e.tente,
+                match note {
+                    Some(Ok(_)) => String::new(),
+                    Some(Err(x)) => format!(" (pas noté : {x})"),
+                    None => " (base fermée)".to_string(),
+                }
+            )),
+            change: true,
+            ..Fait::default()
+        }
+    }
+
     fn jeton(&mut self) -> u64 {
         self.jetons += 1;
         self.jetons
@@ -266,8 +324,17 @@ impl Envoi {
         if lettre.is_empty() {
             return Ok(refus(self, "Ta lettre est vide : écris-la avant de l'envoyer.", "lettre vide"));
         }
-        // (rien d'inventé : une phrase « à vérifier » encore dans la lettre gardée, Jordan la regarde d'abord)
-        if !a_verifier(&p).is_empty() {
+        // (rien d'inventé : une phrase « à vérifier » encore dans la lettre gardée, Jordan la regarde d'abord ; une
+        // phrase qu'il a retirée et que la lettre gardée contient encore ne part jamais)
+        let retirees = base_prep::retirees_dans_la_gardee(c, p.id)?;
+        if !retirees.is_empty() {
+            return Ok(refus(
+                self,
+                &crate::preparation::phrase_retirees(&retirees),
+                "phrase retirée encore dans la lettre",
+            ));
+        }
+        if !a_verifier(c, &p)?.is_empty() {
             return Ok(refus(self, A_VERIFIER, "phrases à vérifier"));
         }
         let a = match regles::verifier_destinataire(&texte(v, "a")) {
@@ -372,16 +439,37 @@ impl Envoi {
             return Fait::refus(SANS_BASE, "Envoi : résultat perdu, la base n'est pas ouverte".into());
         };
         let c = b.connexion();
-        let r = match r.resultat {
-            Ok(id) => self.parti(c, e.tente, e.offre, false, maintenant).map(|mut f| {
-                f.journal = Some(format!("Envoi : envoi {} parti (Message-ID {id})", e.tente));
-                f
-            }),
+        let r: rusqlite::Result<Fait> = match r.resultat {
+            Ok(id) => match self.parti(c, e.tente, e.offre, false, maintenant) {
+                Ok(mut f) if f.bravo => {
+                    f.journal = Some(format!("Envoi : envoi {} parti (Message-ID {id})", e.tente));
+                    Ok(f)
+                }
+                // (Gmail a dit oui, mais le suivi n'a pas pu le noter : jamais « en cours » pour toujours ; Jordan
+                // regarde dans Gmail et dit s'il est parti)
+                autre => {
+                    let raison = match &autre {
+                        Ok(f) => f.journal.clone().unwrap_or_else(|| "déjà fini".to_string()),
+                        Err(x) => x.to_string(),
+                    };
+                    let _ = base_envois::rendre_incertain(c, e.tente, "parti, pas noté dans le suivi", maintenant);
+                    self.issue = None;
+                    Ok(Fait {
+                        journal: Some(format!(
+                            "Envoi : envoi {} parti (Message-ID {id}) mais pas noté dans le suivi ({raison}), noté \
+                             incertain",
+                            e.tente
+                        )),
+                        change: true,
+                        ..Fait::default()
+                    })
+                }
+            },
+            // (la carte de l'envoi le dit, avec ce que Jordan peut faire : pas de message en double en haut)
             Err(ErreurEnvoi::Incertain(x)) => {
                 let _ = base_envois::rendre_incertain(c, e.tente, &x, maintenant);
                 self.issue = None;
                 Ok(Fait {
-                    message: Some(ErreurEnvoi::Incertain(String::new()).message()),
                     journal: Some(format!("Envoi : envoi {} incertain ({x})", e.tente)),
                     change: true,
                     ..Fait::default()
@@ -463,17 +551,19 @@ impl Envoi {
         })
     }
 
-    /// Ce que l'écran montre pour l'offre ouverte (rien : aucune offre ouverte).
+    /// Ce que l'écran montre pour l'offre ouverte (rien : aucune offre ouverte). `montree` : la version que Jordan
+    /// regarde dans « Ma candidature » (crate::preparation, `version_montree`).
     pub fn vue(
         &self,
         base: Option<&Base>,
         cles: Option<&Cles>,
         dossier: &Path,
         offre: Option<i64>,
+        montree: Option<i64>,
         maintenant: Moment,
     ) -> (Value, Option<String>) {
         let (Some(b), Some(id)) = (base, offre) else { return (Value::Null, None) };
-        match self.lire_vue(b, cles, dossier, id, maintenant) {
+        match self.lire_vue(b, cles, dossier, id, montree, maintenant) {
             Ok(v) => (v, None),
             Err(e) => (Value::Null, Some(format!("Envoi : base illisible ({e})"))),
         }
@@ -485,6 +575,7 @@ impl Envoi {
         cles: Option<&Cles>,
         dossier: &Path,
         id: i64,
+        montree: Option<i64>,
         maintenant: Moment,
     ) -> rusqlite::Result<Value> {
         let c = b.connexion();
@@ -493,7 +584,11 @@ impl Envoi {
         let offre = o.offre.id;
         let (tapee, lue) = adresse_proposee(c, offre, &o.description);
         let a = tapee.clone().or_else(|| lue.as_ref().map(|x| x.adresse.clone()));
-        let version = base_prep::lister(c, offre)?.into_iter().next();
+        let version = version_envoyee(c, offre, montree)?;
+        let (a_verif, retirees) = match &version {
+            Some(p) => (a_verifier(c, p)?, base_prep::retirees_dans_la_gardee(c, p.id)?),
+            None => (Vec::new(), Vec::new()),
+        };
         let cv = cv_joint(c, dossier)?;
         let cv_vue = cv.as_ref().map(|x| {
             let present = x.chemin.as_ref().is_some_and(|ch| ch.is_file());
@@ -538,8 +633,12 @@ impl Envoi {
             "objet": objet,
             "version": version.as_ref().map(|p| p.id),
             "lettre": version.as_ref().map(|p| p.lettre_gardee().to_string()),
-            "a_verifier": version.as_ref().map(a_verifier).unwrap_or_default(),
-            "a_verifier_t": A_VERIFIER,
+            "a_verifier": a_verif,
+            "a_verifier_t": if retirees.is_empty() {
+                A_VERIFIER.to_string()
+            } else {
+                RETIREE.to_string()
+            },
             "gardee": gardee,
             "cv": cv_vue,
             "en_cours": self.en_cours.as_ref().is_some_and(|e| e.offre == offre),

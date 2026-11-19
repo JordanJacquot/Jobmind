@@ -451,7 +451,7 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
             "vide": vide(v),
             "gestion": gestion(v, aujourdhui),
             "textes": textes(&[
-                ("i_texte", "Chercher dans les offres gardées : quai, nuit, magasin..."),
+                ("i_texte", "Chercher dans mes offres : quai, nuit, magasin..."),
                 ("ville", "Ville"),
                 ("i_ville", "Ville"),
                 ("km", "km"),

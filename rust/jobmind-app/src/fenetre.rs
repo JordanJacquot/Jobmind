@@ -98,9 +98,10 @@ pub fn creer_principale<R: Runtime, M: Manager<R>>(
 // La vue des sites (étape 5, en coulisse depuis l'étape 5 bis)
 // ---------------------------------------------------------------------------------------------------------------
 
-/// Une adresse de site que la vue des sites peut afficher : http ou https, un vrai nom de site (jamais `*.localhost`, où
-/// Tauri sert les pages et les commandes de Jobmind, jamais l'adresse de la machine elle-même), sans nom d'utilisateur
-/// ni mot de passe ; ou `about:blank` (la page vide, après « Me déconnecter »).
+/// Une adresse de site que la vue des sites peut afficher : http ou https, un vrai nom de site sur internet (jamais
+/// `*.localhost`, où Tauri sert les pages et les commandes de Jobmind, jamais la machine elle-même ni le réseau local :
+/// box, imprimante, NAS, `*.local`), sans nom d'utilisateur ni mot de passe ; ou `about:blank` (la page vide, après
+/// « Me déconnecter »). La construction d'essai a sa propre règle (seulement son faux serveur 127.0.0.1).
 pub fn adresse_site_permise(a: &Url) -> bool {
     if a.as_str() == "about:blank" {
         return true;
@@ -111,9 +112,36 @@ pub fn adresse_site_permise(a: &Url) -> bool {
     let Some(h) = a.host_str() else { return false };
     let h = h.trim_start_matches('[').trim_end_matches(']').trim_end_matches('.').to_ascii_lowercase();
     if let Ok(ip) = h.parse::<std::net::IpAddr>() {
-        return !ip.is_loopback() && !ip.is_unspecified();
+        return !ip_locale(ip);
     }
-    h != "localhost" && !h.ends_with(".localhost") && h.contains('.')
+    h != "localhost" && !h.ends_with(".localhost") && !h.ends_with(".local") && h.contains('.')
+}
+
+/// Une adresse de la machine ou du réseau local : 127/8, 0/8, 10/8, 172.16/12, 192.168/16, 169.254/16 (et 100.64/10,
+/// le réseau partagé des opérateurs) ; en IPv6 ::1, ::, fc00::/7, fe80::/10, et une adresse IPv4 écrite en IPv6.
+fn ip_locale(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    let v4 = |x: std::net::Ipv4Addr| {
+        let o = x.octets();
+        x.is_loopback()
+            || x.is_unspecified()
+            || x.is_private()
+            || x.is_link_local()
+            || x.is_broadcast()
+            || o[0] == 0
+            || (o[0] == 100 && (o[1] & 0xc0) == 64)
+    };
+    match ip {
+        IpAddr::V4(x) => v4(x),
+        IpAddr::V6(x) => {
+            let s = x.segments();
+            x.is_loopback()
+                || x.is_unspecified()
+                || (s[0] & 0xfe00) == 0xfc00
+                || (s[0] & 0xffc0) == 0xfe80
+                || x.to_ipv4_mapped().is_some_and(v4)
+        }
+    }
 }
 
 /// Ce que la vue des sites rapporte, pendant un événement de WebView2 (le programme le traite au pas suivant de sa
@@ -208,7 +236,9 @@ mod tests {
             "https://www.linkedin.com/jobs/view/4012345678/",
             "https://fr.indeed.com/viewjob?jk=1",
             "http://emplois.ville-exemple.fr/",
-            "https://192.168.1.10/",
+            "https://93.184.216.34/",
+            "https://[2606:4700::1111]/",
+            "https://172.32.0.1/",
             "about:blank",
         ] {
             assert!(adresse_site_permise(&adresse(a)), "{a} devrait être permise");
@@ -222,6 +252,21 @@ mod tests {
             "http://127.0.0.1:5000/",
             "http://[::1]/",
             "http://0.0.0.0/",
+            // (le réseau local : box, imprimante, NAS)
+            "https://192.168.1.10/",
+            "http://192.168.0.1/admin",
+            "http://10.0.0.5/",
+            "http://172.16.0.1/",
+            "http://172.31.255.254/",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://100.64.0.1/",
+            "http://[fe80::1]/",
+            "http://[fc00::1]/",
+            "http://[fd12:3456::1]/",
+            "http://[::ffff:192.168.1.1]/",
+            "http://imprimante.local/",
+            "http://NAS.LOCAL./",
+            "http://255.255.255.255/",
             "https://moi:secret@www.linkedin.com/",
             "file:///C:/Windows/win.ini",
             "javascript:alert(1)",

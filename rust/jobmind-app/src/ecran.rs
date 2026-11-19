@@ -22,7 +22,7 @@
 use jobmind_core::candidature::{self, Candidature, Evenement, Moyen};
 use jobmind_core::suivi::{
     self, Action, DELAI_MAX, DELAI_MIN, Groupe, cadre_action, ligne_action, message_relance, ou_on_en_est,
-    phrase_calme, situation,
+    phrase_calme, situation_avec_reponses,
 };
 use jobmind_core::{Jour, Statut};
 use serde_json::{Value, json};
@@ -110,7 +110,7 @@ fn rubrique_reglages(delai: u32) -> Value {
             "sites": {
                 "titre": "Tes connexions aux sites",
                 "texte": "Jobmind garde tes connexions à LinkedIn, Indeed, Welcome to the Jungle et France Travail sur \
-                          ce PC, seulement pour lui. Ton mot de passe, lui, n'est jamais gardé.",
+                          ce PC, seulement pour elle. Ton mot de passe, lui, n'est jamais gardé.",
                 "bouton": "Me déconnecter de tous les sites",
                 "question": "Te déconnecter de tous les sites ? Tu devras te reconnecter à tes comptes la prochaine \
                              fois.",
@@ -254,10 +254,22 @@ pub fn fiche(
     mails: &[jobmind_storage::mails::MailGarde],
     delai: u32,
     aujourdhui: Jour,
+    reponses: &[i64],
 ) -> Value {
-    let s = situation(c, aujourdhui, delai);
+    let s = situation_avec_reponses(c, aujourdhui, delai, reponses);
     let (ou, ou_sous) = ou_on_en_est(c, aujourdhui);
     let (action, calme, relance) = match &s.action {
+        // (une réponse arrivée attend Jordan : pas de relance, la réponse d'abord)
+        None if suivi::reponse_a_voir(c, reponses) => (
+            json!({
+                "icone": "mail",
+                "titre": suivi::REPONSE_ARRIVEE,
+                "texte": "Elle est rangée dans ce dossier, plus bas. Confirme le statut proposé, ou garde celui-ci.",
+                "boutons": [],
+            }),
+            Value::Null,
+            None,
+        ),
         Some(a) => {
             let (titre, texte) = cadre_action(c, a, aujourdhui);
             let relance = matches!(a, Action::Relancer { .. }).then(|| message_relance(c, aujourdhui));
@@ -278,7 +290,14 @@ pub fn fiche(
     };
     // (étape 7 : les réponses reçues prennent leur place dans la frise, à leur jour)
     let (mails_json, proposition, recues) = crate::mail::dossier(mails, c, aujourdhui);
-    let mut points: Vec<(Jour, String)> = frise.iter().map(|e| (e.jour, e.statut.nom().to_string())).collect();
+    // (un renvoi garde le statut : la frise dit « Renvoyée par mail » ou « Renvoyée sur le site »)
+    let mut points: Vec<(Jour, String)> = frise
+        .iter()
+        .map(|e| {
+            let t = if e.texte.starts_with("Renvoyée") { e.texte.clone() } else { e.statut.nom().to_string() };
+            (e.jour, t)
+        })
+        .collect();
     for (j, t) in recues {
         let i = points.iter().position(|(x, _)| *x > j).unwrap_or(points.len());
         points.insert(i, (j, t));
@@ -337,8 +356,18 @@ pub fn fiche(
 
 /// L'onglet Candidatures.
 fn onglet_candidatures(v: &Vue) -> Value {
-    let ranges = suivi::ranger(v.candidatures, v.aujourdhui, v.delai);
-    let a_faire = ranges.iter().find(|(g, _)| *g == Groupe::AFaire).map_or(0, |(_, l)| l.len());
+    let ranges = suivi::ranger_avec_reponses(v.candidatures, v.aujourdhui, v.delai, &v.mails.attente);
+    let a_voir = |c: &Candidature| suivi::reponse_a_voir(c, &v.mails.attente);
+    // (le chiffre de l'onglet : chaque candidature à voir comptée une fois, qu'elle soit à faire, ait une réponse ou les
+    // deux ; puis les mails à ranger, tous, pas seulement les 100 montrés)
+    let mut a_suivre: Vec<i64> = ranges
+        .iter()
+        .filter(|(g, _)| *g == Groupe::AFaire)
+        .flat_map(|(_, l)| l.iter().map(|(c, _)| c.id))
+        .chain(v.mails.attente.iter().copied())
+        .collect();
+    a_suivre.sort_unstable();
+    a_suivre.dedup();
     let groupes: Vec<Value> = ranges
         .iter()
         .map(|(g, l)| {
@@ -351,10 +380,15 @@ fn onglet_candidatures(v: &Vue) -> Value {
                         "sous": poste_ville(c),
                         "statut": c.statut.code(),
                         "statut_nom": c.statut.nom(),
-                        "action": ligne_action(s, v.aujourdhui).unwrap_or_default(),
+                        "action": if a_voir(c) {
+                            suivi::REPONSE_ARRIVEE.to_string()
+                        } else {
+                            ligne_action(s, v.aujourdhui).unwrap_or_default()
+                        },
                         "fini": *g == Groupe::Terminee,
-                        // (étape 7 : une réponse reçue attend Jordan dans ce dossier)
-                        "reponse": v.mails.attente.contains(&c.id),
+                        // (étape 7 : une réponse reçue attend Jordan dans ce dossier ; déjà dite par la ligne d'action
+                        // quand elle remplace la relance)
+                        "reponse": v.mails.attente.contains(&c.id) && !a_voir(c),
                     })
                 })
                 .collect();
@@ -367,7 +401,7 @@ fn onglet_candidatures(v: &Vue) -> Value {
     json!({
         "id": CANDIDATURES,
         "nom": "Candidatures",
-        "nombre": a_faire + v.mails.a_ranger.len() + v.mails.attente.len(),
+        "nombre": a_suivre.len() + v.mails.nombre_a_ranger.max(v.mails.a_ranger.len()),
         "liste": "Mes candidatures",
         "vide": "Rien à suivre pour l'instant.",
         "rubriques": [],
@@ -382,7 +416,7 @@ fn onglet_candidatures(v: &Vue) -> Value {
             "groupes": groupes,
             "bilan": bilan,
             "ouverte": ouverte.map(|c| c.id),
-            "fiche": ouverte.map(|c| fiche(c, v.frise, v.mails_dossier, v.delai, v.aujourdhui)),
+            "fiche": ouverte.map(|c| fiche(c, v.frise, v.mails_dossier, v.delai, v.aujourdhui, &v.mails.attente)),
             "statuts": Statut::TOUS.iter().map(|s| json!({ "id": s.code(), "nom": s.nom() })).collect::<Vec<_>>(),
             "moyens": Moyen::TOUS.iter().map(|m| json!({ "id": m.code(), "nom": m.nom() })).collect::<Vec<_>>(),
             "textes": textes(v.aujourdhui),
@@ -618,6 +652,59 @@ mod tests {
         // Une candidature qui n'existe plus : aucun dossier
         let v = Vue { ouverte: Some(99), ..v };
         assert!(etat("0.1.0", &v)["accueil"]["perso"]["onglets"][0]["suivi"]["fiche"].is_null());
+    }
+
+    /// Une réponse arrivée attend Jordan (statut proposé pas confirmé) : ni « Relancer » ni bulle de relance, mais
+    /// « Une réponse est arrivée » dans le cadre et la ligne ; le chiffre de l'onglet compte chaque candidature une
+    /// fois, et tous les mails à ranger (pas seulement les 100 montrés). La frise dit un renvoi.
+    #[test]
+    fn une_reponse_arrivee_remplace_la_relance() {
+        let l = exemples();
+        let frise = [
+            Evenement { jour: Jour::nouveau(2026, 11, 2).unwrap(), statut: Statut::Envoyee, texte: String::new() },
+            Evenement {
+                jour: Jour::nouveau(2026, 11, 10).unwrap(),
+                statut: Statut::Envoyee,
+                texte: "Renvoyée par mail".into(),
+            },
+        ];
+        // (1 : Envoyée il y a 16 jours, relance due ; une réponse l'attend ; 3 : en entretien, une réponse aussi)
+        let mails = crate::mail::VueMails { attente: vec![1, 3], nombre_a_ranger: 140, ..Default::default() };
+        let v = Vue {
+            candidatures: &l,
+            ouverte: Some(1),
+            frise: &frise,
+            delai: 14,
+            aujourdhui: auj(),
+            profil: &VIDE,
+            offres: &OVIDE,
+            mails: &mails,
+            mails_dossier: &[],
+        };
+        let e = etat("0.1.0", &v);
+        let o = &e["accueil"]["perso"]["onglets"][0];
+        // 1 et 3 à voir (chacune une fois) + 140 mails à ranger
+        assert_eq!(o["nombre"], 142);
+        let g = &o["suivi"]["groupes"][0];
+        assert_eq!(g["nom"], "À faire maintenant");
+        let l1 = g["lignes"].as_array().unwrap().iter().find(|x| x["id"] == 1).unwrap();
+        assert_eq!(l1["action"], suivi::REPONSE_ARRIVEE);
+        assert_eq!(l1["reponse"], false, "déjà dit par la ligne");
+        let l3 = g["lignes"].as_array().unwrap().iter().find(|x| x["id"] == 3).unwrap();
+        assert_eq!(l3["action"], "Entretien le 20 nov. à 9 h 30");
+        assert_eq!(l3["reponse"], true);
+        let f = &o["suivi"]["fiche"];
+        assert_eq!(f["action"]["titre"], suivi::REPONSE_ARRIVEE);
+        assert_eq!(f["action"]["icone"], "mail");
+        assert!(f["relance"].is_null(), "pas de message de relance");
+        assert_eq!(
+            f["frise"],
+            json!([{ "texte": "Envoyée", "date": "2 nov." }, { "texte": "Renvoyée par mail", "date": "10 nov." }])
+        );
+        // Sans réponse qui attend : la relance revient
+        let v = Vue { mails: &MVIDE, ..v };
+        let f = &etat("0.1.0", &v)["accueil"]["perso"]["onglets"][0]["suivi"]["fiche"];
+        assert_eq!(f["action"]["titre"], "Relancer Transports Moselle Fret");
     }
 
     /// Le calendrier des dates : les mois en français, la semaine du lundi au dimanche, aujourd'hui, et les jours à

@@ -141,9 +141,12 @@ fn sauvegarder_puis_remettre() {
     assert_eq!(f.message.as_deref(), Some("Attends la fin de la recherche d'offres, puis réessaie."));
     assert!(bord.attente.is_some());
     assert_eq!(nombre(d.base.as_ref().unwrap()), 3);
-    // Oui : remise
+    // Oui : remise (la phrase dans la carte de la sauvegarde seulement, pas en double en haut de l'écran)
     let f = bord.restaurer(&mut d, None, m(11, 2));
-    assert!(f.message.as_deref().unwrap().starts_with("Ta sauvegarde est remise (faite le jeudi 19 novembre 2026"));
+    assert!(f.message.is_none() && f.bravo && f.change);
+    let (t, genre) = bord.annonce.clone().unwrap();
+    assert!(t.starts_with("Ta sauvegarde est remise (faite le jeudi 19 novembre 2026"), "{t}");
+    assert_eq!(genre, "ok");
     assert!(f.journal.unwrap().contains("avant-restauration"));
     assert_eq!(nombre(d.base.as_ref().unwrap()), 2);
     assert!(bord.attente.is_none());
@@ -167,6 +170,112 @@ fn sauvegarder_puis_remettre() {
     assert_eq!(f.message.as_deref(), Some("Rien n'a été changé."));
     assert_eq!(nombre(d.base.as_ref().unwrap()), 2);
     assert!(bord.restaurer(&mut d, None, m(12, 2)).message.is_none());
+}
+
+/// Une sauvegarde faite dans un autre dossier d'essai, avec ces candidatures : le fichier .zip.
+fn une_sauvegarde(e: &Essai, entreprises: &[&str]) -> std::path::PathBuf {
+    let autre = e.0.join("autre");
+    let (b, _) = Base::ouvrir(&autre, m(8, 0)).unwrap();
+    for x in entreprises {
+        ajouter(&b, x, "Vendeur", "10/11/2026");
+    }
+    let (octets, _) = sauvegarde::faire(&b, &autre, m(8, 0)).unwrap();
+    drop(b);
+    let zip = e.0.join("sauvegarde.zip");
+    sauvegarde::ecrire(&zip, &octets).unwrap();
+    zip
+}
+
+/// Le bug grave de l'audit : quand la base est abîmée (elle ne s'ouvre pas), remettre une sauvegarde doit marcher,
+/// c'est justement là qu'il le faut. La base abîmée est gardée telle quelle à côté, la sauvegarde remise, la base
+/// rouverte ; rien n'attend plus au démarrage.
+#[test]
+fn remettre_quand_la_base_est_abimee() {
+    let e = Essai::nouveau("abimee");
+    let zip = une_sauvegarde(&e, &["Scierie de la Vologne", "Boucherie du Saulnois"]);
+    // Une base abîmée : des octets qui ne sont pas une base SQLite
+    std::fs::create_dir_all(e.0.join("data")).unwrap();
+    std::fs::write(e.0.join("data").join("jobmind.db"), vec![0x42u8; 8192]).unwrap();
+    let mut d = Donnees::ouvrir(&e.0, horloge_figee(m(9, 0)), false);
+    assert!(d.base.is_none(), "la base abîmée ne s'ouvre pas");
+    let mut bord = Bord::default();
+    // « Remettre une sauvegarde » reste possible sans base ; les autres gestes disent pourquoi non
+    let f = bord.geste(&Contexte { base: None, dossier: &e.0 }, SAUVER, &Value::Null, m(9, 1));
+    assert_eq!(f.message.as_deref(), Some(SANS_BASE));
+    let f = bord.geste(&Contexte { base: None, dossier: &e.0 }, RESTAURER, &Value::Null, m(9, 1));
+    assert_eq!(f.fichier, Some(Fichier::Ouvrir));
+    assert!(bord.boite);
+    let lu = sauvegarde::lire_fichier(&zip, &e.0).map(Box::new);
+    let f = bord.retour(RetourFichier::Lu { nom: "sauvegarde.zip".into(), contenu: lu });
+    assert_eq!(f.ordre, Some(json!({ "kit": "accueil", "sauvegarde": "question" })));
+    // La question est montrée même sans base
+    let v = vue_reglages(&bord, None, &e.0, m(9, 2));
+    assert_eq!(v["sauvegarde"]["attente"]["fichier"], "sauvegarde.zip");
+    // Oui : remise
+    let f = bord.restaurer(&mut d, None, m(9, 3));
+    assert!(f.bravo, "{f:?}");
+    let j = f.journal.unwrap();
+    assert!(j.contains("base pas ouverte") && j.contains("base-abimee-"), "{j}");
+    assert_eq!(nombre(d.base.as_ref().expect("base rouverte")), 2);
+    assert!(!sauvegarde::en_attente(&e.0));
+    // La base abîmée est gardée telle quelle dans le dossier des sauvegardes
+    let gardees: Vec<_> = std::fs::read_dir(e.0.join(sauvegarde::DOSSIER))
+        .unwrap()
+        .filter_map(|x| x.ok())
+        .filter(|x| x.file_name().to_string_lossy().starts_with("base-abimee-"))
+        .collect();
+    assert_eq!(gardees.len(), 1);
+    assert_eq!(std::fs::read(gardees[0].path()).unwrap(), vec![0x42u8; 8192]);
+    // Rien ne reste à défaire au démarrage suivant, ni de reste à effacer
+    assert!(sauvegarde::nettoyer_restes(&e.0).is_empty());
+    drop(d);
+    let d = Donnees::ouvrir(&e.0, horloge_figee(m(9, 5)), false);
+    assert_eq!(nombre(d.base.as_ref().unwrap()), 2);
+}
+
+/// Aucune base du tout (premier démarrage raté, dossier vide) : la remise marche aussi.
+#[test]
+fn remettre_sans_aucune_base() {
+    let e = Essai::nouveau("sans-base");
+    let zip = une_sauvegarde(&e, &["Moulin de Kalhausen"]);
+    let mut d = Donnees::ouvrir(&e.0, horloge_figee(m(9, 0)), false);
+    // (la base est fermée, puis son fichier retiré : comme si elle n'avait jamais pu s'ouvrir)
+    d.base = None;
+    for f in ["jobmind.db", "jobmind.db-wal", "jobmind.db-shm"] {
+        let _ = std::fs::remove_file(e.0.join("data").join(f));
+    }
+    let mut bord = Bord::default();
+    bord.geste(&Contexte { base: None, dossier: &e.0 }, RESTAURER, &Value::Null, m(9, 1));
+    let lu = sauvegarde::lire_fichier(&zip, &e.0).map(Box::new);
+    bord.retour(RetourFichier::Lu { nom: "sauvegarde.zip".into(), contenu: lu });
+    let f = bord.restaurer(&mut d, None, m(9, 2));
+    assert!(f.bravo, "{f:?}");
+    assert!(f.journal.unwrap().contains("il n'y avait pas de base avant"));
+    assert_eq!(nombre(d.base.as_ref().unwrap()), 1);
+    assert!(!sauvegarde::en_attente(&e.0));
+}
+
+/// La copie d'avant ne peut pas être faite (le dossier des sauvegardes est un fichier) : rien n'est changé, la base
+/// est rouverte telle quelle, et la carte le dit.
+#[test]
+fn remise_sans_copie_possible_rien_ne_change() {
+    let e = Essai::nouveau("sans-copie");
+    let zip = une_sauvegarde(&e, &["Verrerie de Meisenthal"]);
+    let mut d = Donnees::ouvrir(&e.0, horloge_figee(m(9, 0)), false);
+    ajouter(d.base.as_ref().unwrap(), "Faïencerie de Sarreguemines", "Emballeur", "12/11/2026");
+    ajouter(d.base.as_ref().unwrap(), "Cristallerie de Saint-Louis", "Emballeur", "13/11/2026");
+    let mut bord = Bord::default();
+    bord.geste(&Contexte { base: d.base.as_ref(), dossier: &e.0 }, RESTAURER, &Value::Null, m(9, 1));
+    let lu = sauvegarde::lire_fichier(&zip, &e.0).map(Box::new);
+    bord.retour(RetourFichier::Lu { nom: "sauvegarde.zip".into(), contenu: lu });
+    let _ = std::fs::remove_dir_all(e.0.join(sauvegarde::DOSSIER));
+    std::fs::write(e.0.join(sauvegarde::DOSSIER), b"pas un dossier").unwrap();
+    let f = bord.restaurer(&mut d, None, m(9, 2));
+    assert!(!f.bravo && f.message.is_none());
+    assert_eq!(bord.annonce.clone().unwrap().1, "erreur");
+    assert!(bord.annonce.clone().unwrap().0.contains("Rien n'a été changé"));
+    assert_eq!(nombre(d.base.as_ref().expect("base rouverte")), 2);
+    assert!(!sauvegarde::en_attente(&e.0));
 }
 
 #[test]

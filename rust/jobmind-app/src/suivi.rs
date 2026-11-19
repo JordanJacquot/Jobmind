@@ -10,9 +10,10 @@
 //! entretien demain) : il les voit à l'écran, aucune bulle ne vient les lui redire.
 
 use jobmind_core::candidature::{Saisie, verifier, verifier_entretien, verifier_notes};
-use jobmind_core::suivi::{bulles_dues, ranger};
+use jobmind_core::suivi::{bulles_dues_avec_reponses, ranger_avec_reponses};
 use jobmind_core::{Jour, Statut};
 use jobmind_storage::candidatures::{self, Change};
+use jobmind_storage::mails::candidatures_a_voir;
 use jobmind_storage::rusqlite;
 use jobmind_storage::{Base, Moment, bulles};
 use serde_json::{Value, json};
@@ -157,7 +158,10 @@ impl Suivi {
             }
         };
         if !self.ouverte.is_some_and(|id| liste.iter().any(|x| x.id == id)) {
-            self.ouverte = ranger(&liste, aujourdhui, delai).first().and_then(|(_, l)| l.first()).map(|(x, _)| x.id);
+            self.ouverte = ranger_avec_reponses(&liste, aujourdhui, delai, &mails.attente)
+                .first()
+                .and_then(|(_, l)| l.first())
+                .map(|(x, _)| x.id);
         }
         let frise = match self.ouverte {
             Some(id) => candidatures::evenements(c, id).unwrap_or_default(),
@@ -379,7 +383,8 @@ fn vues(base: &Base, id: i64, maintenant: Moment) -> rusqlite::Result<()> {
     let c = base.connexion();
     let Some(x) = candidatures::lire(c, id)? else { return Ok(()) };
     let delai = candidatures::delai_relance(c)?;
-    bulles::marquer_vues(c, &bulles_dues(&[x], maintenant.jour(), delai), maintenant)
+    let reponses = candidatures_a_voir(c)?;
+    bulles::marquer_vues(c, &bulles_dues_avec_reponses(&[x], maintenant.jour(), delai, &reponses), maintenant)
 }
 
 /// La vérification des bulles (au démarrage puis toutes les 30 s) : les événements dus pas encore annoncés, mis en
@@ -387,8 +392,10 @@ fn vues(base: &Base, id: i64, maintenant: Moment) -> rusqlite::Result<()> {
 pub fn verifier_bulles(base: &Base, maintenant: Moment) -> Vec<String> {
     let c = base.connexion();
     let r = candidatures::lister(c)
-        .and_then(|(l, _)| Ok((l, candidatures::delai_relance(c)?)))
-        .and_then(|(l, delai)| bulles::retenir(c, &bulles_dues(&l, maintenant.jour(), delai), maintenant));
+        .and_then(|(l, _)| Ok((l, candidatures::delai_relance(c)?, candidatures_a_voir(c)?)))
+        .and_then(|(l, delai, reponses)| {
+            bulles::retenir(c, &bulles_dues_avec_reponses(&l, maintenant.jour(), delai, &reponses), maintenant)
+        });
     match r {
         Ok(faites) => faites.iter().map(|b| format!("Bulle {} en attente : {}", b.id, b.titre)).collect(),
         Err(e) => vec![format!("Bulles : vérification impossible ({e})")],

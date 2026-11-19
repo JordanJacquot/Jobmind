@@ -11,7 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
-use jobmind_core::suivi::{couper, resume_carte};
+use jobmind_core::suivi::{couper, resume_carte_avec_reponses};
 use jobmind_core::{Candidature, Jour};
 use serde_json::{Value, json};
 
@@ -71,7 +71,20 @@ pub fn etat_carte_complete(
     a_voir: usize,
     nouvelles: usize,
 ) -> Carte {
-    let mut c = carte_seule(liste, aujourdhui, delai);
+    etat_carte_reponses(liste, aujourdhui, delai, a_voir, nouvelles, &[])
+}
+
+/// [`etat_carte_complete`], avec les candidatures dont une réponse arrivée attend Jordan (`mails::candidatures_a_voir`) :
+/// elles ne sont pas comptées dans « relances à faire » (la réponse est déjà là).
+pub fn etat_carte_reponses(
+    liste: &[Candidature],
+    aujourdhui: Jour,
+    delai: u32,
+    a_voir: usize,
+    nouvelles: usize,
+    reponses: &[i64],
+) -> Carte {
+    let mut c = carte_seule(liste, aujourdhui, delai, reponses);
     if nouvelles > 0 {
         let t = if nouvelles == 1 { "1 nouvelle offre".to_string() } else { format!("{nouvelles} nouvelles offres") };
         if c.lignes.len() == 1 && c.lignes[0].texte == AUCUN {
@@ -96,11 +109,11 @@ pub fn etat_carte_complete(
     c
 }
 
-fn carte_seule(liste: &[Candidature], aujourdhui: Jour, delai: u32) -> Carte {
+fn carte_seule(liste: &[Candidature], aujourdhui: Jour, delai: u32, reponses: &[i64]) -> Carte {
     if liste.is_empty() {
         return Carte { titre: TITRE.to_string(), scores: Vec::new(), lignes: vec![ligne(AUCUN, "info")] };
     }
-    let r = resume_carte(liste, aujourdhui, delai);
+    let r = resume_carte_avec_reponses(liste, aujourdhui, delai, reponses);
     let mut scores = Vec::new();
     if let Some(part) = (r.en_attente * 100 + r.comptees / 2).checked_div(r.comptees) {
         let part = part.min(100);

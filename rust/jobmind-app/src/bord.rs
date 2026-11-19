@@ -145,6 +145,19 @@ impl Bord {
             }
             return Fait::default();
         }
+        // (remettre une sauvegarde reste possible quand la base ne s'ouvre pas : c'est justement là qu'il le faut)
+        if id == RESTAURER && ctx.base.is_none() {
+            if self.boite {
+                return message("Une fenêtre pour choisir un fichier est déjà ouverte.");
+            }
+            self.attente = None;
+            self.boite = true;
+            return Fait {
+                journal: Some(format!("Bord : {id} (base pas ouverte), boîte de Windows demandée")),
+                fichier: Some(Fichier::Ouvrir),
+                ..Fait::default()
+            };
+        }
         let Some(base) = ctx.base else {
             return Fait::refus(SANS_BASE, format!("Bord : {id} impossible, la base n'est pas ouverte"));
         };
@@ -264,6 +277,10 @@ impl Bord {
     /// « Oui, remettre cette sauvegarde » : une copie de l'état actuel d'abord, puis la base fermée, remplacée par
     /// celle de la sauvegarde et rouverte (migrée si elle est plus ancienne). Rien n'est fait pendant qu'autre chose
     /// tourne (`occupee` : ce qui tourne, en mots simples). Au moindre souci, tout revient comme avant.
+    ///
+    /// La base ne s'ouvre pas, ou la copie de l'état actuel ne peut pas être faite (base abîmée) : les fichiers de la
+    /// base sont gardés tels quels dans le dossier des sauvegardes (`remplacer_base_abimee`), puis la remise suit le
+    /// même chemin. La phrase est dite dans la carte de la sauvegarde seulement (pas en double en haut de l'écran).
     pub fn restaurer(&mut self, d: &mut Donnees, occupee: Option<&str>, maintenant: Moment) -> Fait {
         let Some(a) = self.attente.take() else { return Fait::default() };
         if let Some(q) = occupee {
@@ -271,19 +288,17 @@ impl Bord {
             return message(format!("Attends la fin de {q}, puis réessaie."));
         }
         let dossier = d.dossier().to_path_buf();
-        let Some(b) = d.base.as_ref() else {
-            return Fait::refus(SANS_BASE, "Sauvegarde : remise impossible, la base n'est pas ouverte".into());
-        };
-        let copie = match sauvegarde::avant_restauration(b, &dossier, maintenant) {
-            Ok(p) => p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
-            Err(e) => {
-                let t = "Jobmind n'a pas pu garder une copie de tes données actuelles. Rien n'a été changé.";
-                self.annonce = Some((t.into(), "erreur"));
-                return Fait::refus(t, format!("Sauvegarde : copie d'avant pas faite ({e}), rien changé"));
-            }
+        let copie = match d.base.as_ref().map(|b| sauvegarde::avant_restauration(b, &dossier, maintenant)) {
+            Some(Ok(p)) => Ok(p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
+            Some(Err(e)) => Err(format!("copie d'avant pas faite ({e})")),
+            None => Err("base pas ouverte".to_string()),
         };
         // (la base fermée avant d'être remplacée)
         d.base = None;
+        let annoncer = |bord: &mut Bord, t: &str, genre: &'static str, journal: String| {
+            bord.annonce = Some((t.into(), genre));
+            Fait { journal: Some(journal), change: true, ..Fait::default() }
+        };
         let rouvrir = |d: &mut Donnees| match Base::ouvrir(&dossier, maintenant) {
             Ok((b, _)) => {
                 d.base = Some(b);
@@ -295,28 +310,54 @@ impl Bord {
             let _ = sauvegarde::annuler(&dossier);
             let encore = rouvrir(d).map(|e| format!(" ; base pas rouverte : {e}")).unwrap_or_default();
             let t = "La sauvegarde n'a pas pu être remise. Rien n'a été changé.";
-            bord.annonce = Some((t.into(), "erreur"));
-            Fait::refus(t, format!("Sauvegarde : remise ratée ({raison}), tout remis comme avant{encore}"))
+            annoncer(bord, t, "erreur", format!("Sauvegarde : remise ratée ({raison}), tout remis comme avant{encore}"))
         };
-        if let Err(e) = sauvegarde::remplacer(&dossier, &a.contenu) {
-            return echec(self, d, e.to_string());
-        }
+        let copie = match copie {
+            Ok(nom) => {
+                if let Err(e) = sauvegarde::remplacer(&dossier, &a.contenu) {
+                    return echec(self, d, e.to_string());
+                }
+                format!("l'état d'avant est gardé dans sauvegardes ({nom})")
+            }
+            // (base abîmée ou pas ouverte : ses fichiers gardés tels quels, puis la même remise)
+            Err(raison) => match sauvegarde::remplacer_base_abimee(&dossier, &a.contenu, maintenant) {
+                Ok(Some(p)) => format!(
+                    "{raison} : la base d'avant est gardée telle quelle dans sauvegardes ({})",
+                    p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+                ),
+                Ok(None) => format!("{raison} : il n'y avait pas de base avant"),
+                Err(e) => {
+                    let t = "Jobmind n'a pas pu garder une copie de tes données actuelles. Rien n'a été changé.";
+                    let encore = rouvrir(d).map(|e| format!(" ; base pas rouverte : {e}")).unwrap_or_default();
+                    return annoncer(
+                        self,
+                        t,
+                        "erreur",
+                        format!("Sauvegarde : {raison}, copie de la base abîmée pas faite ({e}), rien changé{encore}"),
+                    );
+                }
+            },
+        };
         if let Some(e) = rouvrir(d) {
             return echec(self, d, format!("base remise pas ouverte : {e}"));
         }
-        let _ = sauvegarde::confirmer(&dossier);
+        let mut journal = format!("Sauvegarde : remise ; {copie}");
+        match sauvegarde::confirmer_bilan(&dossier) {
+            Ok(None) => {}
+            Ok(Some(l)) => journal.push_str(&format!(" ; {l}")),
+            Err(e) => {
+                // (la marque pas effacée : au prochain démarrage, tout reviendrait comme avant ; défait maintenant)
+                d.base = None;
+                return echec(self, d, format!("confirmation impossible ({e})"));
+            }
+        }
         let t = format!(
             "Ta sauvegarde est remise ({}). Tes clés et ta boîte mail restent celles de ce PC.",
             phrase_resume(&a.contenu.resume).trim_end_matches('.').replacen("Faite le", "faite le", 1)
         );
-        self.annonce = Some((t.clone(), "ok"));
-        Fait {
-            message: Some(t),
-            bravo: true,
-            journal: Some(format!("Sauvegarde : remise ; l'état d'avant est gardé dans sauvegardes ({copie})")),
-            change: true,
-            ..Fait::default()
-        }
+        let mut f = annoncer(self, &t, "ok", journal);
+        f.bravo = true;
+        f
     }
 }
 
