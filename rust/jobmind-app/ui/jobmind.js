@@ -369,6 +369,9 @@
       const bts = `${texteSur(pr.oui) ? bouton('m-oui', 'pr:oui', texteSur(pr.oui), 'coche', 'principal', ` data-id="${pr.mail}"`) : ''}${bouton('m-non', 'pr:non', texteSur(pr.non), '', 'second', ` data-id="${pr.mail}"`)}`;
       h += `<div class="jm-action jm-prop" style="--c:${couleurStatut(codeSur(pr.statut) ? pr.statut : 'relancee')}"><span class="jm-a-ic">${icone('mail')}</span><div class="jm-a-txt"><b>${esc(texteSur(pr.titre))}</b><span>${esc(texteSur(pr.texte))}</span><span class="jm-citation">${esc(texteSur(pr.citation))} <em>${esc(texteSur(pr.par))}</em></span></div><div class="jm-a-bts">${bts}</div></div>`;
     }
+    // (étape 8 : une candidature liée à une offre : sa candidature préparée)
+    const pp = objet(f.preparer);
+    if (numSur(pp.offre)) h += `<div class="jm-action jm-pr-a"><span class="jm-a-ic">${icone('plume')}</span><div class="jm-a-txt"><b>${esc(texteSur(pp.titre))}</b><span>${esc(texteSur(pp.texte))}</span></div><div class="jm-a-bts">${bouton('pr-dossier', 'd:prep', texteSur(pp.bouton), 'droite', pp.prete === true ? '' : 'principal', ` data-id="${pp.offre}"`)}</div></div>`;
     const frise = Array.isArray(f.frise) ? f.frise : [];
     if (frise.length) h += `<div class="jm-frise">${frise.map((e, i) => `${i ? '<b class="jm-fl"></b>' : ''}<span><i></i>${esc(texteSur(e?.texte))} <em>${esc(texteSur(e?.date))}</em></span>`).join('')}</div>`;
     const pil = [['envoye', T('p_envoye')], ['offre', T('p_offre')], ['notes', T('p_notes')]];
@@ -589,6 +592,12 @@
     let h = `<div class="jm-d jm-of${O.anime ? ' entree' : ''}"><div class="jm-d-tete"><div class="jm-d-titres"><h1>${esc(texteSur(f.titre))}</h1><div class="jm-d-sous">${esc(texteSur(f.sous))}</div></div></div>`;
     h += `<div class="jm-o-src"><span>${esc(texteSur(f.source))}</span></div>`;
     if (texteSur(f.candidats)) h += `<p class="jm-o-double jm-o-cand">${icone('profil')}<span>${esc(texteSur(f.candidats))}</span></p>`;
+    // (étape 8 : « L'offre » et « Ma candidature »)
+    const p = prDe(f);
+    if (p) {
+      h += pilulesOffreHTML(f, p);
+      if (ofPil === 'cand') return `${h}${candidatureHTML(p)}</div>`;
+    }
     h += `<div class="jm-infos">${liste(f.infos).map((i) => `<div><span>${esc(texteSur(i?.nom))}</span><b>${esc(texteSur(i?.valeur))}</b></div>`).join('')}</div>`;
     h += luHTML(f.lecture, tO(offresDe()));
     const voir = bouton('cs-voir', 'cs:voir', t('voir'), 'ext', '', ` data-id="${s.id}"`);
@@ -1077,6 +1086,10 @@
       saisieProfil(el, d);
     } else if (d.perso === 'cs-cx-champ') {
       saisieSites(el, d);
+    } else if (d.perso === 'pr-zone') {
+      if (prEdition) prEdition.texte = el.value;
+    } else if (d.perso === 'pr-consigne') {
+      prConsigne = el.value;
     } else if (typeof d.perso === 'string' && d.perso.startsWith('of-')) {
       saisieOffres(el, d);
     }
@@ -1638,7 +1651,120 @@
     }
     const id = numSur(x.fiche?.id) ? x.fiche.id : null;
     if (ofChoisie !== null && (id === ofChoisie || !liste(x.lignes).some((l) => l?.id === ofChoisie))) ofChoisie = null;
-    if (id !== ofVue1) ofVue1 = id;
+    // (étape 8 : une autre offre ouverte, ses pilules reviennent à « L'offre », sauf si on vient de son dossier)
+    if (id !== ofVue1) {
+      ofVue1 = id;
+      if (prVoulu === null || prVoulu !== id) ofPil = 'offre';
+      if (prVoulu === id) { ofPil = 'cand'; prVoulu = null; }
+      prEdition = null; prBrute = false; prConsigne = '';
+    }
+  }
+
+  // ---------------------------------------------------------------- La candidature préparée (étape 8)
+  // Dans l'offre ouverte, les pilules « L'offre » et « Ma candidature » (maquette C). « Préparer ma candidature »
+  // ('pr-preparer') : Rust demande à Claude sur un fil à part, puis renvoie la version gardée (P.preparation) : la lettre
+  // en morceaux (les phrases à vérifier surlignées), les réponses aux questions de l'offre, les conseils pour le CV, les
+  // versions. Jordan modifie sa lettre ici ('pr-lettre' : Rust vérifie et garde ; la version de Claude reste), copie,
+  // dit « C'est juste » ou « Retirer » d'une phrase à vérifier, refait une version avec une consigne courte facultative.
+  let ofPil = 'offre';    // la pilule de l'offre ouverte : 'offre' ou 'cand'
+  let prVoulu = null;     // l'offre à ouvrir sur « Ma candidature » (depuis le dossier d'une candidature)
+  let prEdition = null;   // la lettre en train d'être modifiée : { id, texte }
+  let prBrute = false;    // la version de Claude montrée (au lieu de la lettre de Jordan)
+  let prConsigne = '';    // la consigne tapée pour une autre version
+  const prDe = (f) => { const p = objet(P?.preparation); return f && numSur(p.offre) && p.offre === f.id ? p : null; };
+  const prVersion = (p) => { const v = objet(p?.version); return numSur(v.id) ? v : null; };
+  // (« Ma candidature » ouverte : le dossier descend jusqu'aux pilules, la lettre se voit)
+  const voirPil = () => { const d = hote.querySelector('.jm-dossier'), p = hote.querySelector('.jm-o-pil'); if (d && p) d.scrollTop += p.getBoundingClientRect().top - d.getBoundingClientRect().top - 12; };
+  const morceauxHTML = (l) => liste(l).map((m) => (Number.isInteger(m?.n) ? `<mark class="jm-verif">${O.esc(texteSur(m.t))}</mark>` : O.esc(texteSur(m?.t)))).join('');
+
+  function pilulesOffreHTML(f, p) {
+    const { esc } = O, t = tO(p);
+    const pret = liste(p.versions).length > 0;
+    return `<div class="jm-pilules jm-o-pil" role="tablist">${[['offre', esc(t('p_offre'))], ['cand', `${esc(t('p_cand'))}${pret ? ` <small>${esc(t('prete'))}</small>` : ''}`]].map(([id, nom]) => `<button type="button" role="tab" aria-selected="${ofPil === id}" class="jm-pil f${ofPil === id ? ' actif' : ''}" data-perso="pr-pil" data-id="${id}" data-k="op:${id}">${nom}</button>`).join('')}</div>`;
+  }
+
+  // Dans « L'offre » : préparer, ou la candidature déjà prête
+  function actionPrepHTML(p) {
+    const { esc } = O, t = tO(p);
+    if (typeof p.en_cours === 'string' && p.en_cours) return `<div class="jm-attente" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(p.en_cours)}</span></div>`;
+    if (liste(p.versions).length) return `<div class="jm-action jm-pr-a"><span class="jm-a-ic">${icone('plume')}</span><div class="jm-a-txt"><b>${esc(t('prete_t'))}</b><span>${esc(t('prete_s'))}</span></div><div class="jm-a-bts">${bouton('pr-voir', 'pr:voir', t('voir'), 'droite', 'principal')}</div></div>`;
+    return `<div class="jm-action jm-pr-a"><span class="jm-a-ic">${icone('plume')}</span><div class="jm-a-txt"><b>${esc(t('preparer_t'))}</b><span>${esc(t('preparer_s'))}</span></div><div class="jm-a-bts">${bouton('pr-preparer', 'pr:preparer', t('preparer'), 'plume', 'principal', p.occupe === true ? ' disabled' : '')}</div></div>`;
+  }
+
+  function annoncePrepHTML(p) {
+    const { esc } = O, t = tO(p), a = objet(p.annonce);
+    if (!texteSur(a.texte)) return '';
+    const g = ['ok', 'attention', 'erreur'].includes(a.genre) ? a.genre : 'attention';
+    const b = a.cles === true ? bouton('of-cles', 'pr:cles', t('ouvrir_cles'), 'cle', 'discret') : a.cv === true ? bouton('pr-cv', 'pr:cv', t('ouvrir_cv'), 'cv', 'discret') : '';
+    return `<div class="jm-annonce ${g} jm-pr-ann" role="status">${icone(g === 'ok' ? 'coche' : 'attention')}<div><span>${esc(a.texte)}</span>${b}</div></div>`;
+  }
+
+  // « Ma candidature »
+  function candidatureHTML(p) {
+    const { esc } = O, t = tO(p), v = prVersion(p);
+    let h = annoncePrepHTML(p);
+    if (typeof p.en_cours === 'string' && p.en_cours) h += `<div class="jm-attente" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(p.en_cours)}</span></div>`;
+    if (!v) {
+      if (p.en_cours) return h;
+      const sans = p.claude !== true;
+      return `${h}<div class="jm-action jm-pr-a"><span class="jm-a-ic">${icone(sans ? 'cle' : 'plume')}</span><div class="jm-a-txt"><b>${esc(t('pas_t'))}</b><span>${esc(sans ? t('sans_cle') : t('preparer_s'))}</span></div><div class="jm-a-bts">${sans ? bouton('of-cles', 'pr:cle', t('ouvrir_cles'), 'cle', 'principal') : bouton('pr-preparer', 'pr:preparer', t('preparer'), 'plume', 'principal', p.occupe === true ? ' disabled' : '')}</div></div>`;
+    }
+    const occupe = p.occupe === true ? ' disabled' : '';
+    h += `<div class="jm-pr"><div class="jm-pr-g"><div class="jm-meta"><span>${esc(texteSur(v.meta))}</span></div>`;
+    if (prEdition && prEdition.id === v.id) {
+      h += `<textarea class="jm-pr-zone f" data-perso="pr-zone" data-k="pr:zone" maxlength="8000" spellcheck="true" aria-label="${esc(t('lettre_t'))}">${esc(prEdition.texte)}</textarea>
+        <div class="jm-btns serre">${bouton('pr-garder', 'pr:garder', t('garder'), 'coche', 'principal')}${bouton('pr-annuler', 'pr:annuler', t('annuler'), '', 'second')}</div>`;
+    } else {
+      if (prBrute) h += `<p class="jm-petit jm-pr-brute-t">${esc(t('brute_t'))}</p><div class="jm-lettre jm-pr-lettre brute" data-brut>${esc(texteSur(v.brute))}</div>`;
+      else h += `<div class="jm-lettre jm-pr-lettre" data-brut>${morceauxHTML(v.morceaux)}</div>`;
+      h += `<div class="jm-btns serre jm-pr-bts">${bouton('pr-copier', 'pr:copier', t('copier'), 'copie', 'principal')}${prBrute ? '' : bouton('pr-modifier', 'pr:modifier', t('modifier'), 'crayon', '')}${bouton('pr-brute', 'pr:brute', prBrute ? t('finale') : t('brute'), 'oeil', 'discret')}</div>`;
+    }
+    const av = liste(v.a_verifier).filter((a) => Number.isInteger(a?.n));
+    if (av.length && !prBrute) {
+      h += `<h2 class="jm-h2 jm-pr-avt">${icone('attention')}${esc(t('a_verifier_t'))}</h2><p class="jm-petit jm-pr-avs">${esc(t('a_verifier_s'))}</p>`;
+      h += av.map((a) => `<div class="jm-pr-av"><q>${esc(texteSur(a.texte))}</q><small>${esc(texteSur(a.raison))}</small><div class="jm-btns serre">${bouton('pr-juste', `pr:j-${a.n}`, t('juste'), 'coche', '', ` data-n="${a.n}"`)}${bouton('pr-retirer', `pr:r-${a.n}`, t('retirer'), 'poubelle', 'discret danger', ` data-n="${a.n}"`)}</div></div>`).join('');
+    }
+    h += `<h2 class="jm-h2">${esc(t('refaire_t'))}</h2><div class="jm-pr-refaire"><input class="f" data-perso="pr-consigne" data-k="pr:consigne" maxlength="120" autocomplete="off" spellcheck="false" placeholder="${esc(t('i_consigne'))}" aria-label="${esc(t('refaire_t'))}" value="${esc(prConsigne)}">${bouton('pr-refaire', 'pr:refaire', t('refaire'), 'recharger', '', occupe)}</div>`;
+    h += `<p class="jm-petit">${esc(texteSur(v.cout))}</p></div><div class="jm-pr-cote">`;
+    const qs = liste(v.questions);
+    h += `<h3>${esc(t('questions_t'))}</h3>`;
+    h += qs.length ? qs.map((q, i) => `<div class="jm-q"><div class="jm-qt"><span>${esc(texteSur(q?.question))}</span>${bouton('pr-copier-q', `pr:q-${i}`, t('copier_rep'), 'copie', 'discret', ` data-i="${i}"`)}</div><p>${morceauxHTML(q?.morceaux)}</p></div>`).join('') : `<p class="jm-petit jm-pr-vide">${esc(t('aucune_q'))}</p>`;
+    const cs = liste(v.conseils);
+    if (cs.length) h += `<h3>${esc(t('conseils_t'))}</h3>${cs.map((c) => `<div class="jm-conseil ${codeSur(c?.genre) ? c.genre : ''}"><b>${esc(texteSur(c?.titre))}</b><span>${esc(texteSur(c?.texte))}</span>${texteSur(c?.cv) ? `<q>${esc(c.cv)}</q>` : ''}</div>`).join('')}`;
+    const vs = liste(p.versions).filter((x) => numSur(x?.id));
+    h += `<h3>${esc(t('versions_t'))}</h3><div class="jm-versions">${vs.map((x) => `<button type="button" class="jm-version f${x.montree === true ? ' actif' : ''}" data-perso="pr-version" data-id="${x.id}" data-k="pr:v-${x.id}" aria-current="${x.montree === true}"><b>${esc(texteSur(x.nom))}</b><span>${esc(texteSur(x.date))}${texteSur(x.consigne) ? `, « ${esc(x.consigne)} »` : ''}${x.modifiee === true ? `, ${esc(t('modifiee'))}` : ''}</span></button>`).join('')}</div>`;
+    return `${h}</div></div>`;
+  }
+
+  // Un geste de la candidature préparée ; vrai s'il en était un
+  function validerPrep(el, d, f) {
+    const p = prDe(f), v = prVersion(p);
+    switch (d.perso) {
+      case 'pr-pil': if (['offre', 'cand'].includes(d.id) && ofPil !== d.id) { ofPil = d.id; O.son?.tic?.(); O.anime = !reduit(); dessinerTout(`op:${d.id}`); if (d.id === 'cand') voirPil(); } return true;
+      case 'pr-voir': O.son?.ok?.(); ofPil = 'cand'; O.anime = !reduit(); dessinerTout('op:cand'); voirPil(); return true;
+      case 'pr-preparer': if (f && numSur(f.id) && !el.disabled) { el.disabled = true; O.son?.ok?.(); ofPil = 'cand'; O.action('pr-preparer', { id: f.id }); dessinerTout('op:cand'); voirPil(); } return true;
+      case 'pr-consigne': // (Entrée : refaire)
+      case 'pr-refaire': if (f && v && !(p?.occupe === true)) { O.son?.ok?.(); O.action('pr-preparer', { id: f.id, consigne: String(prConsigne || '').slice(0, 120), depuis: v.id }); } return true;
+      case 'pr-copier': if (v) copierBrut(prBrute ? texteSur(v.brute) : texteSur(v.lettre), el, () => O.action('pr-copie', { quoi: 'lettre' })); return true;
+      case 'pr-copier-q': { const q = liste(v?.questions)[Number(d.i)]; if (q) copierBrut(texteSur(q.reponse), el, () => O.action('pr-copie', { quoi: 'question' })); return true; }
+      case 'pr-modifier': if (v) { O.son?.ok?.(); prEdition = { id: v.id, texte: texteSur(v.lettre) }; prBrute = false; dessinerTout('pr:zone'); } return true;
+      case 'pr-zone': return true;
+      case 'pr-garder': if (prEdition && Date.now() >= envoiJusqua) { envoiJusqua = Date.now() + 800; O.son?.ok?.(); O.action('pr-lettre', { id: prEdition.id, lettre: String(prEdition.texte).slice(0, 8000) }); } return true;
+      case 'pr-annuler': O.son?.retour?.(); prEdition = null; dessinerTout('pr:modifier'); return true;
+      case 'pr-brute': O.son?.tic?.(); prBrute = !prBrute; dessinerTout('pr:brute'); return true;
+      case 'pr-juste': case 'pr-retirer': { const n = Number(d.n); if (v && Number.isInteger(n) && !el.disabled) { el.disabled = true; O.son?.ok?.(); O.action(d.perso, { id: v.id, n }); } return true; }
+      case 'pr-version': { const id = Number(d.id); if (numSur(id)) { O.son?.tic?.(); prEdition = null; prBrute = false; O.action('pr-version', { id }); } return true; }
+      case 'pr-cv': O.son?.ok?.(); montrer('profil', 'r:cv'); ouvrirRubrique('cv'); return true;
+      // (depuis le dossier d'une candidature liée à une offre)
+      case 'pr-dossier': {
+        const id = Number(d.id);
+        if (!numSur(id)) return true;
+        O.son?.ok?.(); prVoulu = offresDe()?.fiche?.id === id ? null : id; ofVue = 'offre'; ofForm = null; ofConfirme = null; ofChoisie = id; ofPil = 'cand';
+        montrer('offres', 'op:cand'); O.action('o-ouvrir', { id });
+        return true;
+      }
+      default: return false;
+    }
   }
 
   // Envoie les filtres à Rust (tout de suite, ou un peu après la frappe)
@@ -1776,10 +1902,17 @@
       const pas = f.pas_hors_sujet === true;
       h += `<div class="jm-hors">${icone(pas ? 'coche' : 'attention')}<span>${esc(pas ? t('pas_hors_sujet_t') : t('hors_sujet_t'))}</span>${bouton('of-pas-hors', 'ov:hors', pas ? t('remettre_hors_sujet') : t('pas_hors_sujet'), pas ? 'cacher' : 'coche', 'discret')}</div>`;
     }
+    // (étape 8 : « L'offre » et « Ma candidature »)
+    const p = prDe(f);
+    if (p) {
+      h += pilulesOffreHTML(f, p);
+      if (ofPil === 'cand') return `${h}${candidatureHTML(p)}</div>`;
+    }
     h += `<div class="jm-infos">${liste(f.infos).map((i) => `<div><span>${esc(texteSur(i?.nom))}</span><b>${esc(texteSur(i?.valeur))}</b></div>`).join('')}</div>`;
     h += luHTML(f.lecture, t);
     if (f.ia === 'lire') h += `<div class="jm-ia">${icone('loupe')}<div><span>${esc(t('lire_ia_t'))}</span>${bouton('of-lire-ia', 'ov:ia', t('lire_ia'), 'droite', 'discret', ` data-id="${f.id}"`)}</div></div>`;
     else if (f.ia === 'cle') h += `<div class="jm-ia">${icone('cle')}<div><span>${esc(t('cle_ia_t'))}</span>${bouton('of-cles', 'ov:ia-cle', t('ouvrir_cles'), 'cle', 'discret')}</div></div>`;
+    if (p) h += annoncePrepHTML(p) + actionPrepHTML(p);
     const liens = liste(f.liens).filter((l) => codeSurP(l?.source));
     const voir = liens.map((l, i) => bouton('of-voir', `ov:voir-${l.source}`, texteSur(l.nom), 'ext', i ? '' : 'principal', ` data-source="${l.source}"`)).join('');
     if (numSur(f.candidature)) {
@@ -1893,6 +2026,7 @@
   // Un élément de l'onglet Offres (clic, A ou Entrée) ; vrai s'il en était un
   function validerOffres(el, d) {
     const x = offresDe(), f = x?.fiche;
+    if (typeof d.perso === 'string' && d.perso.startsWith('pr-')) return validerPrep(el, d, f);
     switch (d.perso) {
       case 'of-champ':   // (Entrée dans le texte cherché ou la ville : les filtres partent tout de suite)
         if (el.tagName === 'INPUT') envoyerFiltres(false);
@@ -1984,6 +2118,10 @@
     if (ofConfirme) { const id = ofConfirme; ofConfirme = null; dessinerTout(`og:s-${id}`); return true; }
     if (ofForm) { ofForm = null; dessinerTout('og:nouvelle'); return true; }
     if (ofVue === 'recherches') { ofVue = 'offre'; dessinerTout('or:gerer'); return true; }
+    // (étape 8 : la lettre en cours de modification, la version de Claude, puis « Ma candidature »)
+    if (prEdition) { prEdition = null; dessinerTout('pr:modifier'); return true; }
+    if (prBrute) { prBrute = false; dessinerTout('pr:brute'); return true; }
+    if (ofPil === 'cand') { ofPil = 'offre'; dessinerTout('op:offre'); return true; }
     return false;
   }
 
@@ -1994,6 +2132,11 @@
       if (onglet === 'offres') dessinerTout(ofVue === 'recherches' ? 'og:nouvelle' : 'or:chercher');
       return true;
     }
+    // (étape 8 : la lettre gardée, une nouvelle version prête ; pour les captures, « Ma candidature » montrée)
+    if (o.preparation === 'gardee') { prEdition = null; if (onglet === 'offres') dessinerTout('pr:modifier'); return true; }
+    if (o.preparation === 'prete') { prEdition = null; prBrute = false; prConsigne = ''; if (onglet === 'offres' && ofPil === 'cand') { dessinerTout('pr:copier'); voirPil(); } return true; }
+    if (typeof o.prep_consigne === 'string') { prConsigne = o.prep_consigne.slice(0, 120); if (onglet === 'offres') dessinerTout('pr:consigne'); return true; }
+    if (o.preparation === 'voir') { if (onglet !== 'offres') montrer('offres'); ofVue = 'offre'; ofPil = 'cand'; dessinerTout('op:cand'); voirPil(); return true; }
     if (numSur(o.recherche_supprimee)) { ofConfirme = null; if (onglet === 'offres') dessinerTout('og:nouvelle'); return true; }
     // (pour les captures) une offre ouverte, Mes recherches
     if (numSur(o.offre)) {

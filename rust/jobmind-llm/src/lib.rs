@@ -9,9 +9,15 @@
 //! - [`lecture`] : la demande « trouve le diplôme et l'expérience » (réponse en JSON imposé par un schéma), et la
 //!   réponse vérifiée : chaque citation doit se trouver dans l'offre, sinon rien n'est gardé (rien d'inventé) ;
 //! - [`reponse`] (étape 7) : ce qu'annonce une réponse de recruteur que les règles n'ont pas su lire, avec la phrase
-//!   du mail qui le dit, vérifiée de la même façon.
+//!   du mail qui le dit, vérifiée de la même façon ;
+//! - [`candidature`] (étape 8) : la candidature préparée par le modèle fort (la lettre, les réponses aux questions de
+//!   l'offre, les conseils pour le CV), chaque phrase sur Jordan vérifiée dans son CV ;
+//! - `faux` (option « faux » et tests) : un faux Claude local, jamais la vraie API.
 
+pub mod candidature;
 pub mod claude;
+#[cfg(any(test, feature = "faux"))]
+pub mod faux;
 pub mod lecture;
 pub mod reponse;
 

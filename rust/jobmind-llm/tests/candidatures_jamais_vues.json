@@ -1,0 +1,1064 @@
+{
+  "description": "Jeu de candidatures jamais vues, écrit d'après le sens et non d'après le code de vérification. Personnes, entreprises et lieux inventés. Chaque phrase porte l'étiquette attendue (sure ou a_verifier) et chaque question l'étiquette attendue (gardee ou laissee).",
+  "cv": [
+    {
+      "id": "cv_aide_soignante",
+      "texte": "Nadège Folleville\nAide-soignante\nNancy (54)\n\nEXPÉRIENCE\n2019 à 2023 : Aide-soignante, EHPAD Les Tilleuls Bleus, Vandoeuvre\nToilettes, aide aux repas, surveillance des constantes, transmissions écrites.\nTravail en équipe de nuit un week-end sur deux.\n2016 à 2019 : Agent de service hospitalier, Clinique du Val Doré, Nancy\nEntretien des chambres, distribution des plateaux repas.\n\nFORMATION\n2016 : Diplôme d'État d'aide-soignant (DEAS), IFAS de Laxou\n\nCOMPÉTENCES\nLogiciel de soins NetSoins\nGestes et soins d'urgence (AFGSU niveau 2)\nAnglais scolaire\n\nLOISIRS\nRandonnée, chorale",
+      "profil": "Postes : aide-soignante, agent de service hospitalier\nLieu : Nancy, 20 km autour\nContrats : CDI, CDD\nSalaire : 1 900 € brut par mois au moins"
+    },
+    {
+      "id": "cv_cuisinier",
+      "texte": "Karim Bellerose\nCuisinier\nMetz (57)\n\nEXPÉRIENCE PROFESSIONNELLE\n2021 à 2024 : Second de cuisine, Restaurant La Marmite Dorée, Metz\nGestion des commandes fournisseurs, encadrement de 2 commis, préparation des entrées et des desserts.\n2018 à 2021 : Commis de cuisine, Brasserie du Pont Vert, Thionville\nMise en place, cuisson des viandes, plonge.\n2017 : Stage en pâtisserie, Maison Fenouillet, Metz (3 mois)\n\nFORMATION\n2017 : CAP Cuisine, Lycée hôtelier Raymond Clairval, Metz\n\nCOMPÉTENCES\nNormes HACCP\nCuisine traditionnelle française\nPermis B",
+      "profil": "Postes : cuisinier, second de cuisine, chef de partie\nLieu : Metz, 30 km autour\nContrats : CDI\nSalaire : 2 100 € brut par mois au moins\nPas de travail le lundi"
+    },
+    {
+      "id": "cv_menage",
+      "texte": "Lucette Vrignaud\nAgent d'entretien\n2020 à 2022 : ménage dans des bureaux, Société Propreté Azurine, Épinal\nDisponible tout de suite",
+      "profil": "Postes : agent d'entretien, employée de ménage\nLieu : Épinal, 15 km autour\nContrats : CDI, CDD, temps partiel\nSalaire : SMIC au moins"
+    }
+  ],
+  "offres": [
+    {
+      "id": "offre_ehpad_nuit",
+      "titre": "Aide-soignant ou aide-soignante de nuit (CDI)",
+      "entreprise": "EHPAD Les Coteaux Fleuris",
+      "lieu": "Laxou",
+      "texte": "L'EHPAD Les Coteaux Fleuris, 84 résidents, recrute un aide-soignant ou une aide-soignante de nuit en CDI à temps plein.\n\nVos missions :\n- assurer la surveillance des résidents pendant la nuit ;\n- réaliser les soins d'hygiène et de confort ;\n- assurer les transmissions avec l'équipe de jour.\n\nProfil : Diplôme d'État d'aide-soignant obligatoire. Une première expérience en EHPAD est appréciée.\n\nHoraires : 21 h à 7 h, 3 nuits par semaine en moyenne.\nSalaire : selon la grille de la convention collective, prime de nuit.\n\nPour postuler, merci de répondre aux questions suivantes :\nPourquoi souhaitez-vous travailler de nuit ?\nIndiquez vos disponibilités pour un premier entretien.",
+      "questions_attendues": 2
+    },
+    {
+      "id": "offre_chef_partie",
+      "titre": "Chef de partie chaud",
+      "entreprise": "Le Comptoir des Saules",
+      "lieu": "Metz",
+      "texte": "Le Comptoir des Saules, bistrot de 60 couverts au centre de Metz, cherche son chef de partie chaud.\n\nVous travaillerez avec une équipe de 5 personnes, sous la responsabilité du chef. Carte courte, produits frais et de saison, tout est fait maison.\n\nCe que nous attendons : au moins 3 ans d'expérience en cuisine traditionnelle, la maîtrise des normes HACCP, le sens du travail en équipe.\n\nCe que nous offrons : CDI 39 heures, deux jours de repos consécutifs (dimanche et lundi), repas pris sur place, salaire de 2 200 à 2 400 € brut par mois selon l'expérience.\n\nEnvoyez-nous votre CV, nous vous rappelons sous une semaine.",
+      "questions_attendues": 0
+    },
+    {
+      "id": "offre_collectivite",
+      "titre": "Cuisinier ou cuisinière en collectivité",
+      "entreprise": "Restauration Collective Mosellane Avenir",
+      "lieu": "Woippy",
+      "texte": "Restauration Collective Mosellane Avenir prépare chaque jour 1 200 repas pour les écoles et les maisons de retraite du secteur de Woippy.\n\nPoste : cuisinier ou cuisinière en collectivité, CDD de 6 mois pouvant déboucher sur un CDI.\nHoraires : du lundi au vendredi, 6 h 30 à 14 h. Pas de travail le soir ni le week-end.\n\nMissions : production des plats chauds et froids en liaison froide, respect strict du plan de maîtrise sanitaire, participation aux commandes.\n\nProfil : CAP cuisine ou équivalent. Permis B souhaité pour les livraisons ponctuelles.\n\nQuestions aux candidats :\n1. Avez-vous déjà travaillé en restauration collective ?\n2. Quelles sont vos prétentions salariales ?\n3. Indiquez votre niveau en pâtisserie.\n\nRémunération : 1 950 € brut par mois, treizième mois après un an.",
+      "questions_attendues": 3
+    },
+    {
+      "id": "offre_entretien",
+      "titre": "Agent d'entretien (temps partiel)",
+      "entreprise": "Net'Horizon Services",
+      "lieu": "Épinal",
+      "texte": "Net'Horizon Services, entreprise de nettoyage installée à Épinal depuis 2009, recrute un agent d'entretien pour des bureaux et des cabinets médicaux.\n\nHoraires : du lundi au vendredi, de 6 h à 9 h et de 18 h à 20 h.\nContrat : CDI à temps partiel, 25 heures par semaine.\nSalaire : SMIC horaire, indemnités de trajet.\n\nAucun diplôme demandé. Débutants acceptés, une formation est assurée à l'arrivée.\nLe matériel et la tenue sont fournis.\n\nPrise de poste dès que possible.",
+      "questions_attendues": 0
+    },
+    {
+      "id": "offre_clinique_longue",
+      "titre": "Plusieurs postes en soins, entretien et cuisine centrale",
+      "entreprise": "Groupe Hospitalier Privé des Trois Vallons",
+      "lieu": "Nancy et alentours",
+      "texte": "Le Groupe Hospitalier Privé des Trois Vallons recrute\n\nPrésentation du groupe\nLe Groupe Hospitalier Privé des Trois Vallons réunit trois établissements de santé dans l'agglomération de Nancy : la clinique Saint-Aubéric, spécialisée en chirurgie et en maternité, le centre de soins de suite et de réadaptation Les Vergers d'Aulnoy-le-Clos, et la résidence médicalisée Les Hauts de Mirecey. Ensemble, ces trois sites accueillent chaque année plus de 14 000 patients et résidents, et emploient près de 620 salariés. Le groupe est indépendant depuis sa création en 1987 et appartient à ses médecins fondateurs et à une association de familles de patients.\n\nNos services en quelques mots\nLa clinique Saint-Aubéric compte 120 lits de chirurgie (orthopédie, chirurgie digestive, ophtalmologie) et une maternité de niveau 1 qui accueille environ 900 naissances par an. Le centre Les Vergers d'Aulnoy-le-Clos propose 95 lits de soins de suite et de réadaptation, orientés vers la rééducation après une opération et la prise en charge des personnes âgées après une hospitalisation. La résidence Les Hauts de Mirecey accueille 70 résidents, dont une unité protégée de 14 places pour les personnes atteintes de troubles de la mémoire. Chaque site dispose de sa propre équipe de soins, mais les fonctions support (cuisine, blanchisserie, ressources humaines, informatique) sont communes aux trois établissements.\n\nNos valeurs\nNous croyons qu'un soin de qualité commence par une équipe qui se sent bien. Depuis 2018, le groupe a mis en place un plan de qualité de vie au travail construit avec les salariés : plannings connus six semaines à l'avance, salle de repos rénovée sur chaque site, crèche partenaire avec des places réservées pour les enfants du personnel, et accompagnement à la mobilité entre les trois établissements pour ceux qui le souhaitent. Nous privilégions la promotion interne : un agent de service hospitalier peut, avec notre soutien, préparer le diplôme d'aide-soignant, et un aide-soignant peut préparer le concours d'entrée en école d'infirmiers. Chaque année, une vingtaine de salariés bénéficient de ces parcours.\n\nLe contexte des recrutements\nL'ouverture d'une nouvelle aile de 40 lits au centre Les Vergers d'Aulnoy-le-Clos au printemps prochain, ainsi que le départ en retraite de plusieurs collègues, nous conduisent à renforcer nos équipes sur les trois sites. Nous ouvrons plusieurs postes en même temps, décrits ci-dessous. Une seule candidature suffit pour un ou plusieurs postes : notre service des ressources humaines l'orientera vers les postes qui correspondent à votre parcours.\n\nPoste 1 : aide-soignant ou aide-soignante de jour (4 postes)\nAu sein d'une équipe pluridisciplinaire composée d'infirmiers, de kinésithérapeutes, d'ergothérapeutes et de médecins, vous accompagnez les patients dans les gestes de la vie quotidienne. Vous réalisez les soins d'hygiène et de confort, vous aidez à la prise des repas, vous participez à la surveillance de l'état de santé des patients et vous signalez à l'infirmier tout changement. Vous assurez les transmissions écrites et orales dans le dossier de soins informatisé. Vous participez à l'accueil des nouveaux patients et de leurs familles, et vous contribuez à la vie du service, par exemple lors des animations organisées pour les résidents de longue durée.\nConditions : Diplôme d'État d'aide-soignant exigé. Une expérience en soins de suite, en gériatrie ou en EHPAD est un plus. Postes en CDI à temps plein ou à 80 %, en 7 h 30, un week-end sur deux travaillé. Salaire de base selon la convention collective de l'hospitalisation privée, auquel s'ajoutent la prime de dimanche, la prime d'assiduité et la prime de fin d'année.\n\nPoste 2 : aide-soignant ou aide-soignante de nuit (2 postes)\nVous assurez la continuité des soins la nuit dans le service de soins de suite, en binôme avec un infirmier. Vous réalisez les rondes de surveillance, les changes et les installations, vous répondez aux appels des patients et vous préparez le service du matin. Postes en CDI, nuits de 10 heures, de 21 h à 7 h, trois nuits par semaine en moyenne. Majoration de nuit et prime de nuit conformes à la convention collective.\n\nPoste 3 : agent de service hospitalier (3 postes)\nVous assurez l'entretien des chambres et des locaux communs selon les protocoles d'hygiène de l'établissement, vous participez à la distribution des repas et des collations, et vous aidez à l'installation des patients au moment des repas. Vous travaillez en lien étroit avec les aides-soignants et l'équipe hôtelière. Aucun diplôme exigé : une formation aux protocoles d'hygiène hospitalière est assurée à l'arrivée par notre équipe d'hygiène. Postes en CDI ou en CDD de remplacement, à temps plein ou à temps partiel.\n\nPoste 4 : cuisinier ou cuisinière en cuisine centrale (2 postes)\nNotre cuisine centrale, installée sur le site de la clinique Saint-Aubéric, prépare chaque jour les repas des trois établissements, soit environ 1 100 repas par jour, dont une large part de régimes adaptés (textures modifiées, sans sel, diabétiques). Sous la responsabilité du chef de cuisine et en lien avec la diététicienne du groupe, vous préparez les plats chauds et froids, vous participez à la mise en barquettes et à la liaison froide, et vous veillez au respect des règles d'hygiène et de traçabilité. Une formation aux régimes adaptés est proposée en interne pendant les trois premiers mois. Conditions : CAP cuisine ou expérience équivalente, connaissance des normes d'hygiène en restauration. Postes en CDI à temps plein, horaires de journée du lundi au vendredi, de 6 h à 13 h 30, avec un samedi matin travaillé par mois.\n\nCe que nous proposons à tous nos salariés\n- une mutuelle d'entreprise prise en charge à 60 % par l'employeur ;\n- un restaurant d'entreprise sur chaque site, avec des repas à prix réduit ;\n- un comité social et économique actif (chèques vacances, billetterie, sorties familiales) ;\n- la prise en charge de la moitié de l'abonnement de transport en commun, et un parking gratuit sur les trois sites ;\n- un parcours d'intégration de deux semaines, avec un tuteur désigné dans votre service ;\n- un plan de formation ambitieux : manutention des patients, gestes et soins d'urgence, bientraitance, accompagnement de la fin de vie, prévention des troubles musculo-squelettiques ;\n- des possibilités de mobilité entre les trois établissements et entre les services.\n\nLe déroulement du recrutement\nAprès réception de votre candidature, notre service des ressources humaines l'étudie sous dix jours ouvrés. Si votre profil correspond à l'un des postes, vous serez contacté par téléphone pour un premier échange d'une quinzaine de minutes. Vous serez ensuite invité à un entretien sur site avec le cadre de santé ou le chef de cuisine du service concerné, suivi d'une visite des locaux. Pour les postes de soins, une demi-journée d'observation dans le service peut vous être proposée avant votre décision, afin que vous puissiez rencontrer l'équipe et découvrir son organisation. Nous nous engageons à répondre à chaque candidature, y compris lorsque notre réponse est négative.\n\nAccès\nLa clinique Saint-Aubéric est desservie par la ligne de bus 7, arrêt Saint-Aubéric. Le centre Les Vergers d'Aulnoy-le-Clos est à dix minutes à pied de la gare de la commune. La résidence Les Hauts de Mirecey dispose d'un parking de 80 places réservé au personnel. Un service de navette relie les trois sites deux fois par jour pour les salariés qui travaillent sur plusieurs établissements.\n\nÉgalité des chances\nLe Groupe Hospitalier Privé des Trois Vallons s'engage pour la diversité et l'égalité professionnelle entre les femmes et les hommes. Tous nos postes sont ouverts aux personnes en situation de handicap, et notre référent handicap peut étudier avec vous les aménagements de poste utiles. Nous accueillons également les candidatures de personnes en reconversion professionnelle : plusieurs de nos agents de service hospitalier et de nos cuisiniers viennent d'autres métiers, et nous les avons accompagnés dans leur prise de poste.\n\nParoles d'équipe\nMartine, aide-soignante au centre Les Vergers d'Aulnoy-le-Clos depuis douze ans, raconte : « Ce qui m'a fait rester, c'est l'entraide. Quand une collègue est absente, on s'organise ensemble et le cadre de santé est toujours là pour nous soutenir. » Julien, cuisinier à la cuisine centrale depuis cinq ans, ajoute : « Je venais de la restauration traditionnelle. Ici, les horaires de journée m'ont permis de retrouver une vraie vie de famille, et j'ai appris à travailler les textures modifiées avec la diététicienne. » Sabrina, agent de service hospitalier à la résidence Les Hauts de Mirecey, a commencé en CDD de remplacement il y a quatre ans : « On m'a proposé un CDI au bout de six mois, puis la formation d'aide-soignante. Je passe mon diplôme l'an prochain. »\n\nNotre démarche qualité\nLes trois établissements sont certifiés selon le référentiel national de qualité des établissements de santé. Chaque service dispose d'un référent qualité, et les équipes participent chaque trimestre à une réunion d'échange sur les pratiques. Les remarques des patients et des familles sont lues chaque mois par la direction et donnent lieu à des actions concrètes, comme la refonte des menus de la résidence l'an dernier.\n\nPièces de la candidature\nVotre candidature comprend un CV à jour et, pour les postes de soins, une copie de votre diplôme. Une lettre de motivation est appréciée mais n'est pas obligatoire. Les candidatures incomplètes seront tout de même étudiées.\n\nPour finir, une seule question à laquelle nous vous demandons de répondre en quelques lignes dans votre message : Pourquoi souhaitez-vous rejoindre le Groupe des Trois Vallons ?",
+      "questions_attendues": 1
+    },
+    {
+      "id": "offre_hotel",
+      "titre": "Employé polyvalent ou employée polyvalente (saison d'été)",
+      "entreprise": "Hôtel des Remparts Gris",
+      "lieu": "Épinal",
+      "texte": "L'Hôtel des Remparts Gris, 32 chambres, recherche un employé polyvalent ou une employée polyvalente pour la saison d'été (CDD de mai à septembre).\n\nVous aiderez au ménage des chambres, au service du petit déjeuner et à la blanchisserie.\nTravail un week-end sur deux, logement possible sur place.\n\nSalaire : 1 850 € brut par mois.\n\nAvant de postuler, répondez à cette question : Êtes-vous disponible les week-ends ?",
+      "questions_attendues": 1
+    }
+  ],
+  "cas": [
+    {
+      "id": "cas_01",
+      "offre": "offre_ehpad_nuit",
+      "cv": "cv_aide_soignante",
+      "phrases": [
+        {
+          "texte": "Je vous propose ma candidature pour le poste d'aide-soignante de nuit à l'EHPAD Les Coteaux Fleuris.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur l'offre, aucun fait sur la personne."
+        },
+        {
+          "texte": "Titulaire du Diplôme d'État d'aide-soignant depuis 2016, je réponds à l'exigence principale de votre annonce.",
+          "sur_moi": true,
+          "extraits": [
+            "2016 : Diplôme d'État d'aide-soignant (DEAS), IFAS de Laxou"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Le diplôme et l'année sont dans le CV, extrait exact."
+        },
+        {
+          "texte": "J'ai travaillé quatre ans comme aide-soignante à l'EHPAD Les Tilleuls Bleus.",
+          "sur_moi": true,
+          "extraits": [
+            "2019 à 2023 : Aide-soignante, EHPAD Les Tilleuls Bleus, Vandoeuvre"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Durée calculée : le CV dit « 2019 à 2023 », pas « quatre ans »."
+        },
+        {
+          "texte": "Pendant ces années, j'ai assuré les toilettes, l'aide aux repas et la surveillance des constantes.",
+          "sur_moi": true,
+          "extraits": [
+            "Toilettes, aide aux repas, surveillance des constantes, transmissions écrites."
+          ],
+          "attendu": "sure",
+          "pourquoi": "Missions écrites telles quelles dans le CV."
+        },
+        {
+          "texte": "J'ai l'habitude du travail de nuit, que j'ai pratiqué chaque semaine pendant plusieurs années.",
+          "sur_moi": true,
+          "extraits": [
+            "Travail en équipe de nuit un week-end sur deux."
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Extrait exact mais la phrase exagère : un week-end sur deux, pas chaque semaine."
+        },
+        {
+          "texte": "Mes huit années dans le soin m'ont appris à rester calme face à l'urgence.",
+          "sur_moi": true,
+          "extraits": [
+            "2016 à 2019 : Agent de service hospitalier, Clinique du Val Doré, Nancy"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Durée calculée et exagérée : le CV va de 2016 à 2023."
+        },
+        {
+          "texte": "Je serais heureuse de vous rencontrer lors d'un entretien.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Demande d'entretien, aucun fait sur la personne."
+        }
+      ],
+      "questions": [
+        {
+          "question": "Pourquoi souhaitez-vous travailler de nuit ?",
+          "extrait_offre": "Pourquoi souhaitez-vous travailler de nuit ?",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Indiquez vos disponibilités pour un premier entretien.",
+          "extrait_offre": "Indiquez vos disponibilités pour un premier entretien.",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Avez-vous le permis B ?",
+          "extrait_offre": "Permis B obligatoire.",
+          "attendu": "laissee"
+        }
+      ]
+    },
+    {
+      "id": "cas_02",
+      "offre": "offre_clinique_longue",
+      "cv": "cv_aide_soignante",
+      "phrases": [
+        {
+          "texte": "Votre groupe réunit trois établissements autour de Nancy, et c'est cette diversité qui m'attire.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur l'entreprise, aucun fait vérifiable sur la personne."
+        },
+        {
+          "texte": "J'ai commencé comme agent de service hospitalier à la Clinique du Val Doré, où j'entretenais les chambres et distribuais les plateaux repas.",
+          "sur_moi": true,
+          "extraits": [
+            "2016 à 2019 : Agent de service hospitalier, Clinique du Val Doré, Nancy",
+            "Entretien des chambres, distribution des plateaux repas."
+          ],
+          "attendu": "sure",
+          "pourquoi": "Poste, lieu et missions écrits dans le CV, extraits exacts."
+        },
+        {
+          "texte": "Je maîtrise le logiciel de soins NetSoins ainsi que le dossier patient informatisé DPI Santé.",
+          "sur_moi": true,
+          "extraits": [
+            "Logiciel de soins NetSoins"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Le second logiciel (DPI Santé) n'est pas dans le CV."
+        },
+        {
+          "texte": "Je suis formée aux gestes et soins d'urgence.",
+          "sur_moi": true,
+          "extraits": [
+            "Gestes et soins d'urgence (AFGSU niveau 2)"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Formation écrite dans le CV."
+        },
+        {
+          "texte": "Je parle couramment anglais, ce qui peut aider avec certains patients.",
+          "sur_moi": true,
+          "extraits": [
+            "Anglais scolaire"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Niveau plus élevé que celui du CV (scolaire, pas courant)."
+        },
+        {
+          "texte": "J'habite à Nancy et je cherche un poste à 20 km au plus de chez moi.",
+          "sur_moi": true,
+          "extraits": [
+            "Lieu : Nancy, 20 km autour"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Ville et rayon écrits dans le CV et le profil."
+        },
+        {
+          "texte": "J'ai été référente des transmissions dans mon équipe de l'EHPAD Les Tilleuls Bleus.",
+          "sur_moi": true,
+          "extraits": [
+            "transmissions écrites"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Rôle de référente inventé ; le CV dit seulement transmissions écrites."
+        },
+        {
+          "texte": "Je reste à votre disposition pour un entretien.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Formule de politesse."
+        }
+      ],
+      "questions": [
+        {
+          "question": "Pourquoi souhaitez-vous rejoindre le Groupe des Trois Vallons ?",
+          "extrait_offre": "Pourquoi souhaitez-vous rejoindre le Groupe des Trois Vallons ?",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Quelles sont vos prétentions salariales ?",
+          "extrait_offre": "Merci de préciser vos prétentions salariales.",
+          "attendu": "laissee"
+        }
+      ]
+    },
+    {
+      "id": "cas_03",
+      "offre": "offre_chef_partie",
+      "cv": "cv_cuisinier",
+      "phrases": [
+        {
+          "texte": "Votre carte courte, faite maison avec des produits frais et de saison, m'a donné envie de vous écrire.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur le restaurant."
+        },
+        {
+          "texte": "Second de cuisine à La Marmite Dorée de 2021 à 2024, j'ai encadré deux commis et géré les commandes fournisseurs.",
+          "sur_moi": true,
+          "extraits": [
+            "2021 à 2024 : Second de cuisine, Restaurant La Marmite Dorée, Metz",
+            "Gestion des commandes fournisseurs, encadrement de 2 commis, préparation des entrées et des desserts."
+          ],
+          "attendu": "sure",
+          "pourquoi": "Poste, dates et missions dans le CV, extraits exacts."
+        },
+        {
+          "texte": "Avec plus de huit ans d'expérience en cuisine, je dépasse largement les 3 ans que vous demandez.",
+          "sur_moi": true,
+          "extraits": [
+            "2018 à 2021 : Commis de cuisine, Brasserie du Pont Vert, Thionville"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Durée exagérée : le CV va de 2018 à 2024."
+        },
+        {
+          "texte": "J'ai déjà occupé un poste de chef de partie à la Brasserie du Pont Vert.",
+          "sur_moi": true,
+          "extraits": [
+            "2018 à 2021 : Chef de partie, Brasserie du Pont Vert, Thionville"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Poste inventé : le CV dit commis de cuisine, l'extrait a été changé."
+        },
+        {
+          "texte": "Je connais les normes HACCP.",
+          "sur_moi": true,
+          "extraits": [
+            "Normes HACCP"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Compétence écrite dans le CV."
+        },
+        {
+          "texte": "Vos deux jours de repos, dimanche et lundi, correspondent à ce que je cherche, puisque je ne souhaite pas travailler le lundi.",
+          "sur_moi": true,
+          "extraits": [
+            "Pas de travail le lundi"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Souhait écrit dans le profil."
+        },
+        {
+          "texte": "Au Restaurant La Marmite Dorée, j'ai encadré une brigade de cinq personnes.",
+          "sur_moi": true,
+          "extraits": [
+            "encadrement de 5 commis"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Nombre changé : le CV dit 2 commis, l'extrait a été modifié."
+        },
+        {
+          "texte": "Je serais ravi d'en parler avec vous lors d'un essai en cuisine.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Demande d'entretien."
+        }
+      ],
+      "questions": []
+    },
+    {
+      "id": "cas_04",
+      "offre": "offre_collectivite",
+      "cv": "cv_cuisinier",
+      "phrases": [
+        {
+          "texte": "Titulaire d'un CAP Cuisine obtenu en 2017, je corresponds au profil demandé.",
+          "sur_moi": true,
+          "extraits": [
+            "2017 : CAP Cuisine, Lycée hôtelier Raymond Clairval, Metz"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Diplôme et année dans le CV."
+        },
+        {
+          "texte": "J'ai le permis B, ce qui me permettra d'assurer les livraisons ponctuelles.",
+          "sur_moi": true,
+          "extraits": [
+            "Permis B"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Permis écrit dans le CV."
+        },
+        {
+          "texte": "J'ai déjà travaillé en restauration collective à la cantine centrale de Thionville.",
+          "sur_moi": true,
+          "extraits": [
+            "Brasserie du Pont Vert, Thionville"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Employeur et type de restauration inventés."
+        },
+        {
+          "texte": "Je connais bien la liaison froide et le plan de maîtrise sanitaire.",
+          "sur_moi": true,
+          "extraits": [
+            "Normes HACCP"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "La liaison froide n'est pas dans le CV ; l'extrait ne prouve pas la phrase."
+        },
+        {
+          "texte": "Travailler du lundi au vendredi, de 6 h 30 à 14 h, me convient parfaitement.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Parle de la personne malgré sur_moi faux, et contredit le profil (pas de travail le lundi)."
+        },
+        {
+          "texte": "Mon CAP Cuisine, obtenu avec mention, m'a préparé à la production en grande quantité.",
+          "sur_moi": true,
+          "extraits": [
+            "2017 : CAP Cuisine, Lycée hôtelier Raymond Clairval, Metz"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Extrait exact mais la mention est inventée."
+        },
+        {
+          "texte": "Votre cuisine prépare chaque jour 1 200 repas pour les écoles et les maisons de retraite, un défi qui me motive.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur l'entreprise."
+        }
+      ],
+      "questions": [
+        {
+          "question": "Avez-vous déjà travaillé en restauration collective ?",
+          "extrait_offre": "Avez-vous déjà travaillé en restauration collective ?",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Quelles sont vos prétentions salariales ?",
+          "extrait_offre": "Quelles sont vos prétentions salariales ?",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Indiquez votre niveau en pâtisserie.",
+          "extrait_offre": "Indiquez votre niveau en pâtisserie.",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Pourquoi voulez-vous quitter votre poste actuel ?",
+          "extrait_offre": "Pourquoi voulez-vous quitter votre poste actuel ?",
+          "attendu": "laissee"
+        }
+      ]
+    },
+    {
+      "id": "cas_05",
+      "offre": "offre_entretien",
+      "cv": "cv_menage",
+      "phrases": [
+        {
+          "texte": "J'ai fait le ménage dans des bureaux de 2020 à 2022 pour la Société Propreté Azurine.",
+          "sur_moi": true,
+          "extraits": [
+            "2020 à 2022 : ménage dans des bureaux, Société Propreté Azurine, Épinal"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Tout est dans le CV, extrait exact."
+        },
+        {
+          "texte": "J'ai aussi l'expérience des cabinets médicaux, où les règles d'hygiène sont strictes.",
+          "sur_moi": true,
+          "extraits": [
+            "ménage dans des bureaux"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Les cabinets médicaux ne sont pas dans le CV, seulement des bureaux."
+        },
+        {
+          "texte": "Je suis disponible tout de suite, ce qui tombe bien puisque le poste est à pourvoir dès que possible.",
+          "sur_moi": true,
+          "extraits": [
+            "Disponible tout de suite"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Disponibilité écrite dans le CV."
+        },
+        {
+          "texte": "Un temps partiel de 25 heures par semaine me convient, je cherche aussi ce type de contrat.",
+          "sur_moi": true,
+          "extraits": [
+            "Contrats : CDI, CDD, temps partiel"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Le temps partiel est dans le profil."
+        },
+        {
+          "texte": "Je suis très ponctuelle et rigoureuse, comme mes anciens employeurs l'ont souvent remarqué.",
+          "sur_moi": true,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Qualités et avis d'employeurs inventés, rien dans le CV."
+        },
+        {
+          "texte": "Je sais utiliser une autolaveuse et les produits de nettoyage professionnels.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Parle de la personne malgré sur_moi faux ; compétence absente du CV."
+        },
+        {
+          "texte": "Je vous remercie de l'attention portée à ma candidature.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Formule de politesse."
+        }
+      ],
+      "questions": []
+    },
+    {
+      "id": "cas_06",
+      "offre": "offre_hotel",
+      "cv": "cv_menage",
+      "phrases": [
+        {
+          "texte": "Je souhaite rejoindre l'Hôtel des Remparts Gris pour la saison d'été.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur l'offre."
+        },
+        {
+          "texte": "Forte de deux ans de ménage en entreprise, je saurai m'occuper des chambres.",
+          "sur_moi": true,
+          "extraits": [
+            "2020 à 2022 : ménage dans des bureaux"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Durée calculée : le CV dit « 2020 à 2022 », pas « deux ans »."
+        },
+        {
+          "texte": "J'ai déjà travaillé au service du petit déjeuner dans un hôtel.",
+          "sur_moi": true,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Expérience inventée, rien dans le CV."
+        },
+        {
+          "texte": "Je suis disponible tout de suite et pour toute la saison, week-ends compris.",
+          "sur_moi": true,
+          "extraits": [
+            "Disponible tout de suite"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Extrait exact mais la disponibilité le week-end et pour toute la saison n'est pas dans le CV."
+        },
+        {
+          "texte": "Le logement possible sur place est un vrai atout de votre offre.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur l'offre."
+        },
+        {
+          "texte": "J'encadrais une petite équipe de ménage chez Propreté Azurine.",
+          "sur_moi": true,
+          "extraits": [
+            "Société Propreté Azurine"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Encadrement inventé ; l'extrait ne prouve que l'employeur."
+        },
+        {
+          "texte": "J'ai obtenu un CAP Agent de propreté et d'hygiène en 2019.",
+          "sur_moi": true,
+          "extraits": [
+            "CAP Agent de propreté et d'hygiène"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Diplôme inventé, extrait absent du CV."
+        }
+      ],
+      "questions": [
+        {
+          "question": "Êtes-vous disponible les week-ends ?",
+          "extrait_offre": "Êtes-vous disponible les week-ends ?",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Avez-vous une expérience en hôtellerie ?",
+          "extrait_offre": "Une expérience en hôtellerie est exigée.",
+          "attendu": "laissee"
+        }
+      ]
+    },
+    {
+      "id": "cas_07",
+      "offre": "offre_ehpad_nuit",
+      "cv": "cv_menage",
+      "phrases": [
+        {
+          "texte": "Je vous adresse ma candidature au poste d'aide-soignante de nuit.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur la candidature."
+        },
+        {
+          "texte": "Je possède le Diplôme d'État d'aide-soignant que vous demandez.",
+          "sur_moi": true,
+          "extraits": [
+            "Diplôme d'État d'aide-soignant obligatoire"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Diplôme absent du CV ; l'extrait vient de l'offre, pas du CV."
+        },
+        {
+          "texte": "J'ai travaillé de 2020 à 2022 pour la Société Propreté Azurine.",
+          "sur_moi": true,
+          "extraits": [
+            "2020 à 2022 : ménage dans des bureaux, Société Propreté Azurine, Épinal"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Dates et employeur dans le CV."
+        },
+        {
+          "texte": "Je suis disponible tout de suite, de jour comme de nuit.",
+          "sur_moi": true,
+          "extraits": [
+            "Disponible tout de suite"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Extrait exact mais la disponibilité de nuit est ajoutée."
+        },
+        {
+          "texte": "Le travail de nuit ne me fait pas peur, je l'ai pratiqué pendant deux ans.",
+          "sur_moi": true,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Travail de nuit et durée inventés."
+        },
+        {
+          "texte": "J'ai déjà accompagné des personnes âgées dans leur toilette.",
+          "sur_moi": true,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Expérience inventée, rien dans le CV."
+        },
+        {
+          "texte": "Votre établissement accueille 84 résidents, une taille humaine qui me plaît.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur l'établissement."
+        }
+      ],
+      "questions": [
+        {
+          "question": "Pourquoi souhaitez-vous travailler de nuit ?",
+          "extrait_offre": "Pourquoi souhaitez-vous travailler de nuit ?",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Quel est votre salaire actuel ?",
+          "extrait_offre": "Merci d'indiquer votre salaire actuel.",
+          "attendu": "laissee"
+        }
+      ]
+    },
+    {
+      "id": "cas_08",
+      "offre": "offre_hotel",
+      "cv": "cv_aide_soignante",
+      "phrases": [
+        {
+          "texte": "J'ai entretenu les chambres et distribué les plateaux repas à la Clinique du Val Doré, de 2016 à 2019.",
+          "sur_moi": true,
+          "extraits": [
+            "Entretien des chambres, distribution des plateaux repas.",
+            "2016 à 2019 : Agent de service hospitalier, Clinique du Val Doré, Nancy"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Missions, lieu et dates dans le CV."
+        },
+        {
+          "texte": "Je travaillais un week-end sur deux dans mon précédent poste.",
+          "sur_moi": true,
+          "extraits": [
+            "Travail de nuit un week-end sur deux"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Fait vrai (le CV dit « Travail en équipe de nuit un week-end sur deux. ») même si l'extrait est légèrement reformulé."
+        },
+        {
+          "texte": "J'ai des bases d'anglais scolaire, utiles pour saluer les clients étrangers.",
+          "sur_moi": true,
+          "extraits": [
+            "Anglais scolaire"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Niveau identique à celui du CV."
+        },
+        {
+          "texte": "J'ai déjà travaillé à la blanchisserie de l'EHPAD Les Tilleuls Bleus.",
+          "sur_moi": true,
+          "extraits": [
+            "EHPAD Les Tilleuls Bleus"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Le lieu existe dans le CV mais pas la blanchisserie."
+        },
+        {
+          "texte": "Votre hôtel de 32 chambres propose un logement sur place pour la saison.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur l'hôtel."
+        },
+        {
+          "texte": "J'ai déjà fait le service en salle dans un restaurant pendant mes études.",
+          "sur_moi": true,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Expérience inventée, rien dans le CV."
+        },
+        {
+          "texte": "Mon salaire souhaité est de 1 900 € brut par mois au moins.",
+          "sur_moi": false,
+          "extraits": [
+            "Salaire : 1 900 € brut par mois au moins"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Parle de la personne malgré sur_moi faux, mais le fait est dans le profil."
+        }
+      ],
+      "questions": [
+        {
+          "question": "Êtes-vous disponible les week-ends ?",
+          "extrait_offre": "Êtes-vous disponible les week-ends ?",
+          "attendu": "gardee"
+        }
+      ]
+    },
+    {
+      "id": "cas_09",
+      "offre": "offre_clinique_longue",
+      "cv": "cv_cuisinier",
+      "phrases": [
+        {
+          "texte": "Votre groupe recrute aussi pour sa cuisine centrale, qui prépare les repas des trois établissements.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur l'offre."
+        },
+        {
+          "texte": "Commis puis second de cuisine, j'ai travaillé à la Brasserie du Pont Vert puis au Restaurant La Marmite Dorée.",
+          "sur_moi": true,
+          "extraits": [
+            "2018 à 2021 : Commis de cuisine, Brasserie du Pont Vert, Thionville",
+            "2021 à 2024 : Second de cuisine, Restaurant La Marmite Dorée, Metz"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Parcours exact du CV."
+        },
+        {
+          "texte": "J'ai suivi une formation aux régimes alimentaires adaptés aux patients.",
+          "sur_moi": true,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Formation inventée (c'est l'offre qui la propose)."
+        },
+        {
+          "texte": "Mon stage de trois mois chez Maison Fenouillet m'a formé à la pâtisserie.",
+          "sur_moi": true,
+          "extraits": [
+            "2017 : Stage en pâtisserie, Maison Fenouillet, Metz (3 mois)"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Stage et durée écrits dans le CV."
+        },
+        {
+          "texte": "J'ai préparé jusqu'à 300 couverts par service.",
+          "sur_moi": true,
+          "extraits": [
+            "préparation des entrées et des desserts"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Nombre inventé."
+        },
+        {
+          "texte": "Je suis titulaire d'un brevet professionnel de cuisinier.",
+          "sur_moi": true,
+          "extraits": [
+            "CAP Cuisine"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Diplôme plus élevé que celui du CV (CAP)."
+        },
+        {
+          "texte": "Je cherche un CDI, et c'est le contrat que vous proposez pour ce poste.",
+          "sur_moi": true,
+          "extraits": [
+            "Contrats : CDI"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Contrat écrit dans le profil."
+        }
+      ],
+      "questions": [
+        {
+          "question": "Pourquoi souhaitez-vous rejoindre le Groupe des Trois Vallons ?",
+          "extrait_offre": "Pourquoi souhaitez-vous rejoindre le Groupe des Trois Vallons ?",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Indiquez votre expérience en cuisine hospitalière.",
+          "extrait_offre": "Indiquez votre expérience en cuisine hospitalière.",
+          "attendu": "laissee"
+        }
+      ]
+    },
+    {
+      "id": "cas_10",
+      "offre": "offre_entretien",
+      "cv": "cv_aide_soignante",
+      "phrases": [
+        {
+          "texte": "Après trois ans comme agent de service hospitalier, l'entretien des locaux n'a plus de secret pour moi.",
+          "sur_moi": true,
+          "extraits": [
+            "2016 à 2019 : Agent de service hospitalier, Clinique du Val Doré, Nancy"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Durée calculée et compétence exagérée."
+        },
+        {
+          "texte": "À la Clinique du Val Doré, je m'occupais de l'entretien des chambres.",
+          "sur_moi": true,
+          "extraits": [
+            "Entretien des chambres"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Écrit dans le CV."
+        },
+        {
+          "texte": "Votre entreprise fournit le matériel et la tenue, et assure une formation à l'arrivée.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur l'entreprise."
+        },
+        {
+          "texte": "Je suis disponible tout de suite.",
+          "sur_moi": true,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Disponibilité absente de ce CV et de ce profil."
+        },
+        {
+          "texte": "Je cherche un poste à Épinal.",
+          "sur_moi": true,
+          "extraits": [
+            "Lieu : Nancy, 20 km autour"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Contredit le profil (Nancy, 20 km autour)."
+        },
+        {
+          "texte": "J'ai travaillé six ans en EHPAD, ce qui m'a rendue très rigoureuse sur l'hygiène.",
+          "sur_moi": true,
+          "extraits": [
+            "2019 à 2023 : Aide-soignante, EHPAD Les Tilleuls Bleus, Vandoeuvre"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Durée exagérée : le CV dit 2019 à 2023."
+        },
+        {
+          "texte": "Je vous prie d'agréer mes salutations distinguées.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Formule de politesse."
+        }
+      ],
+      "questions": []
+    },
+    {
+      "id": "cas_11",
+      "offre": "offre_chef_partie",
+      "cv": "cv_menage",
+      "phrases": [
+        {
+          "texte": "Votre bistrot de 60 couverts au centre de Metz recherche un chef de partie chaud.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur l'offre."
+        },
+        {
+          "texte": "J'ai trois ans d'expérience en cuisine traditionnelle.",
+          "sur_moi": true,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Expérience inventée, reprise de la demande de l'offre."
+        },
+        {
+          "texte": "J'ai travaillé pour la Société Propreté Azurine.",
+          "sur_moi": true,
+          "extraits": [
+            "Société Propreté Azurine"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Employeur écrit dans le CV."
+        },
+        {
+          "texte": "Je maîtrise les normes HACCP grâce à mon travail de ménage.",
+          "sur_moi": true,
+          "extraits": [
+            "ménage dans des bureaux"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Compétence absente du CV ; l'extrait ne la prouve pas."
+        },
+        {
+          "texte": "Je suis disponible tout de suite, y compris le soir.",
+          "sur_moi": true,
+          "extraits": [
+            "Disponible tout de suite"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Extrait exact mais la disponibilité le soir est ajoutée."
+        },
+        {
+          "texte": "Je serais heureuse de passer vous rencontrer.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Demande d'entretien."
+        }
+      ],
+      "questions": [
+        {
+          "question": "Avez-vous de l'expérience en cuisine traditionnelle ?",
+          "extrait_offre": "au moins 3 ans d'expérience en cuisine traditionnelle",
+          "attendu": "laissee"
+        }
+      ]
+    },
+    {
+      "id": "cas_12",
+      "offre": "offre_collectivite",
+      "cv": "cv_aide_soignante",
+      "phrases": [
+        {
+          "texte": "J'ai distribué les plateaux repas pendant mes années à la Clinique du Val Doré.",
+          "sur_moi": true,
+          "extraits": [
+            "distribution des plateaux repas"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Écrit dans le CV."
+        },
+        {
+          "texte": "J'ai aidé les résidents pendant les repas à l'EHPAD Les Tilleuls Bleus.",
+          "sur_moi": true,
+          "extraits": [
+            "Toilettes, aide aux repas"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Aide aux repas et lieu dans le CV."
+        },
+        {
+          "texte": "Je suis titulaire d'un CAP cuisine.",
+          "sur_moi": true,
+          "extraits": [
+            "Diplôme d'État d'aide-soignant (DEAS)"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Diplôme inventé ; l'extrait parle d'un autre diplôme."
+        },
+        {
+          "texte": "Je connais les besoins des maisons de retraite, puisque j'ai travaillé dans un EHPAD.",
+          "sur_moi": true,
+          "extraits": [
+            "Aide-soignante, EHPAD Les Tilleuls Bleus"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Le travail en EHPAD est dans le CV."
+        },
+        {
+          "texte": "J'ai le permis B pour les livraisons.",
+          "sur_moi": true,
+          "extraits": [
+            "Permis B"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Permis absent de ce CV (il est dans celui d'une autre personne)."
+        },
+        {
+          "texte": "Je cherche un poste près de Woippy.",
+          "sur_moi": true,
+          "extraits": [
+            "Lieu : Nancy, 20 km autour"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Contredit le profil (Nancy, 20 km autour)."
+        },
+        {
+          "texte": "Vos horaires de journée, sans soir ni week-end, sont un vrai atout.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur l'offre."
+        }
+      ],
+      "questions": [
+        {
+          "question": "Avez-vous déjà travaillé en restauration collective ?",
+          "extrait_offre": "1. Avez-vous déjà travaillé en restauration collective ?",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Quelles sont vos prétentions salariales ?",
+          "extrait_offre": "2. Quelles sont vos prétentions salariales ?",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Indiquez votre niveau en pâtisserie.",
+          "extrait_offre": "3. Indiquez votre niveau en pâtisserie.",
+          "attendu": "gardee"
+        }
+      ]
+    },
+    {
+      "id": "cas_13",
+      "offre": "offre_hotel",
+      "cv": "cv_cuisinier",
+      "phrases": [
+        {
+          "texte": "J'ai servi le petit déjeuner aux clients de la Brasserie du Pont Vert.",
+          "sur_moi": true,
+          "extraits": [
+            "Mise en place, cuisson des viandes, plonge."
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Service du petit déjeuner inventé ; l'extrait ne le prouve pas."
+        },
+        {
+          "texte": "La plonge et la mise en place font partie de ce que j'ai fait comme commis.",
+          "sur_moi": true,
+          "extraits": [
+            "Mise en place, cuisson des viandes, plonge."
+          ],
+          "attendu": "sure",
+          "pourquoi": "Missions écrites dans le CV."
+        },
+        {
+          "texte": "J'ai le permis B.",
+          "sur_moi": true,
+          "extraits": [
+            "Permis B"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Écrit dans le CV."
+        },
+        {
+          "texte": "Le contrat de mai à septembre correspond au CDD que je recherche.",
+          "sur_moi": true,
+          "extraits": [
+            "Contrats : CDI, CDD"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Le profil ne cherche qu'un CDI ; l'extrait a été changé."
+        },
+        {
+          "texte": "Votre hôtel de 32 chambres a l'air très accueillant.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur l'hôtel."
+        },
+        {
+          "texte": "J'ai travaillé deux saisons dans un hôtel de la côte.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Parle de la personne malgré sur_moi faux ; expérience inventée."
+        },
+        {
+          "texte": "Je parle couramment allemand, ce qui aidera avec les touristes.",
+          "sur_moi": true,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Langue inventée."
+        }
+      ],
+      "questions": [
+        {
+          "question": "Êtes-vous disponible les week-ends ?",
+          "extrait_offre": "Êtes-vous disponible les week-ends ?",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Quelles sont vos prétentions salariales ?",
+          "extrait_offre": "Quelles sont vos prétentions salariales ?",
+          "attendu": "laissee"
+        }
+      ]
+    }
+  ]
+}

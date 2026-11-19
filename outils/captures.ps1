@@ -332,7 +332,29 @@ try {
             if ($envoyer) { Verifier (Attendre { (Compter 'Mail : relève finie') -gt $finies } 40000) 'boîte branchée et relevée (journal)' }
             [void](Attendre { $false } 600)
         }
-        elseif ($v -match '^mail:(\d{1,6})$') { Ordre ('{"kit":"accueil","mail":' + $Matches[1] + '}') }
+        # Étape 8 : la candidature préparée, contre le faux Claude du faux serveur local (jamais la vraie API) :
+        # « cle:claude » donne la clé Claude inventée (cle-claude.demande), « claude:<mode> » change la réponse du faux
+        # Claude (normal, refus, quota, cle, surcharge, abime, lent, coupe ; sans capture), « preparer » clique
+        # « Préparer ma candidature » et attend la réponse au journal, « consigne:<texte> » tape une consigne, « refaire »
+        # clique « Refaire la lettre » et attend, « prep:voir » montre « Ma candidature »
+        elseif ($v -eq 'cle:claude') {
+            [IO.File]::WriteAllText((Join-Path $donnees 'cle-claude.demande'), '1', $sansBom)
+            Verifier (Attendre { (Compter 'Essai : clé Claude inventée donnée') -ge 1 } 5000) 'clé Claude inventée donnée (journal)'
+        }
+        elseif ($v -match '^claude:(normal|refus|quota|cle|surcharge|abime|lent|coupe)$') {
+            [IO.File]::WriteAllText((Join-Path $donnees 'claude.essai'), $Matches[1], $sansBom)
+            Ok "faux Claude : $($Matches[1])"
+            continue
+        }
+        elseif ($v -in 'preparer', 'refaire') {
+            $fins = { (Compter 'Préparation : offre ') - (Compter 'donnée à Claude') }
+            $finsAvant = & $fins
+            $k = if ($v -eq 'preparer') { 'pr:preparer' } else { 'pr:refaire' }
+            Ordre ('{"kit":"accueil","cliquer":"' + $k + '"}')
+            Verifier (Attendre { (& $fins) -gt $finsAvant } 30000) "« $v » : Claude a répondu (journal)"
+        }
+        elseif ($v -match '^consigne:([\w ,''éèàêç-]{0,60})$') { Ordre ([ordered]@{ kit = 'accueil'; prep_consigne = $Matches[1] } | ConvertTo-Json -Compress) }
+        elseif ($v -eq 'prep:voir') { Ordre '{"kit":"accueil","preparation":"voir"}' }        elseif ($v -match '^mail:(\d{1,6})$') { Ordre ('{"kit":"accueil","mail":' + $Matches[1] + '}') }
         elseif ($v -eq 'mails-ranger') { Ordre '{"kit":"accueil","mails":"ranger"}' }
         elseif ($v -eq 'calendrier') { Ordre '{"kit":"accueil","calendrier":true}' }
         elseif ($v -match '^jour:(\d{1,2})$') { Ordre ('{"kit":"accueil","cliquer":"cal:' + (Get-Date -Day ([int]$Matches[1]) -Format 'yyyy-MM-dd') + '"}') }

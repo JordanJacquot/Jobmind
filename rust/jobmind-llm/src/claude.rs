@@ -3,7 +3,10 @@
 //!
 //! La demande : le modèle, la longueur permise, les consignes (`system`), le texte (`messages`), et pour une réponse
 //! en JSON le schéma imposé (`output_config.format`, type `json_schema`). Le petit modèle (Haiku 5.5) lit vite et peu
-//! cher : effort `low`, réflexion coupée (`thinking.type = disabled`, accepté à cet effort).
+//! cher : effort `low`, réflexion coupée (`thinking.type = disabled`, accepté à cet effort). Le modèle fort (Opus 5.5,
+//! étape 8 : la candidature) réfléchit à sa façon (réflexion adaptative, le défaut d'Opus 5.5 : le champ `thinking`
+//! n'est pas envoyé), effort `medium` posé en clair (quelques centimes par lettre) ; si Claude refuse, l'API essaie
+//! d'elle-même un autre modèle (`fallbacks: "default"`, en-tête `anthropic-beta: server-side-fallback-2026-07-01`).
 //!
 //! Les erreurs : 401 et 403 (clé refusée), 429 (trop de demandes), 529 et `overloaded_error` (surchargé), les autres
 //! 5xx (le serveur), 400 et les autres (refusée), un délai dépassé, une réponse illisible, `stop_reason` « refusal » ou
@@ -21,6 +24,10 @@ pub const ADRESSE: &str = "https://api.anthropic.com/v1/messages";
 pub const VERSION_API: &str = "2026-10-21";
 /// Le délai pour une lecture d'offre.
 pub const DELAI: Duration = Duration::from_secs(30);
+/// Étape 8 : le délai pour une candidature (le modèle fort réfléchit avant d'écrire).
+pub const DELAI_FORT: Duration = Duration::from_secs(240);
+/// Étape 8 : l'en-tête `anthropic-beta` du modèle fort (l'API essaie un autre modèle si Claude refuse).
+pub const BETA_FORT: &str = "server-side-fallback-2026-07-01";
 /// La taille la plus grande d'une réponse.
 const TAILLE_MAX: u64 = 1024 * 1024;
 
@@ -70,6 +77,10 @@ pub fn corps(d: &Demande) -> Value {
     if d.modele == Modele::Petit {
         c["thinking"] = json!({ "type": "disabled" });
         sortie.insert("effort".into(), json!("low"));
+    }
+    if d.modele == Modele::Fort {
+        sortie.insert("effort".into(), json!("medium"));
+        c["fallbacks"] = json!("default");
     }
     if let Some(s) = &d.schema {
         sortie.insert("format".into(), json!({ "type": "json_schema", "schema": s }));
@@ -149,14 +160,16 @@ impl LlmProvider for Claude {
             return Err(ErreurLlm::CleManquante);
         }
         let corps = corps(d).to_string();
-        let mut r = self
+        let mut envoi = self
             .agent
             .post(&self.adresse)
             .header("x-api-key", &self.cle)
             .header("anthropic-version", VERSION_API)
-            .header("content-type", "application/json")
-            .send(corps.as_bytes())
-            .map_err(|e| raison(&e))?;
+            .header("content-type", "application/json");
+        if d.modele == Modele::Fort {
+            envoi = envoi.header("anthropic-beta", BETA_FORT);
+        }
+        let mut r = envoi.send(corps.as_bytes()).map_err(|e| raison(&e))?;
         let statut = r.status().as_u16();
         let texte = r.body_mut().with_config().limit(TAILLE_MAX).read_to_string().map_err(|e| raison(&e))?;
         lire_reponse(statut, &texte)

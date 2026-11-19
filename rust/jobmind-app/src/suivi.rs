@@ -73,6 +73,8 @@ pub struct Fait {
     pub mail: Option<crate::mail::Tache>,
     /// Étape 7 : des réponses floues à faire lire par Claude, sur un fil à part (sans la clé)
     pub mail_ia: Option<crate::mail::TacheIa>,
+    /// Étape 8 : la candidature à faire préparer par Claude, sur un fil à part (sans la clé)
+    pub preparation: Option<crate::preparation::Tache>,
 }
 
 impl Fait {

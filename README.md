@@ -137,7 +137,29 @@ l'étape 13.
   - carte de Mindset : « N réponses reçues à voir » en tête ; migration 7. Mesuré sur deux jeux de réponses écrits à
     part (`jobmind-core\tests\reponses_jamais_vues*.tsv`) : 14 sur 20 puis 5 sur 10 avant retouche des règles. La
     vraie boîte Gmail n'a jamais été jointe (les essais parlent à une fausse boîte locale, 127.0.0.1).
-- [ ] **8. La candidature préparée par Claude** : lettre, réponses aux questions, conseil pour le CV ; texte brut gardé.
+- [x] **8. La candidature préparée par Claude** (`jobmind-core\src\preparation.rs`, `jobmind-llm\src\candidature.rs`,
+  `jobmind-storage\src\preparations.rs`, `src\preparation.rs`) :
+  - dans l'offre ouverte, les pilules « L'offre » et « Ma candidature » (maquette C) ; « Préparer ma candidature »
+    (aussi depuis le dossier d'une candidature liée à une offre : « Voir ma candidature ») ; le modèle fort de Claude
+    (`claude-opus-5-5`, réflexion adaptative, effort `medium`, `fallbacks: "default"` si Claude refuse, réponse en JSON
+    imposé par un schéma, délai de 240 s) reçoit l'offre, le CV principal et « Ce que je cherche », sur un fil à part, la
+    clé lue au dernier moment ; il rend la lettre (courte, simple, professionnelle) phrase par phrase, les réponses aux
+    questions que pose l'offre (aucune si elle n'en pose pas), des conseils pour le CV et l'objet du mail ;
+  - rien d'inventé : chaque phrase sur Jordan cite les passages de son CV qui la prouvent, cherchés mot pour mot ; une
+    phrase sans passage trouvé, avec un nombre ou un mot absents du CV et du profil, ou qui parle de lui sans le dire,
+    est surlignée « à vérifier » (« C'est juste » ou « Retirer ») ; une question absente de l'offre, un conseil qui ne
+    s'appuie sur rien sont laissés ; un conseil « l'offre le demande, ton CV n'en parle pas » dit « Ajoute-le seulement
+    si c'est vrai ». Mesuré sur deux jeux écrits à part (`jobmind-llm\tests\candidatures_jamais_vues*.json`) : 83 sur
+    92 phrases justes et 2 inventions sur 44 passées sur le premier (après retouche), 60 sur 77 et 7 sur 35 sur le
+    second (jamais vu par les règles) ; 38 questions sur 39 ;
+  - relire, modifier la lettre à la main (« Garder ma lettre »), copier, voir la version de Claude, refaire une version
+    avec une consigne courte facultative (« plus court »), les versions d'avant ; la réponse de Claude gardée telle
+    quelle et la lettre qui en est tirée (jamais changées, l'étape 9 en partira ; ses champs sont prêts), à côté de la
+    lettre de Jordan ; rattachée à l'offre et à la candidature du suivi (« J'ai postulé » aussi après) ;
+  - sans clé Claude : « Ouvrir Mes clés » ; sans CV : « Ouvrir Mon CV » ; réseau, refus, trop de demandes, surcharge,
+    réponse abîmée (gardée telle quelle), délai : une phrase simple, le journal, rien de perdu ; 30 demandes par jour au
+    plus, comptées en base (`appels_preparation`) ; migration 8. La vraie API de Claude n'a jamais été appelée (les
+    essais parlent à un faux Claude local, `jobmind-llm\src\faux.rs`).
 - [ ] **9. Le style de Jordan** : plancher professionnel, règles fixes modifiables, réécriture, score naturel,
   surlignage, intensité.
 - [ ] **10. L'envoi par mail** depuis Gmail, et l'entrée automatique dans le suivi avec le contenu exact.
@@ -156,12 +178,12 @@ Jobmind est écrite en Rust avec Tauri, sur le modèle de Paymind (`rust\`, Rust
 |---|---|
 | `jobmind-vie` | la vie dans Mindset (verrou, demandes, accrochage, thème, carte), reprise de Paymind |
 | `jobmind-relais` | `Jobmind.exe`, le relais qui lance `Mindset.exe` |
-| `jobmind-app` | `Mindset.exe` : la fenêtre Tauri, le kit d'écrans de la suite, les onglets (`ui\jobmind.js`), les gestes du suivi, des offres (`offres.rs`, `vue_offres.rs` ; le fil des recherches) et du profil, les sites en coulisse (`coulisse.rs` : la source, la liste et l'offre lues sur un site, « Ajouter à Jobmind », la connexion et son mot de passe effacé dès qu'il est tapé, la petite fenêtre du site ; `fenetre.rs` : la vue des sites dans la fenêtre ; `programme.rs` : ses chargements, lectures et saisies ; `src\windows\sites.rs` : ses réglages de WebView2), la boîte Gmail (`mail.rs` : « Ma boîte mail », la relève sur un fil à part, ce que devient chaque mail, les mails à ranger, le statut proposé ; étape 7), le coffre DPAPI et la boîte « Ouvrir » (`src\windows`) |
-| `jobmind-storage` | dossier de données, journal, réglages, carte de Mindset, base SQLite et migrations, candidatures, bulles, profil (CV et leurs fichiers, style, ce que je cherche), clés chiffrées (`data\cles.json`) ; offres archivées, doublons rattachés, recherche FTS5, recherches gardées, demandes du jour ; les offres lues sur les sites et le nombre de candidats vu à chaque clic (`offres.rs`, table `offres_vues`) ; la lecture par les règles et par Claude, les notes refaites quand le profil change (`lecture.rs`, migration 6) ; les mails gardés (alertes, réponses rangées ou à ranger, statut proposé), la relève et les offres venues d'une alerte (`mails.rs`, migration 7) |
-| `jobmind-core` | modèles, statuts, jours, saisie vérifiée, groupes du suivi, relances, bilan, bulles dues ; profil, ce que je cherche, régions et départements, forme des clés ; ce qui se lit dans une offre (contrat, télétravail, département), règle des doublons, filtres de l'onglet Offres, recherches gardées ; la lecture d'une offre (diplôme, expérience, permis, avec leur preuve) et la note de pertinence et sa raison (étape 6) ; l'adresse Gmail et le mot de passe d'application vérifiés, le rattachement d'un mail à une candidature et le statut qu'il annonce (`mails.rs`, étape 7) |
+| `jobmind-app` | `Mindset.exe` : la fenêtre Tauri, le kit d'écrans de la suite, les onglets (`ui\jobmind.js`), les gestes du suivi, des offres (`offres.rs`, `vue_offres.rs` ; le fil des recherches) et du profil, les sites en coulisse (`coulisse.rs` : la source, la liste et l'offre lues sur un site, « Ajouter à Jobmind », la connexion et son mot de passe effacé dès qu'il est tapé, la petite fenêtre du site ; `fenetre.rs` : la vue des sites dans la fenêtre ; `programme.rs` : ses chargements, lectures et saisies ; `src\windows\sites.rs` : ses réglages de WebView2), la boîte Gmail (`mail.rs` : « Ma boîte mail », la relève sur un fil à part, ce que devient chaque mail, les mails à ranger, le statut proposé ; étape 7), la candidature préparée (preparation.rs : la demande à Claude sur un fil à part, les versions, la lettre de Jordan, les phrases à vérifier ; étape 8), le coffre DPAPI et la boîte « Ouvrir » (`src\windows`) |
+| `jobmind-storage` | dossier de données, journal, réglages, carte de Mindset, base SQLite et migrations, candidatures, bulles, profil (CV et leurs fichiers, style, ce que je cherche), clés chiffrées (`data\cles.json`) ; offres archivées, doublons rattachés, recherche FTS5, recherches gardées, demandes du jour ; les offres lues sur les sites et le nombre de candidats vu à chaque clic (`offres.rs`, table `offres_vues`) ; la lecture par les règles et par Claude, les notes refaites quand le profil change (`lecture.rs`, migration 6) ; les mails gardés (alertes, réponses rangées ou à ranger, statut proposé), la relève et les offres venues d'une alerte (`mails.rs`, migration 7) ; les candidatures préparées et leurs versions, la réponse brute de Claude, les demandes du jour (`preparations.rs`, migration 8) |
+| `jobmind-core` | modèles, statuts, jours, saisie vérifiée, groupes du suivi, relances, bilan, bulles dues ; profil, ce que je cherche, régions et départements, forme des clés ; ce qui se lit dans une offre (contrat, télétravail, département), règle des doublons, filtres de l'onglet Offres, recherches gardées ; la lecture d'une offre (diplôme, expérience, permis, avec leur preuve) et la note de pertinence et sa raison (étape 6) ; l'adresse Gmail et le mot de passe d'application vérifiés, le rattachement d'un mail à une candidature et le statut qu'il annonce (`mails.rs`, étape 7) ; la candidature préparée vérifiée : chaque phrase sur Jordan appuyée sur son CV, sinon « à vérifier », les nombres, les questions et les conseils (`preparation.rs`, étape 8) |
 | `jobmind-lecture` | le texte d'un CV en PDF (pdf-extract, MIT) ou en Word .docx (zip et XML lus ici), en Rust pur ; fichier trop gros, scanné, abîmé ou protégé : une phrase simple |
 | `jobmind-sources` | le trait `JobSource`, Adzuna (GET, API France) et Jooble (POST), le client HTTP (ureq, chiffrement SChannel de Windows, délais de 10 s et 25 s), le texte des offres remis au propre ; la page lue (`html.rs` : le HTML découpé sans navigateur, donnée non fiable ; `page.rs` : l'offre et le nombre de candidats, par JSON-LD, règles de LinkedIn, Indeed, Welcome to the Jungle et France Travail, microdonnées ou texte principal) ; les sites en coulisse (`sites.rs` : l'adresse d'une page de résultats, et ce que montre une page : une liste, une offre, un formulaire de connexion en un ou deux écrans, un captcha, une vérification, connecté ou non) ; option `faux` : un faux serveur local (127.0.0.1) qui imite Adzuna et Jooble avec des offres inventées, sert les pages d'exemple des sites (`src\page\exemples`) et imite les quatre sites (`src\sites\exemples.rs` : listes, offres, connexions avec un mail et un mot de passe inventés, sessions factices, captcha, page cassée) ; les alertes mail d'offres (`alertes.rs` : LinkedIn, Indeed, Welcome to the Jungle, France Travail reconnus à l'expéditeur et à la forme, leurs offres lues, liens de suivi retirés ; exemples dans `src\alertes\exemples`) |
-| `jobmind-llm` | le trait `LlmProvider` ; le client de Claude (API Messages par ureq, SChannel ; erreurs 401, 429, 529, délai) ; la lecture d'une offre par le petit modèle, sa réponse JSON vérifiée (citations cherchées dans l'offre) ; ce qu'annonce une réponse de recruteur floue (étape 7, la phrase vérifiée) |
+| `jobmind-llm` | le trait `LlmProvider` ; le client de Claude (API Messages par ureq, SChannel ; erreurs 401, 429, 529, délai) ; la lecture d'une offre par le petit modèle, sa réponse JSON vérifiée (citations cherchées dans l'offre) ; ce qu'annonce une réponse de recruteur floue (étape 7, la phrase vérifiée) ; la candidature préparée par le modèle fort (étape 8, `candidature.rs`) ; option `faux` : un faux Claude local (127.0.0.1) |
 | `jobmind-humanizer` | le style de Jordan |
 | `jobmind-mail` | Gmail en lecture seule (étape 7) : le client IMAP sur TLS (native-tls, SChannel) limité aux commandes utiles, la relève des mails nouveaux, la lecture MIME en texte ; option `faux` : une fausse boîte IMAP locale (127.0.0.1) qui refuse toute commande qui écrirait. L'envoi (SMTP) viendra à l'étape 10 |
 
@@ -236,6 +258,11 @@ livrée :
   (`boite.demande`), `boite:brancher` la remplit, la branche et attend la fin de la relève, `mails-ranger` (ou
   `mail:<n>`) ouvre un mail à ranger, `clic:p:mails` la pilule « Mails reçus » du dossier ouvert, par exemple
   `-Exemples -Vues 'rubrique:mail,boite:brancher,candidature:1,candidature:4,mails-ranger,offre:1'` ;
+  la candidature préparée (étape 8) : le faux serveur imite aussi Claude (jamais la vraie API) ; `cle:claude` donne une
+  clé Claude inventée, `claude:<normal|refus|quota|cle|surcharge|abime|lent|coupe>` change sa réponse, `preparer`
+  et `refaire` cliquent et attendent sa réponse, `consigne:<texte>` tape une consigne, `clic:op:cand` ouvre « Ma
+  candidature », `clic:pr:v-<n>` une version, par exemple
+  `-Exemples -Vues 'chercher,offre:1,cle:claude,preparer,bas,consigne:plus court,refaire,claude:abime,refaire'` ;
 - `D:\Projets\Mindset\outils\tester-contrat.ps1 -AppliConstruite <dossier>\Jobmind -EntreeApps outils\entree-apps-rust.json` :
   tout le contrat avec le vrai code de Mindset, sur l'exe livré.
 

@@ -20,6 +20,9 @@
 //! Étape 4 : les recherches d'offres partent vers un faux serveur local (127.0.0.1) qui imite Adzuna et Jooble avec des
 //! offres inventées (jobmind-sources, option « faux ») ; `reseau.essai` change sa réponse.
 //!
+//! Étape 8 : la candidature est demandée au même faux serveur, qui imite aussi Claude (`/v1/messages`,
+//! jobmind-llm, option « faux ») ; `claude.essai` change sa réponse, `cle-claude.demande` donne une clé inventée.
+//!
 //! Étape 5 (et 5 bis) : la vue des sites n'affiche que ce même faux serveur, qui imite les quatre sites (une adresse
 //! `https://www.linkedin.com/...` est changée pour la page qui l'imite, `http://127.0.0.1:<port>/site/...`) : leurs
 //! listes de résultats, leurs offres, leurs pages de connexion (avec un mail et un mot de passe inventés, et des
@@ -55,6 +58,13 @@ pub const IMPORT_DEMANDE: &str = "import.demande";
 /// Étape 4 : ce fichier change la réponse du faux serveur d'Adzuna et Jooble à la prochaine recherche (« coupe » : le
 /// réseau coupé, « quota », « refuse » : la clé refusée ; autre chose : normale).
 pub const RESEAU: &str = "reseau.essai";
+/// Étape 8 : ce fichier change la réponse du faux Claude local à la prochaine candidature demandée (« refus »,
+/// « quota », « cle », « surcharge », « abime », « lent », « coupe » : personne n'écoute ; autre chose : normale).
+pub const CLAUDE: &str = "claude.essai";
+/// Étape 8 : ce fichier donne la clé Claude inventée ci-dessous (le profil d'exemple n'a pas de clé Claude).
+pub const CLE_CLAUDE_DEMANDE: &str = "cle-claude.demande";
+/// Une clé Claude inventée, de la bonne forme ; elle ne part que vers le faux Claude local de l'essai.
+pub const CLE_CLAUDE_ESSAI: &str = "sk-ant-essai-InventeeInventeeInventeeInventee_0000-AAAA";
 
 /// Des candidatures inventées (entreprises et personnes qui n'existent pas), comme celles de la maquette C : (jours
 /// depuis l'envoi, entreprise, poste, ville, moyen, source, statuts suivants avec le nombre de jours avant aujourd'hui,

@@ -598,3 +598,53 @@ button.jm-cal-d.oui:hover, button.jm-cal-d.oui:focus { background: color-mix(in 
 .jm-prop { flex-wrap: wrap; align-items: flex-start; }
 .jm-prop .jm-a-txt { flex: 1 1 calc(100% - 64px); }
 .jm-prop .jm-a-bts { flex: 1 1 100%; justify-content: flex-start; margin-left: 60px; }
+
+/* Étape 8 : la candidature préparée par Claude (maquette C : « L'offre » et « Ma candidature », la lettre à gauche, les
+   réponses, les conseils et les versions à droite ; une phrase à vérifier surlignée en jaune pointillé) */
+.jm-o-pil { margin-top: 20px; }
+.jm-pil small { margin-left: 4px; font-size: 11.5px; font-weight: 700; color: var(--vert); }
+.jm-pr-a { margin-top: 20px; }
+.jm-pr-ann { margin-top: 16px; }
+.jm-pr { display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 28px; margin-top: 20px; }
+.jm-pr-g { min-width: 0; }
+.jm-pr-lettre { max-height: none; }
+.jm-pr-lettre.brute { color: var(--doux); background: rgba(255, 255, 255, 0.018); border: 1px dashed var(--ligne); }
+mark.jm-verif { background: color-mix(in srgb, var(--jm) 13%, transparent); color: inherit; border-bottom: 1.5px dashed color-mix(in srgb, var(--jm) 75%, transparent); border-radius: 3px; padding: 1px 2px; }
+.jm-pr-bts { margin-top: 12px; }
+.jm-pr-zone { display: block; width: 100%; max-width: 720px; box-sizing: border-box; min-height: 300px; padding: 18px 22px; border-radius: 16px; border: 1px solid color-mix(in srgb, var(--jm) 45%, transparent);
+  background: rgba(255, 255, 255, 0.05); color: var(--texte); font: inherit; font-size: 15px; line-height: 1.65; resize: vertical; outline: none; }
+.jm-pr-zone:focus { border-color: color-mix(in srgb, var(--jm) 70%, transparent); }
+.jm-pr-avt { display: flex; align-items: center; gap: 8px; color: var(--jm); }
+.jm-pr-avt svg { width: 16px; height: 16px; }
+.jm-pr-avs { margin: -4px 0 10px; }
+.jm-pr-av { max-width: 720px; margin-top: 10px; padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--jm) 6%, transparent); border: 1px dashed color-mix(in srgb, var(--jm) 30%, transparent); }
+.jm-pr-av q { display: block; font-size: 14.5px; line-height: 1.5; color: var(--texte); quotes: "« " " »"; }
+.jm-pr-av small { display: block; margin-top: 4px; font-size: 12.5px; color: var(--pale); }
+.jm-pr-av .jm-btns { margin-top: 8px; }
+.jm-pr-refaire { display: flex; gap: 10px; max-width: 720px; }
+.jm-pr-refaire input { flex: 1; min-width: 0; height: 42px; padding: 0 14px; border-radius: 11px; border: 1px solid transparent; background: rgba(255, 255, 255, 0.055); color: var(--texte); font: inherit; font-size: 14.5px; outline: none; }
+.jm-pr-refaire input:focus { border-color: color-mix(in srgb, var(--jm) 50%, transparent); background: rgba(255, 255, 255, 0.075); }
+.jm-pr-refaire input::placeholder { color: var(--pale); }
+.jm-pr-cote { min-width: 0; }
+.jm-pr-cote h3 { margin: 18px 0 8px; font-size: 13px; font-weight: 650; color: var(--pale); }
+.jm-pr-cote h3:first-child { margin-top: 2px; }
+.jm-q { padding: 10px 0; border-top: 1px solid var(--ligne); }
+.jm-qt { display: flex; align-items: flex-start; gap: 8px; font-size: 13.5px; font-weight: 600; color: var(--doux); }
+.jm-qt > span { flex: 1; min-width: 0; padding-top: 5px; }
+.jm-qt .jm-bt.discret { height: 28px; padding: 0 8px; font-size: 12.5px; }
+.jm-q p { margin: 6px 0 0; font-size: 14px; line-height: 1.5; color: var(--texte); }
+.jm-pr-vide { margin-top: 0; }
+.jm-conseil { margin-top: 8px; padding: 11px 13px; border-radius: 12px; background: rgba(255, 255, 255, 0.035); font-size: 13.5px; line-height: 1.5; color: var(--doux); }
+.jm-conseil b { display: block; font-size: 12.5px; color: var(--jm); margin-bottom: 2px; }
+.jm-conseil.absent b { color: var(--T); }
+.jm-conseil span { display: block; color: var(--texte); }
+.jm-conseil q { display: block; margin-top: 5px; font-size: 12.5px; color: var(--pale); quotes: "« " " »"; }
+.jm-versions { display: flex; flex-direction: column; gap: 6px; }
+.jm-version { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 9px 12px; border-radius: 11px; text-align: left; background: rgba(255, 255, 255, 0.03); color: var(--doux); font-size: 13px; }
+.jm-version b { font-size: 13.5px; color: var(--texte); }
+.jm-version.actif { background: color-mix(in srgb, var(--jm) 12%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--jm) 40%, transparent); }
+.jm-version:hover, .jm-version:focus { background: rgba(255, 255, 255, 0.06); }
+.jm-version.f:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--jm) 55%, transparent); }
+@media (max-width: 1100px) {
+  .jm-pr { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+}

@@ -82,6 +82,8 @@ const LECTURE_MAX: Duration = Duration::from_secs(60);
 const RESEAU_MAX: Duration = Duration::from_secs(90);
 /// Étape 6 : la lecture d'un lot d'offres par Claude, abandonnée après ce temps (chaque demande a son délai de 30 s).
 const IA_MAX: Duration = Duration::from_secs(360);
+/// Étape 8 : une candidature demandée à Claude, abandonnée après ce temps (la demande a son délai de 240 s).
+const PREP_MAX: Duration = Duration::from_secs(300);
 /// Étape 7 : la première relève de la boîte Gmail, peu après le démarrage ; un fil de la boîte abandonné après ce temps
 /// (chaque lecture a déjà son délai de 30 s).
 const PREMIERE_RELEVE: Duration = Duration::from_secs(12);
@@ -126,6 +128,13 @@ struct Etat {
     reseau_depuis: Option<Instant>,
     /// Étape 6 : la lecture par Claude en cours a commencé à ce moment
     ia_depuis: Option<Instant>,
+    /// Étape 8 : la candidature préparée par Claude (la demande en cours, la version montrée), et depuis quand elle
+    /// est demandée
+    preparation: crate::preparation::Preparation,
+    prep_depuis: Option<Instant>,
+    /// Construction d'essai (étape 8) : ce que fait le faux Claude du faux serveur local
+    #[cfg(feature = "essai")]
+    faux_claude: Arc<Mutex<jobmind_llm::faux::ModeFaux>>,
     /// Étape 5 bis : les sites en coulisse (leurs listes, l'offre lue, la connexion, la petite fenêtre)
     coulisse: Coulisse,
     /// Ce que la vue des sites doit faire au prochain pas (hors du verrou de l'état)
@@ -326,10 +335,25 @@ pub fn lancer() -> ! {
     // L'état de départ : le suivi et le profil d'après la base
     // (construction d'essai : le faux serveur local d'Adzuna et Jooble ; aucune demande de l'essai ne sort du PC)
     #[cfg(feature = "essai")]
+    let faux_claude: Arc<Mutex<jobmind_llm::faux::ModeFaux>> = Arc::new(Mutex::new(Default::default()));
+    #[cfg(feature = "essai")]
     let faux = {
         let mode: FauxMode = std::sync::Arc::new(std::sync::Mutex::new(jobmind_sources::faux::Mode::Normal));
         let sites: ModeSites = Arc::new(Mutex::new(jobmind_sources::sites::exemples::ModeSites::Normal));
-        let repondeur = jobmind_sources::faux::imitation_avec_sites(mode.clone(), Arc::clone(&sites));
+        let imitation = jobmind_sources::faux::imitation_avec_sites(mode.clone(), Arc::clone(&sites));
+        // (étape 8 : le même serveur imite aussi Claude, pour la candidature ; jamais la vraie API)
+        let pour_claude = Arc::clone(&faux_claude);
+        let repondeur = move |r: &jobmind_sources::faux::Requete| {
+            if r.methode == "POST" && r.chemin == "/v1/messages" {
+                let m = pour_claude.lock().map(|m| *m).unwrap_or_default();
+                let (statut, corps, attente) = jobmind_llm::faux::repondre(&r.corps, m);
+                return jobmind_sources::faux::RepFaux {
+                    attente,
+                    ..jobmind_sources::faux::RepFaux::json(statut, corps)
+                };
+            }
+            imitation(r)
+        };
         match jobmind_sources::faux::FauxServeur::demarrer(repondeur) {
             Ok(s) => {
                 journal.ecrire("Essai : faux serveur d'Adzuna, de Jooble et des quatre sites prêt (127.0.0.1)");
@@ -405,6 +429,10 @@ pub fn lancer() -> ! {
             offres,
             reseau_depuis: None,
             ia_depuis: None,
+            preparation: crate::preparation::Preparation::default(),
+            prep_depuis: None,
+            #[cfg(feature = "essai")]
+            faux_claude,
             coulisse: Coulisse::default(),
             actions_vue: Vec::new(),
             evenements_sites: Arc::new(Mutex::new(Vec::new())),
@@ -560,6 +588,7 @@ fn tour(app: &AppHandle) {
             connexion_demande(etat, app);
             connexion_recue(etat);
             boite_demande(etat, app);
+            cle_claude_demande(etat, app);
         }
         etat.fin = fin;
         fin
@@ -1180,7 +1209,8 @@ impl Etat {
                     || profil::est_geste(id)
                     || offres::est_geste(id)
                     || coulisse::est_geste(id)
-                    || crate::mail::est_geste(id) =>
+                    || crate::mail::est_geste(id)
+                    || crate::preparation::est_geste(id) =>
             {
                 self.geste(id, valeur);
                 return;
@@ -1212,6 +1242,24 @@ impl Etat {
         if let Some(perso) = e.pointer_mut("/accueil/perso").and_then(Value::as_object_mut) {
             self.coulisse.filtres = (self.offres.filtres.sans_diplome, self.offres.filtres.debutant);
             perso.insert("coulisse".into(), self.coulisse.vue(self.jour));
+            // (étape 8 : la candidature préparée de l'offre ouverte)
+            let (p, raison) = self.preparation.vue(d.base.as_ref(), Some(&self.cles), self.offres.ouverte, self.jour);
+            if let Some(r) = raison {
+                self.journal.ecrire(&r);
+            }
+            perso.insert("preparation".into(), p);
+        }
+        // (étape 8 : le dossier d'une candidature liée à une offre propose sa candidature préparée)
+        if let Some(k) = self.suivi.ouverte
+            && let Some(l) = e.pointer_mut("/accueil/perso/onglets").and_then(Value::as_array_mut)
+            && let Some(f) = l
+                .iter_mut()
+                .find(|o| o.get("id").and_then(Value::as_str) == Some(crate::ecran::CANDIDATURES))
+                .and_then(|o| o.pointer_mut("/suivi/fiche"))
+                .and_then(Value::as_object_mut)
+            && f.get("id").and_then(Value::as_i64) == Some(k)
+        {
+            f.insert("preparer".into(), crate::preparation::pour_dossier(d.base.as_ref(), k));
         }
         e
     }
@@ -1258,6 +1306,9 @@ impl Etat {
         if let Some(t) = fait.mail_ia {
             self.lancer_mail_ia(app, t);
         }
+        if let Some(t) = fait.preparation {
+            self.lancer_preparation(app, t);
+        }
         for o in fait.coulisse {
             self.programmer(o);
         }
@@ -1295,6 +1346,10 @@ impl Etat {
             }
             if coulisse::est_geste(id) {
                 return etat.coulisse.geste(d.base.as_ref(), id, valeur, maintenant);
+            }
+            if crate::preparation::est_geste(id) {
+                let ctx = crate::preparation::Contexte { base: d.base.as_ref(), cles: Some(&etat.cles) };
+                return etat.preparation.geste(&ctx, id, valeur, maintenant);
             }
             if crate::mail::est_geste(id) {
                 return etat.boite.geste(d.base.as_ref(), Some(&mut etat.cles), id, valeur, maintenant);
@@ -1502,8 +1557,77 @@ impl Etat {
         self.faire(app, |etat, d| etat.offres.ia_finie(d.base.as_ref(), r, heure::maintenant()));
     }
 
+    /// Étape 8 : lance la préparation d'une candidature par Claude, sur un fil à part. La clé est lue ici, au dernier
+    /// moment, et donnée seulement à ce fil (jamais au journal ni à la page).
+    fn lancer_preparation(&mut self, app: &AppHandle, t: crate::preparation::Tache) {
+        let cle = offres::cles_claires(&self.cles, Service::Claude).and_then(|v| v.into_iter().next());
+        let (adresse, https) = self.adresse_claude_fort();
+        let a = app.clone();
+        let r = std::thread::Builder::new().name("candidature-ia".into()).spawn(move || {
+            let r = match cle {
+                Some(cle) => {
+                    let claude =
+                        jobmind_llm::claude::Claude::nouveau(&adresse, &cle, https, jobmind_llm::claude::DELAI_FORT);
+                    crate::preparation::travailler(&claude, &t)
+                }
+                None => crate::preparation::Retour {
+                    jeton: t.jeton,
+                    reponse: None,
+                    preparee: Err(jobmind_llm::ErreurLlm::CleManquante),
+                },
+            };
+            rapporter_vers(&a, r, Etat::retour_preparation);
+        });
+        match r {
+            Ok(_) => self.prep_depuis = Some(Instant::now()),
+            Err(e) => {
+                self.journal.ecrire(&format!("Préparation : fil de Claude non lancé ({e})"));
+                let _ = self.preparation.trop_longue();
+            }
+        }
+    }
+
+    /// L'adresse de Claude pour la candidature, et « https seulement » : la vraie.
+    #[cfg(not(feature = "essai"))]
+    fn adresse_claude_fort(&self) -> (String, bool) {
+        (jobmind_llm::claude::ADRESSE.into(), true)
+    }
+
+    /// Construction d'essai (étape 8) : le faux Claude du faux serveur local, jamais la vraie API. `claude.essai` dans
+    /// le dossier de données change sa réponse (« refus », « quota », « cle », « surcharge », « abime », « lent » ;
+    /// « coupe » : personne n'écoute ; autre chose : normale).
+    #[cfg(feature = "essai")]
+    fn adresse_claude_fort(&self) -> (String, bool) {
+        let voulu = std::fs::read_to_string(self.dossier.join(crate::essai::CLAUDE)).unwrap_or_default();
+        let voulu = voulu.trim_start_matches('\u{feff}').trim().to_string();
+        if let Ok(mut m) = self.faux_claude.lock() {
+            *m = jobmind_llm::faux::ModeFaux::depuis(&voulu);
+        }
+        self.journal.ecrire(&format!(
+            "Essai : candidature demandée au faux Claude local ({})",
+            if voulu.is_empty() { "normal" } else { &voulu }
+        ));
+        match &self.faux {
+            Some((s, _, _)) if voulu != "coupe" => (format!("{}/v1/messages", s.adresse()), false),
+            _ => ("http://127.0.0.1:9/v1/messages".into(), false),
+        }
+    }
+
+    /// Étape 8 : ce que Claude a rendu pour la candidature.
+    fn retour_preparation(&mut self, app: &AppHandle, r: crate::preparation::Retour) {
+        if self.preparation.jeton_en_cours() == Some(r.jeton) {
+            self.prep_depuis = None;
+        }
+        self.faire(app, |etat, d| etat.preparation.fini(d.base.as_ref(), r, heure::maintenant()));
+    }
+
     /// Une lecture par Claude qui dure trop longtemps : abandonnée (un résultat arrivé ensuite est laissé).
     fn ia_trop_longue(&mut self, app: &AppHandle) {
+        // (étape 8 : une candidature demandée depuis trop longtemps aussi)
+        if self.prep_depuis.is_some_and(|t| t.elapsed() > PREP_MAX) {
+            self.prep_depuis = None;
+            self.faire(app, |etat, _| etat.preparation.trop_longue());
+        }
         if self.ia_depuis.is_some_and(|t| t.elapsed() > IA_MAX) {
             self.ia_depuis = None;
             self.faire(app, |etat, _| etat.offres.ia_trop_longue());
@@ -2104,6 +2228,22 @@ fn connexion_demande(etat: &mut Etat, app: &AppHandle) {
     etat.journal.ecrire(&format!("Essai : connexion demandée ({site})"));
     app.state::<Page>().ordre(json!({ "kit": "accueil", "connexion": v.clone() }));
     crate::pont::effacer_valeur(&mut v);
+}
+
+/// Construction d'essai (étape 8) : un fichier `cle-claude.demande` donne une clé Claude inventée (elle ne sert
+/// qu'au faux Claude local de l'essai : la construction d'essai n'appelle jamais la vraie API).
+#[cfg(feature = "essai")]
+fn cle_claude_demande(etat: &mut Etat, app: &AppHandle) {
+    let demande = etat.dossier.join(crate::essai::CLE_CLAUDE_DEMANDE);
+    if !demande.is_file() {
+        return;
+    }
+    let _ = std::fs::remove_file(&demande);
+    match etat.cles.garder_plusieurs(&[(jobmind_core::cle::Cle::Claude, crate::essai::CLE_CLAUDE_ESSAI)]) {
+        Ok(()) => etat.journal.ecrire("Essai : clé Claude inventée donnée (le faux Claude local seulement)"),
+        Err(e) => etat.journal.ecrire(&format!("Essai : clé Claude inventée non gardée ({e})")),
+    }
+    etat.renvoyer(app);
 }
 
 /// Construction d'essai (étape 7) : un fichier `boite.demande` (`{ adresse, mdp, envoyer }`, inventés) remplit « Ma

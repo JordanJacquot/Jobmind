@@ -16,6 +16,8 @@
 //! - [`offres`] (étape 4) : l'archive des offres trouvées, les doublons rattachés, la recherche dans tout le texte,
 //!   favoris, « plus tard » et « Pas pour moi », les recherches gardées, les demandes du jour à chaque source ;
 //! - [`mails`] (étape 7) : les mails lus dans Gmail (alertes, réponses rangées ou à ranger, statut proposé), la relève ;
+//! - [`preparations`] (étape 8) : les candidatures préparées par Claude (chaque version, la réponse brute, la lettre de
+//!   Jordan, les phrases à vérifier) et les demandes du jour ;
 //! - [`dossier`] : le dossier de données et suite.json (copie gérée ou non, dossier de travail) ;
 //! - [`donnees`] : tout réuni ;
 //! - [`valeurs`] : les règles de PowerShell suivies (champs sans majuscules, vrai ou faux).
@@ -36,6 +38,7 @@ pub mod lecture;
 pub mod mails;
 pub mod moment;
 pub mod offres;
+pub mod preparations;
 pub mod profil;
 pub mod reglages;
 pub mod valeurs;

@@ -1122,6 +1122,8 @@ fn postule(base: &Base, v: &Value, maintenant: Moment) -> rusqlite::Result<Fait>
     };
     let k = candidatures::ajouter(c, &f, maintenant)?;
     base_offres::lier_candidature(c, o.offre.id, k)?;
+    // (étape 8 : les candidatures déjà préparées pour cette offre y sont rattachées)
+    jobmind_storage::preparations::lier_candidature(c, o.offre.id, k)?;
     Ok(Fait {
         message: Some("C'est noté dans tes candidatures. Ajoute ce que tu as envoyé avec « Modifier ».".into()),
         bravo: true,

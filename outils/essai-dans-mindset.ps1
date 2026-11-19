@@ -270,7 +270,7 @@ try {
         try { $tete = New-Object byte[] 16; [void]$f.Read($tete, 0, 16) } finally { $f.Dispose() }
         Verifier ([Text.Encoding]::ASCII.GetString($tete, 0, 15) -ceq 'SQLite format 3') 'la base est une base SQLite'
     }
-    Verifier ((Compter 'Base : data\jobmind.db prête (version 7, migrations 1, 2, 3, 4, 5, 6, 7 appliquées)') -eq 1) 'la base est migrée (version 7, journal)'
+    Verifier ((Compter 'Base : data\jobmind.db prête (version 8, migrations 1, 2, 3, 4, 5, 6, 7, 8 appliquées)') -eq 1) 'la base est migrée (version 8, journal)'
     Verifier ((Compter 'Base : non ouverte') -eq 0) 'aucune erreur de la base (journal)'
     # (étape 7 : la fausse boîte Gmail de l'essai, locale ; la vraie n'est jamais jointe)
     Verifier ((Compter 'Essai : fausse boîte Gmail prête (127.0.0.1') -eq 1) 'la fausse boîte Gmail locale est prête (journal)'
@@ -523,7 +523,7 @@ try {
         Verifier ((-not $p) -or $p.WaitForExit(6000)) "« Tout quitter » (quitter.demande) : elle quitte en moins de 6 s ($($t.ElapsedMilliseconds) ms)"
         Verifier (-not (Test-Path -LiteralPath (Join-Path $donnees 'quitter.demande'))) 'quitter.demande effacé'
         Verifier ((Compter 'Fermeture demandée par Mindset') -ge 1) 'fermeture demandée par Mindset (journal)'
-        Verifier ((Compter 'Base : data\jobmind.db prête (version 7)') -eq 1) 'relancée : la base est rouverte, aucune migration rejouée (journal)'
+        Verifier ((Compter 'Base : data\jobmind.db prête (version 8)') -eq 1) 'relancée : la base est rouverte, aucune migration rejouée (journal)'
     }
 } catch {
     Echec "l'essai s'est arrêté : $($_.Exception.Message) (ligne $($_.InvocationInfo.ScriptLineNumber))"

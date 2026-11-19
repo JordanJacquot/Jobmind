@@ -21,7 +21,9 @@
 //!   leur preuve ; le permis et le CACES ;
 //! - [`pertinence`] (étape 6) : la note d'une offre et sa raison en une ligne, hors sujet ;
 //! - [`mails`] (étape 7) : l'adresse Gmail et le mot de passe d'application vérifiés, le rattachement d'un mail reçu à
-//!   une candidature et le statut proposé d'après ce qu'il dit.
+//!   une candidature et le statut proposé d'après ce qu'il dit ;
+//! - [`preparation`] (étape 8) : la candidature préparée par Claude vérifiée (chaque phrase sur Jordan appuyée sur son
+//!   CV, sinon « à vérifier » ; les nombres, les questions et les conseils pour le CV), la lettre modifiée à la main.
 
 pub mod candidature;
 pub mod cle;
@@ -31,6 +33,7 @@ pub mod lieux;
 pub mod mails;
 pub mod offre;
 pub mod pertinence;
+pub mod preparation;
 pub mod profil;
 pub mod recherche;
 pub mod recherches;

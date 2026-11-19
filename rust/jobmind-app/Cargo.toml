@@ -26,7 +26,7 @@ test = false
 # cherche ces noms dans l'exe de publication.
 [features]
 # (étape 4 : avec le faux serveur local qui imite Adzuna et Jooble ; aucune demande de l'essai ne part sur internet)
-essai = ["jobmind-sources/faux", "jobmind-mail/faux"]
+essai = ["jobmind-sources/faux", "jobmind-mail/faux", "jobmind-llm/faux"]
 
 [dependencies]
 # Versions figées (« = ») : une nouvelle version n'entre que par un changement relu. Les mêmes que Mindcare.
@@ -93,6 +93,8 @@ tauri = { version = "=2.12.5", default-features = false, features = ["wry", "com
 jobmind-sources = { path = "../jobmind-sources", features = ["faux"] }
 # Les tests de la boîte Gmail : le faux serveur IMAP local (127.0.0.1)
 jobmind-mail = { path = "../jobmind-mail", features = ["faux"] }
+# Les tests de la candidature préparée (étape 8) : le faux Claude local (127.0.0.1)
+jobmind-llm = { path = "../jobmind-llm", features = ["faux"] }
 
 # Pas `workspace = true` : le module Windows (src\windows) a besoin d'autoriser le code « unsafe », que le reste du
 # dépôt interdit tout à fait (forbid). Ici, il est refusé partout (deny), sauf dans src\windows qui l'autorise.

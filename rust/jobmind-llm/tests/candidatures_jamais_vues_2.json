@@ -1,0 +1,878 @@
+{
+  "description": "Deuxième jeu de candidatures jamais vues, écrit d'après le sens et non d'après le code de vérification. Autres métiers que le premier jeu. Personnes et entreprises inventées. Chaque phrase porte l'étiquette attendue (sure ou a_verifier) et chaque question l'étiquette attendue (gardee ou laissee).",
+  "cv": [
+    {
+      "id": "cv_electricien",
+      "texte": "Bastien Roucheval\nÉlectricien du bâtiment\nVerdun (55)\n\nPARCOURS\n2020 à 2024 : Électricien, Entreprise Lumelec Meusienne, Verdun\nInstallation de tableaux électriques, mise aux normes de logements anciens, pose de prises et d'éclairages.\n2018 à 2020 : Apprenti électricien, SARL Ferrandou Frères, Bar-le-Duc\nTirage de câbles, aide au raccordement.\n\nDIPLÔMES\n2020 : CAP Électricien, CFA du Bâtiment de Bar-le-Duc\n2021 : Habilitation électrique B1V BR\n\nATOUTS\nPermis B\nTravail en hauteur (nacelle)\nLecture de plans",
+      "profil": "Postes : électricien, électricien du bâtiment\nLieu : Verdun, 40 km autour\nContrats : CDI, intérim\nSalaire : 2 000 € brut par mois au moins"
+    },
+    {
+      "id": "cv_administratif",
+      "texte": "Sophie Marlanges\nEmployée administrative\nReims (51)\n\nEXPÉRIENCE\n2015 à 2023 : Secrétaire administrative, Cabinet comptable Dorval et Associés, Reims\nAccueil téléphonique, saisie des factures, classement, prise de rendez-vous.\n2012 à 2015 : Hôtesse d'accueil, Centre commercial Les Arcades du Moulin, Tinqueux\nAccueil des clients, gestion des réclamations.\n\nFORMATION\n2012 : Baccalauréat professionnel Gestion-Administration, Lycée Jeanne Vauclair, Reims\n\nCOMPÉTENCES\nWord, Excel (niveau intermédiaire)\nLogiciel de comptabilité ComptaFacile\nFrappe rapide\n\nLANGUES\nEspagnol : bon niveau",
+      "profil": "Postes : employée administrative, secrétaire, assistante de gestion\nLieu : Reims, 25 km autour\nContrats : CDI, CDD\nSalaire : 1 850 € brut par mois au moins\nTemps de travail : temps plein ou 4 jours par semaine"
+    },
+    {
+      "id": "cv_securite",
+      "texte": "Yanis Taourirt\nAgent de sécurité\nCarte professionnelle CNAPS, SSIAP 1\n2021 à 2023 : agent de sécurité, Gardiennage Vigilor Est, Charleville-Mézières",
+      "profil": "Postes : agent de sécurité, agent de surveillance\nLieu : Charleville-Mézières, 30 km autour\nContrats : CDI, CDD\nHoraires : nuit acceptée"
+    }
+  ],
+  "offres": [
+    {
+      "id": "offre_electricien_renovation",
+      "titre": "Électricien en rénovation (CDI)",
+      "entreprise": "Volt'Âge Rénovation",
+      "lieu": "Verdun",
+      "texte": "Volt'Âge Rénovation, équipe de quatre électriciens installée à Verdun, rénove des maisons anciennes autour de Verdun pour une clientèle de particuliers.\n\nVotre travail :\n- mise en sécurité et mise aux normes des installations ;\n- remplacement de tableaux électriques ;\n- pose de prises, d'éclairages et de radiateurs.\n\nProfil : CAP électricien ou équivalent, 2 ans d'expérience au moins, permis B indispensable (véhicule de service fourni).\n\nContrat : CDI, 35 heures du lundi au vendredi. Salaire : 2 100 à 2 300 € brut par mois.\n\nAvant de postuler, répondez à ces deux points :\nÊtes-vous titulaire d'une habilitation électrique ?\nIndiquez la date à laquelle vous pourriez commencer.",
+      "questions_attendues": 2
+    },
+    {
+      "id": "offre_secretaire_kine",
+      "titre": "Secrétaire d'accueil à mi-temps",
+      "entreprise": "Cabinet de kinésithérapie des Trois Fontaines",
+      "lieu": "Reims",
+      "texte": "Le cabinet de kinésithérapie des Trois Fontaines, six praticiens, cherche une secrétaire d'accueil à mi-temps.\n\nLe cabinet accueille ses patients du lundi au samedi. Vous travaillerez les matins, de 8 h à 12 h 30.\n\nVos missions : accueil des patients, prise de rendez-vous par téléphone et sur le logiciel de rendez-vous en ligne, classement des ordonnances, encaissement.\n\nUne expérience de l'accueil est souhaitée. Le sourire et la discrétion sont indispensables.\n\nCDD de 6 mois renouvelable, 20 heures par semaine, 1 000 € brut par mois.",
+      "questions_attendues": 0
+    },
+    {
+      "id": "offre_vigile_magasin",
+      "titre": "Agent de sécurité en magasin",
+      "entreprise": "Sûreté Ardennes Services",
+      "lieu": "Charleville-Mézières",
+      "texte": "Sûreté Ardennes Services assure la sécurité de magasins dans les Ardennes et recrute un agent de sécurité pour un supermarché de Charleville-Mézières.\n\nMissions : surveillance des rayons, prévention des vols, contrôle des sorties, intervention en cas d'incident.\n\nHoraires : du mardi au samedi de 13 h à 21 h, et le dimanche matin, le magasin étant ouvert le dimanche matin.\n\nCarte professionnelle obligatoire. SSIAP 1 apprécié.\n\nCDI à temps plein, 1 820 € brut par mois, tenue fournie.",
+      "questions_attendues": 0
+    },
+    {
+      "id": "offre_assistante_gestion",
+      "titre": "Assistante ou assistant de gestion",
+      "entreprise": "Menuiseries Hautmont et Fils",
+      "lieu": "Épernay",
+      "texte": "Menuiseries Hautmont et Fils, entreprise familiale qui fabrique des fenêtres depuis trois générations, cherche son assistante ou son assistant de gestion.\n\nVous travaillerez aux côtés de la gérante : saisie des factures fournisseurs et clients, relances, suivi des devis, accueil téléphonique et préparation des éléments pour le comptable.\n\nProfil : bac professionnel ou BTS dans la gestion, aisance avec Excel.\n\nCDI à temps plein, 1 900 € brut par mois.\n\nDans votre message, merci de répondre à ces trois points :\n- Quel logiciel de comptabilité utilisez-vous ?\n- Pourquoi souhaitez-vous travailler dans une entreprise familiale ?\n- Indiquez vos attentes de salaire.",
+      "questions_attendues": 3
+    },
+    {
+      "id": "offre_bailleur_longue",
+      "titre": "Plusieurs postes : surveillance, maintenance électrique, accueil des locataires",
+      "entreprise": "Groupe Marnelys Habitat",
+      "lieu": "Reims, Charleville-Mézières et alentours",
+      "texte": "Groupe Marnelys Habitat recrute\n\nQui sommes-nous\nGroupe Marnelys Habitat est un bailleur social qui gère plus de 6 000 logements dans la Marne et les Ardennes. Nous logeons près de 14 000 personnes, dans des immeubles collectifs, des maisons individuelles et des résidences pour personnes âgées. Notre mission est simple : proposer des logements de qualité à des loyers accessibles, et accompagner nos locataires tout au long de leur vie dans nos résidences. Nous employons 210 salariés, répartis entre le siège de Reims, l'agence de Charleville-Mézières et une quinzaine de loges de gardiens.\n\nNos engagements\nDepuis plusieurs années, nous menons un grand plan de rénovation de nos résidences les plus anciennes : isolation des façades, remplacement des chaudières, mise aux normes des installations électriques, création d'ascenseurs dans les immeubles qui n'en avaient pas. D'ici cinq ans, 1 800 logements auront été rénovés. Nous travaillons aussi à rendre nos résidences plus sûres et plus agréables à vivre, avec des espaces verts entretenus, des locaux à vélos et un meilleur éclairage des parkings. Enfin, nous voulons que chaque locataire puisse joindre facilement une personne de chez nous, par téléphone, à l'accueil ou auprès du gardien de sa résidence.\n\nPourquoi nous recrutons\nLe départ en retraite de plusieurs collègues et l'ouverture de deux nouvelles résidences à Reims et à Sedan nous amènent à ouvrir trois types de postes. Une seule candidature suffit, même si plusieurs postes vous intéressent : notre service des ressources humaines l'étudiera pour chacun d'eux.\n\nPoste 1 : agent de surveillance de nuit (3 postes)\nNotre groupe recrute des agents de surveillance pour ses résidences, la nuit. En binôme, vous faites des rondes dans les parties communes, les parkings et les caves de plusieurs résidences de Charleville-Mézières et de Sedan. Vous vérifiez la fermeture des accès, vous signalez les dégradations et les pannes d'éclairage, et vous intervenez en cas d'incident en lien avec le poste de contrôle. Vous rédigez un rapport à la fin de chaque nuit. Conditions : carte professionnelle d'agent de sécurité obligatoire, SSIAP 1 apprécié. CDI à temps plein, nuits de 21 h à 5 h, quatre nuits par semaine. Salaire de 1 900 € brut par mois, auquel s'ajoutent la prime de nuit et la prime de dimanche.\n\nPoste 2 : électricien de maintenance (2 postes)\nRattaché à notre régie technique de Reims, vous intervenez dans nos résidences pour les dépannages électriques des parties communes et des logements : éclairage des halls et des escaliers, interphones, portes automatiques de parkings, tableaux électriques des logements libérés avant une nouvelle location. Vous participez aussi au suivi des entreprises qui réalisent les gros travaux de mise aux normes. Conditions : CAP ou bac professionnel en électricité, habilitation électrique exigée, permis B indispensable (un véhicule de service équipé vous est confié). Une expérience en logements anciens est un plus. CDI à temps plein, du lundi au vendredi, avec une semaine d'astreinte par mois indemnisée. Salaire de 2 050 à 2 350 € brut par mois selon l'expérience.\n\nPoste 3 : chargé ou chargée d'accueil des locataires (2 postes)\nNotre service d'accueil reçoit les locataires et répond à leurs demandes, au siège de Reims et à l'agence de Charleville-Mézières. Vous accueillez les locataires et les personnes qui cherchent un logement, vous répondez au téléphone, vous enregistrez les demandes de travaux et les réclamations, et vous les transmettez aux bons services. Vous aidez aussi les locataires à remplir certains documents. Conditions : une première expérience de l'accueil du public est demandée, la maîtrise de Word et d'Excel est utile. Une formation à nos logiciels et à la réglementation du logement social est assurée à l'arrivée. CDI à temps plein ou à 80 %, du lundi au vendredi, de 8 h 30 à 17 h. Salaire de 1 850 € brut par mois.\n\nCe que nous proposons à tous nos salariés\n- un treizième mois et une prime d'intéressement ;\n- une mutuelle prise en charge à 70 % par l'employeur ;\n- des titres-restaurant d'une valeur de 9 € ;\n- 27 jours de congés payés et des jours de réduction du temps de travail ;\n- la prise en charge de la moitié de l'abonnement de transport en commun ;\n- un parcours d'accueil d'une semaine pour découvrir nos métiers et nos résidences ;\n- des formations chaque année, et des possibilités d'évolution vers des postes de gardien, de technicien ou de responsable de secteur.\n\nLa vie chez nous\nNos équipes sont petites et se connaissent bien. Chaque agence organise un repas d'équipe une fois par mois, et tout le groupe se retrouve deux fois par an, en juin pour la fête des résidences et en décembre pour la fin d'année. Nous encourageons les idées de nos salariés : plusieurs améliorations récentes, comme le nouveau formulaire de demande de travaux ou l'éclairage par détecteurs dans les caves, viennent de propositions de gardiens et d'agents de terrain. Notre comité social et économique propose des chèques vacances, une billetterie à prix réduit et des sorties en famille.\n\nParoles d'équipe\nNadia, chargée d'accueil à Charleville-Mézières depuis neuf ans, raconte : « Les journées ne se ressemblent pas. On aide des gens qui ont parfois de vraies difficultés, et c'est une grande satisfaction quand on trouve une solution avec eux. » Thierry, électricien de maintenance à Reims, ajoute : « Je venais du chantier. Ici, j'ai des horaires réguliers, un véhicule, et je vois le résultat de mon travail chez les locataires. » Kevin, agent de surveillance de nuit, explique : « On travaille toujours à deux, et le poste de contrôle répond tout de suite. On se sent épaulé. »\n\nLe déroulement du recrutement\nVotre candidature est lue par notre service des ressources humaines sous dix jours ouvrés. Si votre profil correspond à l'un des postes, vous êtes appelé pour un court échange téléphonique, puis invité à un entretien avec le responsable du service concerné. Pour les postes de terrain, l'entretien est suivi d'une visite d'une résidence. Nous répondons à toutes les candidatures, même lorsque la réponse est négative.\n\nÉgalité des chances\nGroupe Marnelys Habitat s'engage pour l'égalité entre les femmes et les hommes et pour l'emploi des personnes en situation de handicap. Tous nos postes sont ouverts à tous. Notre référente handicap peut étudier avec vous les aménagements utiles. Nous accueillons aussi les personnes en reconversion : plusieurs de nos agents et de nos chargés d'accueil viennent d'autres métiers.\n\nNos résidences\nNos logements vont du petit studio au grand appartement familial de cinq pièces. À Reims, nos résidences les plus importantes se trouvent dans les quartiers nord et autour de la gare, avec plusieurs immeubles de dix étages construits dans les années 1970 et entièrement rénovés depuis. À Charleville-Mézières et à Sedan, nous gérons surtout des petits immeubles de trois ou quatre étages et des maisons en bande avec jardin. Nos deux résidences pour personnes âgées, à Reims et à Rethel, proposent des appartements adaptés, une salle commune et la présence d'une hôtesse en journée. Les deux nouvelles résidences qui ouvriront l'an prochain compteront 48 et 36 logements, avec des panneaux solaires sur les toits et un local commun pour les associations de locataires.\n\nUne journée type\nPour l'agent de surveillance de nuit, la soirée commence au poste de contrôle par la lecture des consignes et des incidents de la veille. Les rondes s'enchaînent ensuite d'une résidence à l'autre, avec une pause au milieu de la nuit dans un local équipé. Pour l'électricien de maintenance, la journée commence à 7 h 45 à la régie technique, avec la répartition des dépannages du jour et le chargement du véhicule. Les interventions urgentes, comme une panne d'éclairage dans un escalier ou un interphone hors service, passent toujours en premier. Pour le chargé ou la chargée d'accueil, la matinée est souvent consacrée aux visites et aux appels, l'après-midi au traitement des demandes écrites et au suivi des dossiers avec les autres services.\n\nSanté et sécurité au travail\nChaque salarié reçoit à son arrivée les équipements adaptés à son poste : chaussures de sécurité, vêtements de travail, outillage isolé pour les électriciens, lampe et radio pour les agents de surveillance. Une formation aux gestes de premiers secours est proposée à tous dans la première année. Les agents de surveillance ne travaillent jamais seuls et peuvent joindre à tout moment un responsable d'astreinte. Les électriciens bénéficient chaque année d'un recyclage de leur habilitation électrique, pris en charge par le groupe, et d'un temps d'échange avec le responsable de la régie sur les situations difficiles rencontrées.\n\nVotre candidature\nVotre candidature comprend un CV à jour et, pour les postes qui en demandent, une copie de votre carte professionnelle ou de votre habilitation électrique. Une lettre de motivation est appréciée sans être obligatoire.\n\nPour terminer, nous vous demandons de répondre en quelques lignes à une seule question : Qu'est-ce qui vous donne envie de travailler pour un bailleur social ?",
+      "questions_attendues": 1
+    }
+  ],
+  "cas": [
+    {
+      "id": "cas_01",
+      "offre": "offre_electricien_renovation",
+      "cv": "cv_electricien",
+      "phrases": [
+        {
+          "texte": "Votre entreprise rénove des maisons anciennes autour de Verdun, un travail qui me parle.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur l'entreprise."
+        },
+        {
+          "texte": "Électricien chez Lumelec Meusienne de 2020 à 2024, j'ai installé des tableaux électriques et mis aux normes des logements anciens.",
+          "sur_moi": true,
+          "extraits": [
+            "2020 à 2024 : Électricien, Entreprise Lumelec Meusienne, Verdun",
+            "Installation de tableaux électriques, mise aux normes de logements anciens, pose de prises et d'éclairages."
+          ],
+          "attendu": "sure",
+          "pourquoi": "Poste, dates et missions dans le CV, extraits exacts."
+        },
+        {
+          "texte": "Je possède l'habilitation électrique B2V BR, qui me permet de diriger les travaux.",
+          "sur_moi": true,
+          "extraits": [
+            "Habilitation électrique B2V BR"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Niveau plus élevé que celui du CV (B1V BR) ; l'extrait a été changé."
+        },
+        {
+          "texte": "J'ai six ans d'expérience dans l'électricité du bâtiment.",
+          "sur_moi": true,
+          "extraits": [
+            "2018 à 2020 : Apprenti électricien, SARL Ferrandou Frères, Bar-le-Duc"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Durée calculée : le CV dit 2018 à 2020 puis 2020 à 2024, pas six ans."
+        },
+        {
+          "texte": "Le travail en nacelle ne me pose aucun problème.",
+          "sur_moi": true,
+          "extraits": [
+            "Travail en hauteur (nacelle)"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Écrit dans le CV."
+        },
+        {
+          "texte": "J'ai encadré deux apprentis chez Lumelec Meusienne.",
+          "sur_moi": true,
+          "extraits": [
+            "Entreprise Lumelec Meusienne, Verdun"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Encadrement et nombre inventés ; l'extrait ne prouve que l'employeur."
+        },
+        {
+          "texte": "J'ai aussi installé des bornes de recharge pour voitures électriques.",
+          "sur_moi": true,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Compétence inventée, rien dans le CV."
+        }
+      ],
+      "questions": [
+        {
+          "question": "Êtes-vous titulaire d'une habilitation électrique ?",
+          "extrait_offre": "Êtes-vous titulaire d'une habilitation électrique ?",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Indiquez la date à laquelle vous pourriez commencer.",
+          "extrait_offre": "Indiquez la date à laquelle vous pourriez commencer.",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Avez-vous votre propre outillage ?",
+          "extrait_offre": "Merci de préciser si vous avez votre propre outillage.",
+          "attendu": "laissee"
+        }
+      ]
+    },
+    {
+      "id": "cas_02",
+      "offre": "offre_bailleur_longue",
+      "cv": "cv_electricien",
+      "phrases": [
+        {
+          "texte": "Votre groupe gère plus de 6 000 logements dans la Marne et les Ardennes.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur l'entreprise."
+        },
+        {
+          "texte": "J'ai obtenu mon CAP Électricien en 2020.",
+          "sur_moi": true,
+          "extraits": [
+            "2020 : CAP Électricien, CFA du Bâtiment de Bar-le-Duc"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Diplôme et année dans le CV."
+        },
+        {
+          "texte": "Je sais lire des plans.",
+          "sur_moi": true,
+          "extraits": [
+            "Lecture de plans"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Écrit dans le CV."
+        },
+        {
+          "texte": "J'ai déjà travaillé en maintenance pour un bailleur social.",
+          "sur_moi": true,
+          "extraits": [
+            "mise aux normes de logements anciens"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Employeur et type de poste inventés ; l'extrait ne le prouve pas."
+        },
+        {
+          "texte": "Je cherche un poste à Reims.",
+          "sur_moi": true,
+          "extraits": [
+            "Lieu : Verdun, 40 km autour"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Contredit le profil (Verdun, 40 km autour)."
+        },
+        {
+          "texte": "Le permis B me permettra de me rendre sur vos différentes résidences.",
+          "sur_moi": true,
+          "extraits": [
+            "Permis B"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Permis écrit dans le CV."
+        },
+        {
+          "texte": "Je suis disponible pour des astreintes le week-end.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Parle de la personne malgré sur_moi faux ; disponibilité absente du CV et du profil."
+        },
+        {
+          "texte": "Je vous remercie de votre attention.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Formule de politesse."
+        }
+      ],
+      "questions": [
+        {
+          "question": "Qu'est-ce qui vous donne envie de travailler pour un bailleur social ?",
+          "extrait_offre": "Qu'est-ce qui vous donne envie de travailler pour un bailleur social ?",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Êtes-vous titulaire d'une habilitation électrique ?",
+          "extrait_offre": "Êtes-vous titulaire d'une habilitation électrique ?",
+          "attendu": "laissee"
+        }
+      ]
+    },
+    {
+      "id": "cas_03",
+      "offre": "offre_secretaire_kine",
+      "cv": "cv_administratif",
+      "phrases": [
+        {
+          "texte": "J'ai assuré l'accueil téléphonique et la prise de rendez-vous pendant huit ans au cabinet Dorval et Associés.",
+          "sur_moi": true,
+          "extraits": [
+            "Accueil téléphonique, saisie des factures, classement, prise de rendez-vous.",
+            "2015 à 2023 : Secrétaire administrative, Cabinet comptable Dorval et Associés, Reims"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Extraits exacts mais durée calculée : le CV dit 2015 à 2023, pas huit ans."
+        },
+        {
+          "texte": "Accueil téléphonique, saisie des factures et classement faisaient partie de mon quotidien de secrétaire administrative.",
+          "sur_moi": true,
+          "extraits": [
+            "Accueil téléphonique, saisie des factures, classement"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Missions écrites dans le CV."
+        },
+        {
+          "texte": "Je connais bien le vocabulaire médical.",
+          "sur_moi": true,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Compétence inventée."
+        },
+        {
+          "texte": "J'ai l'habitude d'accueillir le public et de gérer les réclamations.",
+          "sur_moi": true,
+          "extraits": [
+            "Accueil des clients, gestion des réclamations."
+          ],
+          "attendu": "sure",
+          "pourquoi": "Écrit dans le CV."
+        },
+        {
+          "texte": "Je maîtrise parfaitement Excel.",
+          "sur_moi": true,
+          "extraits": [
+            "Word, Excel (niveau intermédiaire)"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Niveau plus élevé que celui du CV (intermédiaire)."
+        },
+        {
+          "texte": "Votre cabinet accueille ses patients du lundi au samedi.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur le cabinet."
+        },
+        {
+          "texte": "Je serais ravie de vous rencontrer.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Demande d'entretien."
+        }
+      ],
+      "questions": []
+    },
+    {
+      "id": "cas_04",
+      "offre": "offre_assistante_gestion",
+      "cv": "cv_administratif",
+      "phrases": [
+        {
+          "texte": "J'utilise le logiciel de comptabilité ComptaFacile.",
+          "sur_moi": true,
+          "extraits": [
+            "Logiciel de comptabilité ComptaFacile"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Écrit dans le CV."
+        },
+        {
+          "texte": "Titulaire d'un BTS Gestion de la PME, je suis prête à vous assister.",
+          "sur_moi": true,
+          "extraits": [
+            "Baccalauréat professionnel Gestion-Administration"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Diplôme plus élevé que celui du CV (bac professionnel)."
+        },
+        {
+          "texte": "J'ai saisi les factures d'un cabinet comptable de 2015 à 2023.",
+          "sur_moi": true,
+          "extraits": [
+            "2015 à 2023 : Secrétaire administrative, Cabinet comptable Dorval et Associés, Reims",
+            "saisie des factures"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Dates, employeur et mission dans le CV."
+        },
+        {
+          "texte": "Je parle espagnol, ce qui peut servir avec vos fournisseurs étrangers.",
+          "sur_moi": true,
+          "extraits": [
+            "Espagnol : bon niveau"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Langue écrite dans le CV."
+        },
+        {
+          "texte": "Je souhaite un salaire d'au moins 1 850 € brut par mois.",
+          "sur_moi": false,
+          "extraits": [
+            "Salaire : 1 850 € brut par mois au moins"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Parle de la personne malgré sur_moi faux, mais le fait est dans le profil."
+        },
+        {
+          "texte": "J'ai géré seule la paie de 15 salariés.",
+          "sur_moi": true,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Tâche et nombre inventés."
+        },
+        {
+          "texte": "Épernay est à moins de 25 km de chez moi.",
+          "sur_moi": true,
+          "extraits": [
+            "Lieu : Reims, 25 km autour"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "La distance n'est pas écrite ; le profil dit seulement un rayon de recherche."
+        }
+      ],
+      "questions": [
+        {
+          "question": "Quel logiciel de comptabilité utilisez-vous ?",
+          "extrait_offre": "Quel logiciel de comptabilité utilisez-vous ?",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Pourquoi souhaitez-vous travailler dans une entreprise familiale ?",
+          "extrait_offre": "- Pourquoi souhaitez-vous travailler dans une entreprise familiale ?",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Indiquez vos attentes de salaire.",
+          "extrait_offre": "Indiquez vos attentes de salaire.",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Avez-vous le permis B ?",
+          "extrait_offre": "Permis B exigé.",
+          "attendu": "laissee"
+        }
+      ]
+    },
+    {
+      "id": "cas_05",
+      "offre": "offre_vigile_magasin",
+      "cv": "cv_securite",
+      "phrases": [
+        {
+          "texte": "Je possède la carte professionnelle CNAPS et le SSIAP 1.",
+          "sur_moi": true,
+          "extraits": [
+            "Carte professionnelle CNAPS, SSIAP 1"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Écrit dans le CV."
+        },
+        {
+          "texte": "J'ai travaillé comme agent de sécurité chez Gardiennage Vigilor Est de 2021 à 2023.",
+          "sur_moi": true,
+          "extraits": [
+            "2021 à 2023 : agent de sécurité, Gardiennage Vigilor Est, Charleville-Mézières"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Poste, employeur et dates dans le CV."
+        },
+        {
+          "texte": "J'ai déjà surveillé des magasins et géré les vols à l'étalage.",
+          "sur_moi": true,
+          "extraits": [
+            "agent de sécurité"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Le CV ne dit pas où ni quoi ; expérience en magasin inventée."
+        },
+        {
+          "texte": "Je suis titulaire du SSIAP 2, ce qui me permet d'encadrer une équipe.",
+          "sur_moi": true,
+          "extraits": [
+            "SSIAP 2"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Niveau plus élevé que celui du CV (SSIAP 1)."
+        },
+        {
+          "texte": "J'accepte de travailler de nuit.",
+          "sur_moi": false,
+          "extraits": [
+            "Horaires : nuit acceptée"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Parle de la personne malgré sur_moi faux, mais écrit dans le profil."
+        },
+        {
+          "texte": "Votre magasin est ouvert le dimanche matin.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur l'offre."
+        },
+        {
+          "texte": "Je suis un agent calme et sportif, ancien boxeur amateur.",
+          "sur_moi": true,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Qualités et passé sportif inventés."
+        }
+      ],
+      "questions": []
+    },
+    {
+      "id": "cas_06",
+      "offre": "offre_bailleur_longue",
+      "cv": "cv_securite",
+      "phrases": [
+        {
+          "texte": "Votre groupe recrute des agents de surveillance pour ses résidences, la nuit.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur l'offre."
+        },
+        {
+          "texte": "J'ai deux ans d'expérience en gardiennage.",
+          "sur_moi": true,
+          "extraits": [
+            "2021 à 2023 : agent de sécurité"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Durée calculée : le CV dit 2021 à 2023, pas deux ans."
+        },
+        {
+          "texte": "Ma carte professionnelle est à jour.",
+          "sur_moi": true,
+          "extraits": [
+            "Carte professionnelle CNAPS"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Le CV cite la carte mais ne dit pas qu'elle est valable aujourd'hui."
+        },
+        {
+          "texte": "Je cherche un poste autour de Charleville-Mézières.",
+          "sur_moi": true,
+          "extraits": [
+            "Lieu : Charleville-Mézières, 30 km autour"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Écrit dans le profil."
+        },
+        {
+          "texte": "J'ai le permis B et une voiture.",
+          "sur_moi": true,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Permis et voiture absents du CV."
+        },
+        {
+          "texte": "J'ai suivi une formation de maître-chien.",
+          "sur_moi": true,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Formation inventée."
+        },
+        {
+          "texte": "Je vous prie d'agréer mes salutations distinguées.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Formule de politesse."
+        }
+      ],
+      "questions": [
+        {
+          "question": "Qu'est-ce qui vous donne envie de travailler pour un bailleur social ?",
+          "extrait_offre": "Qu'est-ce qui vous donne envie de travailler pour un bailleur social ?",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Quelles sont vos disponibilités ?",
+          "extrait_offre": "Quelles sont vos disponibilités ?",
+          "attendu": "laissee"
+        }
+      ]
+    },
+    {
+      "id": "cas_07",
+      "offre": "offre_electricien_renovation",
+      "cv": "cv_securite",
+      "phrases": [
+        {
+          "texte": "Je souhaite me présenter pour votre poste d'électricien en rénovation.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur la candidature."
+        },
+        {
+          "texte": "J'ai une habilitation électrique.",
+          "sur_moi": true,
+          "extraits": [
+            "Habilitation électrique B1V BR"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Absente de ce CV ; l'extrait vient du CV d'une autre personne."
+        },
+        {
+          "texte": "Je suis titulaire du SSIAP 1, une formation à la sécurité incendie.",
+          "sur_moi": true,
+          "extraits": [
+            "SSIAP 1"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Écrit dans le CV."
+        },
+        {
+          "texte": "J'ai travaillé de 2021 à 2023 chez Gardiennage Vigilor Est.",
+          "sur_moi": true,
+          "extraits": [
+            "2021 à 2023 : agent de sécurité, Gardiennage Vigilor Est, Charleville-Mézières"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Dates et employeur dans le CV."
+        },
+        {
+          "texte": "Je peux commencer dès lundi prochain.",
+          "sur_moi": true,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Disponibilité absente du CV et du profil."
+        },
+        {
+          "texte": "J'ai déjà fait du câblage dans un entrepôt.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Parle de la personne malgré sur_moi faux ; expérience inventée."
+        },
+        {
+          "texte": "Votre équipe de quatre électriciens travaille pour une clientèle de particuliers.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur l'entreprise."
+        }
+      ],
+      "questions": [
+        {
+          "question": "Êtes-vous titulaire d'une habilitation électrique ?",
+          "extrait_offre": "Êtes-vous titulaire d'une habilitation électrique ?",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Indiquez la date à laquelle vous pourriez commencer.",
+          "extrait_offre": "Indiquez la date à laquelle vous pourriez commencer.",
+          "attendu": "gardee"
+        }
+      ]
+    },
+    {
+      "id": "cas_08",
+      "offre": "offre_vigile_magasin",
+      "cv": "cv_electricien",
+      "phrases": [
+        {
+          "texte": "Votre société assure la sécurité de magasins dans les Ardennes.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur l'entreprise."
+        },
+        {
+          "texte": "J'ai le permis B.",
+          "sur_moi": true,
+          "extraits": [
+            "Permis B"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Écrit dans le CV."
+        },
+        {
+          "texte": "Je possède la carte professionnelle d'agent de sécurité.",
+          "sur_moi": true,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Carte absente de ce CV."
+        },
+        {
+          "texte": "Mon travail chez Lumelec Meusienne m'a habitué aux consignes de sécurité sur les chantiers.",
+          "sur_moi": true,
+          "extraits": [
+            "Entreprise Lumelec Meusienne"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "L'employeur est vrai, mais l'habitude des consignes de sécurité n'est pas dans le CV."
+        },
+        {
+          "texte": "Je suis électricien depuis 2020 et j'exerce encore aujourd'hui.",
+          "sur_moi": true,
+          "extraits": [
+            "2020 à 2024 : Électricien"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Le CV dit 2020 à 2024, pas un poste en cours."
+        },
+        {
+          "texte": "Je reste disponible pour un entretien.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Formule de politesse."
+        }
+      ],
+      "questions": []
+    },
+    {
+      "id": "cas_09",
+      "offre": "offre_bailleur_longue",
+      "cv": "cv_administratif",
+      "phrases": [
+        {
+          "texte": "Votre service d'accueil reçoit les locataires et répond à leurs demandes.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur l'offre."
+        },
+        {
+          "texte": "J'ai été hôtesse d'accueil au centre commercial Les Arcades du Moulin de 2012 à 2015.",
+          "sur_moi": true,
+          "extraits": [
+            "2012 à 2015 : Hôtesse d'accueil, Centre commercial Les Arcades du Moulin, Tinqueux"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Poste, lieu et dates dans le CV."
+        },
+        {
+          "texte": "La gestion des réclamations fait partie de mon expérience.",
+          "sur_moi": true,
+          "extraits": [
+            "gestion des réclamations"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Écrit dans le CV."
+        },
+        {
+          "texte": "J'ai travaillé quatre jours par semaine au cabinet Dorval et Associés.",
+          "sur_moi": true,
+          "extraits": [
+            "Temps de travail : temps plein ou 4 jours par semaine"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Le profil dit un souhait pour l'avenir, pas un fait passé ; rien dans le CV."
+        },
+        {
+          "texte": "Je connais la réglementation des logements sociaux.",
+          "sur_moi": true,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Compétence inventée (c'est l'offre qui propose la formation)."
+        },
+        {
+          "texte": "Je tape vite au clavier, ce qui est utile pour le courrier des locataires.",
+          "sur_moi": true,
+          "extraits": [
+            "Frappe rapide"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Écrit dans le CV, extrait exact."
+        },
+        {
+          "texte": "Je parle couramment anglais et espagnol.",
+          "sur_moi": true,
+          "extraits": [
+            "Espagnol : bon niveau"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Anglais inventé, et « couramment » plus fort que « bon niveau »."
+        }
+      ],
+      "questions": [
+        {
+          "question": "Qu'est-ce qui vous donne envie de travailler pour un bailleur social ?",
+          "extrait_offre": "Qu'est-ce qui vous donne envie de travailler pour un bailleur social ?",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Pourquoi souhaitez-vous travailler dans une entreprise familiale ?",
+          "extrait_offre": "Pourquoi souhaitez-vous travailler dans une entreprise familiale ?",
+          "attendu": "laissee"
+        }
+      ]
+    },
+    {
+      "id": "cas_10",
+      "offre": "offre_assistante_gestion",
+      "cv": "cv_securite",
+      "phrases": [
+        {
+          "texte": "Votre entreprise familiale fabrique des fenêtres depuis trois générations.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur l'entreprise."
+        },
+        {
+          "texte": "J'ai travaillé chez Gardiennage Vigilor Est.",
+          "sur_moi": true,
+          "extraits": [
+            "Gardiennage Vigilor Est"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Employeur écrit dans le CV."
+        },
+        {
+          "texte": "J'ai l'habitude de la saisie des factures.",
+          "sur_moi": true,
+          "extraits": [
+            "saisie des factures"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Absente de ce CV ; l'extrait vient du CV d'une autre personne."
+        },
+        {
+          "texte": "Je maîtrise Word et Excel.",
+          "sur_moi": true,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Compétence absente du CV."
+        },
+        {
+          "texte": "J'ai suivi une formation en comptabilité.",
+          "sur_moi": true,
+          "extraits": [
+            "Carte professionnelle CNAPS, SSIAP 1"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Formation inventée ; l'extrait exact parle d'autre chose."
+        },
+        {
+          "texte": "Je cherche un CDI ou un CDD.",
+          "sur_moi": true,
+          "extraits": [
+            "Contrats : CDI, CDD"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Écrit dans le profil."
+        },
+        {
+          "texte": "Je vous remercie par avance de votre réponse.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Formule de politesse."
+        }
+      ],
+      "questions": [
+        {
+          "question": "Quel logiciel de comptabilité utilisez-vous ?",
+          "extrait_offre": "- Quel logiciel de comptabilité utilisez-vous ?",
+          "attendu": "gardee"
+        },
+        {
+          "question": "Indiquez vos attentes de salaire.",
+          "extrait_offre": "Indiquez vos attentes de salaire.",
+          "attendu": "gardee"
+        }
+      ]
+    },
+    {
+      "id": "cas_11",
+      "offre": "offre_secretaire_kine",
+      "cv": "cv_securite",
+      "phrases": [
+        {
+          "texte": "Votre cabinet cherche une secrétaire d'accueil à mi-temps.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Phrase sur l'offre."
+        },
+        {
+          "texte": "J'ai déjà accueilli du public lors de mes missions de sécurité.",
+          "sur_moi": true,
+          "extraits": [
+            "agent de sécurité"
+          ],
+          "attendu": "a_verifier",
+          "pourquoi": "Accueil du public absent du CV ; l'extrait ne le prouve pas."
+        },
+        {
+          "texte": "Je suis titulaire du SSIAP 1.",
+          "sur_moi": true,
+          "extraits": [
+            "SSIAP 1"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Écrit dans le CV."
+        },
+        {
+          "texte": "J'accepte de travailler la nuit.",
+          "sur_moi": true,
+          "extraits": [
+            "Horaires : nuit acceptée"
+          ],
+          "attendu": "sure",
+          "pourquoi": "Écrit dans le profil."
+        },
+        {
+          "texte": "J'ai un bac professionnel secrétariat.",
+          "sur_moi": true,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Diplôme inventé."
+        },
+        {
+          "texte": "Je connais le logiciel de rendez-vous Doctoplan.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "a_verifier",
+          "pourquoi": "Parle de la personne malgré sur_moi faux ; logiciel inventé."
+        },
+        {
+          "texte": "Merci de l'attention que vous porterez à ma candidature.",
+          "sur_moi": false,
+          "extraits": [],
+          "attendu": "sure",
+          "pourquoi": "Formule de politesse."
+        }
+      ],
+      "questions": []
+    }
+  ]
+}

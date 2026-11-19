@@ -46,6 +46,7 @@ pub mod pack;
 #[cfg(any(feature = "essai", test))]
 pub mod png;
 pub mod pont;
+pub mod preparation;
 pub mod profil;
 #[cfg(windows)]
 pub mod programme;
