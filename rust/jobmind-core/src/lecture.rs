@@ -539,6 +539,33 @@ const SOUHAITS: [&str; 11] = [
     "preference",
 ];
 
+/// Les mots devant « cap » quand c'est le mot (« passer un cap », « garder le cap », « un nouveau cap »), pas le diplôme.
+const CAP_LE_MOT: [&str; 23] = [
+    "passer",
+    "passe",
+    "franchir",
+    "franchi",
+    "franchit",
+    "garder",
+    "maintenir",
+    "changer",
+    "change",
+    "mettre",
+    "mettez",
+    "mettons",
+    "nouveau",
+    "grand",
+    "prochain",
+    "dernier",
+    "premier",
+    "tenir",
+    "tenez",
+    "fixer",
+    "donner",
+    "donnez",
+    "prendre",
+];
+
 fn chiffre(m: &str) -> Option<u32> {
     (!m.is_empty() && m.len() <= 2 && m.bytes().all(|b| b.is_ascii_digit())).then(|| m.parse().ok()).flatten()
 }
@@ -623,7 +650,11 @@ fn niveaux(p: &Phrase) -> Vec<Niveau> {
             {
                 Some((Diplome::Bac5, i, true))
             }
+            // (« passer un cap », « garder le cap », « changer de cap », « cap sur » : le mot, pas le diplôme. Un CAP
+            // qui n'est ni suivi de BEP ni d'une spécialité ne compte que s'il est écrit en capitales, « CAP »)
+            "cap" if p.entre(i as isize - 3, i as isize - 1, &CAP_LE_MOT) || suiv == "sur" => None,
             "cap" => {
+                let capitales = p.places.get(i).is_some_and(|&(d, f)| &p.brut[d..f] == "CAP");
                 if suiv == "bep" || prec == "bep" {
                     Some((Diplome::CapBep, if suiv == "bep" { i + 1 } else { i }, true))
                 } else if suiv == "a" && p.mot(i + 2).starts_with("bac") {
@@ -633,7 +664,9 @@ fn niveaux(p: &Phrase) -> Vec<Niveau> {
                     Some((Diplome::CapBep, i + 1, true))
                 } else if ["sur", "vers", "a", "horn", "ferret", "d", "est", "ouest", "nord", "sud"].contains(&suiv) {
                     None
-                } else if contexte || ["un", "du", "le", "votre", "son", "en", "les", "au"].contains(&prec) {
+                } else if capitales
+                    && (contexte || ["un", "du", "le", "votre", "son", "en", "les", "au"].contains(&prec))
+                {
                     Some((Diplome::CapBep, i, false))
                 } else {
                     None

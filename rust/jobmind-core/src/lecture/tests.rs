@@ -63,6 +63,17 @@ const JEU: &[(&str, &str, &str)] = &[
     ("BTS ou DUT en informatique, 5 ans d'expérience en développement.", "bac2", "duree:60"),
     ("Du CAP au Bac+2 selon le poste.", "cap_bep", "non_dit"),
     ("CAP Petite enfance exigé.", "cap_bep", "non_dit"),
+    // (le mot « cap », pas le diplôme : vrai cas d'une offre de directeur d'agence, 19/11/2026)
+    (
+        "Vous sentez qu'il est temps de passer un cap, celui de devenir acteur de votre propre réussite ?",
+        "non_dit",
+        "non_dit",
+    ),
+    ("Garder le cap dans un environnement exigeant, avec un profil autonome.", "non_dit", "non_dit"),
+    ("Un nouveau cap pour votre carrière : profil commercial souhaité.", "non_dit", "non_dit"),
+    ("Cap sur l'avenir avec notre équipe.", "non_dit", "non_dit"),
+    ("Le cap de l'entreprise est clair : votre profil nous intéresse.", "non_dit", "non_dit"),
+    ("Titulaire d'un CAP, vous aimez le contact client.", "cap_bep", "non_dit"),
     ("Vous avez un CAP cuisine et 2 ans d'expérience.", "cap_bep", "duree:24"),
     ("Diplôme d'ingénieur exigé, 10 ans d'expérience minimum.", "bac5", "duree:120"),
     ("Formation de niveau Bac+3 en ressources humaines.", "bac3", "non_dit"),

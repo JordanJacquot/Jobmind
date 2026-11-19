@@ -123,7 +123,7 @@ fn ligne(o: &Offre, ouverte: Option<i64>, aujourdhui: Jour) -> Value {
 }
 
 /// Ce qui a été lu, pour l'offre ouverte : la valeur, la preuve et qui l'a lu.
-fn lu_vue(nom: &str, lu: Option<(String, &str, LuPar, Confiance)>, lue: bool) -> Value {
+fn lu_vue(nom: &str, lu: Option<(String, &str, LuPar, Confiance)>, lue: bool, absent: &str) -> Value {
     match lu {
         Some((valeur, preuve, par, confiance)) => json!({
             "nom": nom,
@@ -138,7 +138,7 @@ fn lu_vue(nom: &str, lu: Option<(String, &str, LuPar, Confiance)>, lue: bool) ->
         }),
         None => json!({
             "nom": nom,
-            "valeur": "Non dit dans l'offre",
+            "valeur": absent,
             "preuve": "",
             "par": if lue { "lu par Jobmind" } else { "" },
             "dit": false,
@@ -150,16 +150,20 @@ fn lu_vue(nom: &str, lu: Option<(String, &str, LuPar, Confiance)>, lue: bool) ->
 fn fiche(x: &OffreComplete, aujourdhui: Jour, claude: bool) -> Value {
     let o = &x.offre;
     let l = &x.lecture;
+    // (le texte d'Adzuna n'est qu'un résumé de l'annonce : ce qu'il ne dit pas, l'annonce complète peut le dire)
+    let absent = if x.description_de == "adzuna" { "Pas dans le résumé d'Adzuna" } else { "Non dit dans l'offre" };
     let mut lecture = vec![
         lu_vue(
             "Diplôme",
             l.diplome.as_ref().map(|d| (d.valeur.nom().to_string(), d.preuve.as_str(), d.par, d.confiance)),
             l.lue,
+            absent,
         ),
         lu_vue(
             "Expérience",
             l.experience.as_ref().map(|e| (e.valeur.nom(), e.preuve.as_str(), e.par, e.confiance)),
             l.lue,
+            absent,
         ),
     ];
     if !l.autres.is_empty() {
@@ -698,7 +702,8 @@ mod tests {
         assert_eq!(f["lecture"][0]["valeur"], "Aucun diplôme demandé");
         assert_eq!(f["lecture"][0]["preuve"], "Sans diplôme");
         assert_eq!(f["lecture"][0]["par"], "lu par Jobmind");
-        assert_eq!(f["lecture"][1]["valeur"], "Non dit dans l'offre");
+        // (le texte vient d'Adzuna : un résumé, ce qu'il ne dit pas est peut-être dans l'annonce complète)
+        assert_eq!(f["lecture"][1]["valeur"], "Pas dans le résumé d'Adzuna");
         assert_eq!(f["lecture"][2]["valeur"], "Permis B");
         // Le texte est trop court pour Claude
         assert!(f["ia"].is_null());
