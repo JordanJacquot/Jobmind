@@ -138,6 +138,12 @@ fn court(t: &str) -> String {
 /// Les champs d'un geste jamais écrits au journal (un mot de passe, une clé, un mail tapé pour se connecter).
 const CACHES: [&str; 5] = ["mdp", "mail", "cle", "valeurs", "password"];
 
+/// Un geste dont la valeur entière est secrète : son nom parle d'une clé, d'un mot de passe ou d'un service à clé.
+fn geste_secret(id: &str) -> bool {
+    let id = id.to_lowercase();
+    ["cle", "mdp", "pass", "adzuna", "jooble", "claude", "jeton", "token", "secret"].iter().any(|m| id.contains(m))
+}
+
 /// Écrit des zéros sur tous les textes d'une valeur (un message de la page qui portait un mot de passe), puis les vide.
 pub fn effacer_valeur(v: &mut Value) {
     match v {
@@ -160,6 +166,12 @@ pub fn ligne_journal(m: &MessagePage) -> String {
     match m {
         MessagePage::Pret => "Écran prêt".into(),
         MessagePage::Action { id, valeur, ecran } => {
+            // Un champ de clé ou de mot de passe tapé (adzuna_id, adzuna_cle...) : sa valeur est un simple texte, sans
+            // nom de champ dedans ; c'est le nom du geste qui dit qu'elle est secrète (vu en vrai le 19/11/2026 : la clé
+            // Adzuna écrite en clair au journal)
+            if geste_secret(id) {
+                return format!("Écran : action {id} (écran {ecran}, valeur cachée)");
+            }
             let mut v = valeur.clone();
             if let Some(o) = v.as_object_mut() {
                 for k in CACHES {
@@ -283,6 +295,25 @@ mod tests {
     use std::io;
     use std::path::PathBuf;
     use std::time::Duration;
+
+    #[test]
+    fn les_cles_tapees_ne_vont_jamais_au_journal() {
+        // (vu en vrai le 19/11/2026 : « action adzuna_cle (..., valeur "<la clé>") » au journal)
+        let secret = "f0e1d2c3b4a5968778695a4b3c2d1e0f";
+        for id in ["adzuna_id", "adzuna_cle", "jooble_cle", "cle_claude", "claude", "i_mdp", "cx_mdp", "jeton_github"] {
+            let l =
+                ligne_journal(&MessagePage::Action { id: id.into(), valeur: json!(secret), ecran: "accueil".into() });
+            assert!(!l.contains(secret), "{l}");
+            assert!(l.contains("valeur cachée"), "{l}");
+        }
+        // un geste ordinaire garde sa valeur (utile pour comprendre un souci)
+        let l = ligne_journal(&MessagePage::Action {
+            id: "onglet".into(),
+            valeur: json!("offres"),
+            ecran: "accueil".into(),
+        });
+        assert!(l.contains("offres"), "{l}");
+    }
 
     #[test]
     fn messages_du_kit_lus() {
