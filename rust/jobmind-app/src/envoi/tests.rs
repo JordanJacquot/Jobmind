@@ -69,7 +69,7 @@ fn base(d: &Path, avec_fichier: bool) -> (Base, i64, i64) {
         longitude: None,
         brut: "{}".into(),
     };
-    base_offres::ajouter_trouvees(c, "adzuna", &[o], None, m(9, 0, 0)).unwrap();
+    base_offres::ajouter_trouvees(c, "francetravail", &[o], None, m(9, 0, 0)).unwrap();
     let offre = base_offres::lister(c).unwrap()[0].id;
     let n = NouvellePreparation {
         offre_id: offre,

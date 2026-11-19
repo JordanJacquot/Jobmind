@@ -39,7 +39,8 @@ pub fn gardes(cles: &Cles) -> [bool; 4] {
 impl Coulisse {
     /// Au lancement : les sites dont les identifiants sont gardés ([`gardes`]).
     pub fn avec_gardes(gardes: [bool; 4]) -> Coulisse {
-        Coulisse { gardes, ..Coulisse::default() }
+        // (« Où chercher » s'ouvre sur France Travail, la source de référence depuis le retrait d'Adzuna)
+        Coulisse { gardes, source: Some(Site::FranceTravail), ..Coulisse::default() }
     }
 
     /// La reconnexion automatique : les identifiants gardés tapés en coulisse, comme « Me connecter », mais sans

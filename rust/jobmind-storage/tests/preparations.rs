@@ -56,7 +56,7 @@ fn nouvelle(offre_id: i64, lettre: &str) -> NouvellePreparation {
 #[test]
 fn migration_8_sur_une_base_de_l_etape_7() {
     let mut b = Base::en_memoire_jusqua(7, m(9)).unwrap();
-    offres::ajouter_trouvees(b.connexion(), "adzuna", &[trouvee("1", "Cariste")], None, m(9)).unwrap();
+    offres::ajouter_trouvees(b.connexion(), "francetravail", &[trouvee("1", "Cariste")], None, m(9)).unwrap();
     assert_eq!(b.migrer_tout(m(10)).unwrap(), vec![8, 9, 10, 11, 12]);
     let id = offres::lister(b.connexion()).unwrap()[0].id;
     assert!(preparations::lister(b.connexion(), id).unwrap().is_empty());
@@ -65,7 +65,7 @@ fn migration_8_sur_une_base_de_l_etape_7() {
 #[test]
 fn migration_9_garde_les_versions_de_l_etape_8() {
     let mut b = Base::en_memoire_jusqua(8, m(9)).unwrap();
-    offres::ajouter_trouvees(b.connexion(), "adzuna", &[trouvee("1", "Cariste")], None, m(9)).unwrap();
+    offres::ajouter_trouvees(b.connexion(), "francetravail", &[trouvee("1", "Cariste")], None, m(9)).unwrap();
     let o = offres::lister(b.connexion()).unwrap()[0].id;
     let id = preparations::ajouter(b.connexion(), &nouvelle(o, "Lettre 1"), m(10)).unwrap();
     assert_eq!(b.migrer_tout(m(11)).unwrap(), vec![9, 10, 11, 12]);
@@ -99,7 +99,8 @@ fn migration_9_garde_les_versions_de_l_etape_8() {
 fn versions_lettre_brute_et_lettre_de_jordan() {
     let (b, _) = Base::en_memoire(m(9)).unwrap();
     let c = b.connexion();
-    offres::ajouter_trouvees(c, "adzuna", &[trouvee("1", "Cariste"), trouvee("2", "Magasinier")], None, m(9)).unwrap();
+    offres::ajouter_trouvees(c, "francetravail", &[trouvee("1", "Cariste"), trouvee("2", "Magasinier")], None, m(9))
+        .unwrap();
     let l = offres::lister(c).unwrap();
     let (o1, o2) =
         (l.iter().find(|o| o.titre == "Cariste").unwrap().id, l.iter().find(|o| o.titre == "Magasinier").unwrap().id);
@@ -139,7 +140,7 @@ fn versions_lettre_brute_et_lettre_de_jordan() {
 fn rattachee_a_la_candidature_et_demandes_du_jour() {
     let (b, _) = Base::en_memoire(m(9)).unwrap();
     let c = b.connexion();
-    offres::ajouter_trouvees(c, "adzuna", &[trouvee("1", "Cariste")], None, m(9)).unwrap();
+    offres::ajouter_trouvees(c, "francetravail", &[trouvee("1", "Cariste")], None, m(9)).unwrap();
     let o = offres::lister(c).unwrap()[0].id;
     preparations::ajouter(c, &nouvelle(o, "Lettre"), m(10)).unwrap();
     let f = Fiche {
@@ -176,7 +177,7 @@ fn retirer_une_phrase_de_toutes_les_versions() {
     use preparations::Choix;
     let (b, _) = Base::en_memoire(m(9)).unwrap();
     let c = b.connexion();
-    offres::ajouter_trouvees(c, "adzuna", &[trouvee("1", "Cariste")], None, m(9)).unwrap();
+    offres::ajouter_trouvees(c, "francetravail", &[trouvee("1", "Cariste")], None, m(9)).unwrap();
     let o = offres::lister(c).unwrap()[0].id;
     let brute = "Madame, Monsieur,\n\nJe suis cariste. J'ai encadré six personnes. Je suis motivé.\n\nJordan";
     let id = preparations::ajouter(c, &nouvelle(o, brute), m(10)).unwrap();

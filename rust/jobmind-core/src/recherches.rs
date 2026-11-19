@@ -1,6 +1,6 @@
 //! Les recherches gardées (étape 4 du plan) : un nom, des mots, un lieu. Elles viennent de « Ce que je cherche » (une
-//! par poste, [`depuis_profil`]) ou sont tapées à la main ([`verifier`]). « Chercher maintenant » envoie l'une d'elles
-//! aux sources, qui la reçoivent en mots ([`lieu_pour_source`]).
+//! par poste, [`depuis_profil`]) ou sont tapées à la main ([`verifier`]). « Chercher sur France Travail » (et les autres
+//! sites, jobmind-app, `coulisse`) se sert de l'une d'elles ; [`lieu_pour_source`] : son lieu en mots.
 
 use crate::candidature::{trop_long, une_ligne};
 use crate::lieux;

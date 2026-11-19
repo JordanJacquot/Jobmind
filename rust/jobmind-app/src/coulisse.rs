@@ -3,9 +3,10 @@
 //! aucun accès aux commandes, session gardée dans [`DOSSIER`]), chargée mais invisible, posée hors de la fenêtre.
 //! Jobmind montre tout dans son propre design :
 //!
-//! - l'onglet Offres choisit une source ([`SOURCE`]) : « Mes offres » (l'archive), ou un des quatre sites ; « Chercher
-//!   sur LinkedIn » construit l'adresse de la page de résultats pour la recherche choisie, la charge en coulisse, la lit
-//!   et montre la liste ; « Page suivante » sur un clic seulement ;
+//! - l'onglet Offres choisit une source ([`SOURCE`]) : un des quatre sites (France Travail au lancement), ou « Mes
+//!   offres gardées » (l'archive, sans recherche) ; « Chercher sur LinkedIn » construit l'adresse de la page de
+//!   résultats pour la recherche choisie, la charge en coulisse, la lit et montre la liste ; « Page suivante » sur un
+//!   clic seulement ;
 //! - un résultat ouvert est chargé en coulisse et lu comme à l'étape 5 (jobmind_sources::page), puis montré comme une
 //!   offre ; « Ajouter à Jobmind » la garde dans l'archive, « Voir la page du site » ouvre la petite fenêtre ;
 //! - la connexion : une carte de Jobmind demande le mail et le mot de passe ; Jobmind les tape dans le formulaire du
@@ -1567,8 +1568,8 @@ impl Coulisse {
             "connexion": connexion,
             "petite": petite,
             "textes": {
-                "mes_offres": "Adzuna",
-                "mes_offres_note": "Avec mes offres gardées",
+                "mes_offres": "Mes offres gardées",
+                "mes_offres_note": "Sans chercher : les offres déjà gardées",
                 "ou_t": "Où chercher",
                 "connecte": "Connecté",
                 "chercher": "Chercher sur {site}",

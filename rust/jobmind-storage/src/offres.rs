@@ -360,7 +360,7 @@ pub struct AjoutPage {
 }
 
 /// Garde l'offre lue sur une page (« Ajouter à Jobmind ») dans l'archive, dans une transaction : la même table que
-/// les offres d'Adzuna (`source` : le code du site), la même fusion des doublons. Une offre déjà gardée de
+/// les autres sources (`source` : le code du site), la même fusion des doublons. Une offre déjà gardée de
 /// ce site (le même numéro) est mise à jour : son texte s'il est plus long aujourd'hui, ce qui lui manquait, le jour où
 /// elle a été revue. Chaque clic note ce que la page montrait (le nombre de candidats, s'il y en a un) dans
 /// `offres_vues`.
@@ -503,16 +503,12 @@ pub struct RechercheGardee {
     pub nom: String,
     pub mots: String,
     pub lieu: Lieu,
-    pub derniere_fois: Option<Moment>,
-    pub dernier_nombre: Option<i64>,
-    pub dernier_message: Option<String>,
 }
 
 /// Les recherches gardées, dans l'ordre où elles ont été créées (une ligne illisible est laissée).
 pub fn lister_recherches(c: &Connection) -> rusqlite::Result<Vec<RechercheGardee>> {
     let mut r = c.prepare(
-        "SELECT id, nom, mots_cles, genre_lieu, lieu, rayon_km, departement, region, derniere_fois, dernier_nombre, \
-         dernier_message FROM recherches ORDER BY id",
+        "SELECT id, nom, mots_cles, genre_lieu, lieu, rayon_km, departement, region FROM recherches ORDER BY id",
     )?;
     let l = r.query_map([], |x| {
         let genre: String = x.get(3)?;
@@ -534,9 +530,6 @@ pub fn lister_recherches(c: &Connection) -> rusqlite::Result<Vec<RechercheGardee
             nom: x.get(1).unwrap_or_default(),
             mots: x.get(2).unwrap_or_default(),
             lieu,
-            derniere_fois: x.get::<_, Option<String>>(8).ok().flatten().as_deref().and_then(Moment::lire_iso),
-            dernier_nombre: x.get(9).unwrap_or_default(),
-            dernier_message: x.get(10).unwrap_or_default(),
         }))
     })?;
     Ok(l.filter_map(|x| x.ok().flatten()).collect())
@@ -582,43 +575,4 @@ pub fn supprimer_recherche(c: &Connection, id: i64) -> rusqlite::Result<bool> {
 
 pub fn nombre_recherches(c: &Connection) -> rusqlite::Result<usize> {
     c.query_row("SELECT COUNT(*) FROM recherches", [], |r| r.get::<_, i64>(0)).map(|n| n as usize)
-}
-
-/// Note ce qu'a donné la dernière fois d'une recherche.
-pub fn noter_recherche(
-    c: &Connection,
-    id: i64,
-    maintenant: Moment,
-    nombre: i64,
-    message: &str,
-) -> rusqlite::Result<()> {
-    c.execute(
-        "UPDATE recherches SET derniere_fois = ?2, dernier_nombre = ?3, dernier_message = ?4 WHERE id = ?1",
-        params![id, maintenant.iso(), nombre, message],
-    )?;
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-// Les demandes du jour
-// ---------------------------------------------------------------------------------------------------------------
-
-/// Les demandes déjà envoyées aujourd'hui à cette source.
-pub fn appels(c: &Connection, jour: Jour, source: &str) -> rusqlite::Result<u32> {
-    let n: Option<i64> = c
-        .query_row("SELECT nombre FROM appels WHERE jour = ?1 AND source = ?2", params![jour.iso(), source], |r| {
-            r.get(0)
-        })
-        .optional()?;
-    Ok(n.unwrap_or(0).clamp(0, i64::from(u32::MAX)) as u32)
-}
-
-/// Compte une demande de plus ; rend le nouveau total du jour.
-pub fn compter_appel(c: &Connection, jour: Jour, source: &str) -> rusqlite::Result<u32> {
-    c.execute(
-        "INSERT INTO appels (jour, source, nombre) VALUES (?1, ?2, 1) \
-         ON CONFLICT (jour, source) DO UPDATE SET nombre = nombre + 1",
-        params![jour.iso(), source],
-    )?;
-    appels(c, jour, source)
 }

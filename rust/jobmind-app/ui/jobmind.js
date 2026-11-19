@@ -24,13 +24,13 @@
 //   diplôme, débutant, salaire : 'recherche-enregistrer'), Mon style (ajouter, lire, supprimer un texte), Mes clés
 //   (donner, remplacer, effacer : une clé tapée n'est gardée ici que le temps de l'envoyer) ; Réglages montre le délai
 //   avant relance ('reglage-relance') ;
-// - Offres (étape 4) : la barre des filtres ('o-filtres'), la recherche choisie et « Chercher maintenant »
-//   ('o-chercher' : Rust interroge Adzuna sur un fil à part), la liste ('o-ouvrir'), l'offre ouverte
-//   (favori, plus tard, « Pas pour moi », « Voir sur le site », la mention « Adzuna », « J'ai postulé »), Mes recherches
-//   ('o-recherche', 'o-recherche-supprimer', 'o-depuis-profil') ; Mes clés : « Essayer la clé » ('cle-essayer') ;
+// - Offres (étape 4) : la barre des filtres ('o-filtres'), la recherche choisie, la liste des offres gardées
+//   ('o-ouvrir'), l'offre ouverte (favori, plus tard, « Pas pour moi », « Voir sur le site », « J'ai postulé »), Mes
+//   recherches ('o-recherche', 'o-recherche-supprimer', 'o-depuis-profil') ; Adzuna retiré le 20/11/2026 : plus de
+//   « Chercher maintenant » ici, les offres déjà gardées restent ;
 // - les sites en coulisse (étape 5 bis) : en haut de la liste des offres, la liste déroulante « Où chercher »
-//   (LinkedIn, France Travail, Indeed, Welcome to the Jungle, ou Adzuna avec mes offres gardées :
-//   'cs-source') ; un site choisi, « Chercher sur LinkedIn » ('cs-chercher'),
+//   (France Travail d'abord, puis LinkedIn, Indeed, Welcome to the Jungle, ou « Mes offres gardées », sans
+//   recherche : 'cs-source') ; un site choisi, « Chercher sur LinkedIn » ('cs-chercher'),
 //   ses résultats lus par Rust en coulisse ('cs-ouvrir', « Page suivante » : 'cs-suivante'), l'offre ouverte
 //   (« Ajouter à Jobmind » : 'cs-ajouter', « Voir la page du site » : 'cs-voir') ; la carte de connexion de Jobmind
 //   ('cs-connecter') ; la petite fenêtre du site, où Rust pose la vraie page (sa place : 'cs-zone') ; Réglages :
@@ -496,14 +496,11 @@
       ${d.note ? `<p class="jm-note gauche">${esc(texteSur(d.note))}</p>` : ''}</div>`;
   }
 
-  // Réglages (étape 12) : chercher de nouvelles offres toute seule (le rythme), exporter, sauvegarder et remettre une
-  // sauvegarde (jamais au premier clic : Rust lit et vérifie le fichier, puis la question)
+  // Réglages (étape 12) : exporter, sauvegarder et remettre une sauvegarde (jamais au premier clic : Rust lit et vérifie le fichier, puis la question)
   function bordReglagesHTML(b) {
     const { esc } = O;
-    if (!b.rafraichir) return '';
-    const r = objet(b.rafraichir), x = objet(b.export), s = objet(b.sauvegarde), a = objet(s.attente), boite = b.boite === true;
-    const v = Number.isInteger(r.valeur) ? r.valeur : 6;
-    const choix = liste(r.choix).filter((c) => Number.isInteger(c?.heures)).map((c) => `<button type="button" class="jm-puce f${c.heures === v ? ' oui' : ''}" data-perso="rythme" data-v="${c.heures}" data-k="rr:${c.heures}" aria-pressed="${c.heures === v}">${esc(texteSur(c.texte))}</button>`).join('');
+    if (!b.export) return '';
+    const x = objet(b.export), s = objet(b.sauvegarde), a = objet(s.attente), boite = b.boite === true;
     const an = objet(b.annonce);
     const annonce = texteSur(an.texte) ? `<div class="jm-annonce ${an.genre === 'erreur' ? 'erreur' : 'ok'}">${icone(an.genre === 'erreur' ? 'attention' : 'coche')}<span>${esc(texteSur(an.texte))}</span></div>` : '';
     const question = texteSur(a.titre)
@@ -511,9 +508,7 @@
           <div class="jm-btns">${bouton('rs-oui', 'rs:oui', texteSur(a.oui), 'coche', 'danger')}${bouton('rs-non', 'rs:non', texteSur(a.non), '', 'second')}</div></div>`
       : '';
     const off = boite ? ' disabled' : '';
-    return `<div class="jm-carte-r"><div class="jm-r-tete"><span class="jm-a-ic">${icone('recharger')}</span><div><b>${esc(texteSur(r.titre))}</b><p>${esc(texteSur(r.texte))}</p></div></div>
-        <div class="jm-r-reglage"><div class="jm-puces">${choix}</div>${r.dernier ? `<p class="jm-petit">${esc(texteSur(r.dernier))}</p>` : ''}</div></div>
-      <div class="jm-carte-r"><div class="jm-r-tete"><span class="jm-a-ic">${icone('cv')}</span><div><b>${esc(texteSur(x.titre))}</b><p>${esc(texteSur(x.texte))}</p></div></div>
+    return `<div class="jm-carte-r"><div class="jm-r-tete"><span class="jm-a-ic">${icone('cv')}</span><div><b>${esc(texteSur(x.titre))}</b><p>${esc(texteSur(x.texte))}</p></div></div>
         <div class="jm-btns jm-r-bt">${bouton('rx-csv', 'rx:csv', texteSur(x.csv), 'importer', 'second', off)}${bouton('rx-pdf', 'rx:pdf', texteSur(x.pdf), 'cv', 'second', off)}</div></div>
       <div class="jm-carte-r"><div class="jm-r-tete"><span class="jm-a-ic">${icone('dossier')}</span><div><b>${esc(texteSur(s.titre))}</b><p>${esc(texteSur(s.texte))}</p></div></div>
         <p class="jm-r-cles">${icone('cadenas')}<span>${esc(texteSur(s.cles))}</span></p>
@@ -554,12 +549,12 @@
   const petiteOuverte = () => !!(cs().petite && typeof cs().petite === 'object');
 
   // « Où chercher » : la liste déroulante des sources de l'onglet Offres, en haut de la colonne de gauche. Fermée, elle
-  // montre le choix (et son point vert s'il est connecté) ; ouverte (srcMenu), ses cinq choix « Chercher sur ... » :
-  // les quatre sites (LinkedIn, France Travail, Indeed, Welcome to the Jungle), puis Adzuna (mes offres
-  // gardées). Les flèches choisissent dans la liste, Entrée (A) prend le choix, Échap (B) la referme sans rien changer.
-  // (le data-k de chaque choix garde le rang de Rust : « cs:s0 » Adzuna, « cs:s1 » LinkedIn, etc.)
+  // montre le choix (et son point vert s'il est connecté) ; ouverte (srcMenu), ses cinq choix : « Chercher sur ... »
+  // pour les quatre sites (France Travail d'abord, puis LinkedIn, Indeed, Welcome to the Jungle), puis « Mes offres
+  // gardées » (sans recherche). Au lancement, Rust la met sur France Travail. Les flèches choisissent dans la liste, Entrée (A) prend le choix, Échap (B) la referme sans rien changer.
+  // (le data-k de chaque choix garde le rang de Rust : « cs:s0 » mes offres gardées, « cs:s1 » LinkedIn, etc.)
   let srcMenu = false;
-  const ORDRE_SITES = ['linkedin', 'francetravail', 'indeed', 'wttj'];
+  const ORDRE_SITES = ['francetravail', 'linkedin', 'indeed', 'wttj'];
   function sourcesListe() {
     const t = tC(), sites = liste(cs().sites).filter((s) => codeSurP(s?.id));
     if (!sites.length) return [];
@@ -578,7 +573,7 @@
         const oui = s === ici;
         const droite = s.connecte ? `<span class="jm-srcs-cx">${point(s)}${esc(t('connecte'))}</span>` : '';
         const note = s.note ? `<small>${esc(s.note)}</small>` : '';
-        return `<button type="button" role="option" aria-selected="${oui}" class="jm-srcs-l f${oui ? ' ici' : ''}" data-perso="cs-source" data-id="${s.id}" data-k="${s.k}">${icone(oui ? 'coche' : 'loupe')}<span class="jm-srcs-n">${esc(t('chercher', s.nom))}${note}</span>${droite}</button>`;
+        return `<button type="button" role="option" aria-selected="${oui}" class="jm-srcs-l f${oui ? ' ici' : ''}" data-perso="cs-source" data-id="${s.id}" data-k="${s.k}">${icone(oui ? 'coche' : 'loupe')}<span class="jm-srcs-n">${esc(s.id ? t('chercher', s.nom) : s.nom)}${note}</span>${droite}</button>`;
       }).join('')}</div>`
       : '';
     return `<div class="jm-srcs"><span class="jm-srcs-t">${esc(t('ou_t'))}</span>
@@ -1391,7 +1386,6 @@
       case 'bx-csv': case 'bx-pdf': case 'rx-csv': case 'rx-pdf':
         if (!el.disabled) { O.son?.ok?.(); O.action(d.perso.endsWith('csv') ? 'x-csv' : 'x-pdf'); }
         return true;
-      case 'rythme': { const h = Number(d.v); if (Number.isInteger(h) && h >= 0 && h <= 24) { O.son?.bascule?.(); O.action('r-rythme', { heures: h }); } return true; }
       case 'rs-sauver': if (!el.disabled) { O.son?.ok?.(); O.action('s-sauver'); } return true;
       case 'rs-restaurer': if (!el.disabled) { O.son?.ok?.(); O.action('s-restaurer'); } return true;
       case 'rs-oui': if (!el.disabled) { el.disabled = true; O.son?.ok?.(); O.action('s-oui'); } return true;
@@ -1630,7 +1624,7 @@
   let rch = null;          // Ce que je cherche, en cours de saisie (une copie des valeurs reçues)
   let styleForm = null;    // le texte en train d'être ajouté : { titre, texte }
   let styleConfirme = null; // le texte dont la suppression est demandée
-  let cleForm = null;      // le service dont la clé se tape : 'adzuna' ou 'claude'
+  let cleForm = null;      // le service dont la clé se tape : 'claude'
   let cleSaisie = {};      // ce qui est tapé dans ce formulaire (vidé dès l'envoi ou l'annulation)
   let cleConfirme = null;  // le service dont l'effacement est demandé
   const objet = (x) => (x && typeof x === 'object' && !Array.isArray(x) ? x : {});
@@ -1919,7 +1913,6 @@
           const bts = etat === 'absente'
             ? bouton('k-donner', `k:${s.id}`, t('donner'), 'cle', 'principal', ` data-id="${s.id}"`)
             : bouton('k-donner', `k:${s.id}`, t('remplacer'), 'crayon', '', ` data-id="${s.id}"`)
-              + (s.essai === true && etat === 'gardee' ? bouton('k-essayer', `kt:${s.id}`, t('essayer'), 'coche', '', ` data-id="${s.id}"`) : '')
               + bouton('k-effacer', `ke:${s.id}`, t('effacer'), 'poubelle', 'discret danger', ` data-id="${s.id}"`);
           h += `<div class="jm-btns">${bts}</div>`;
         }
@@ -2114,7 +2107,6 @@
       case 'k-effacer': if (idSur(d.id)) { O.son?.ok?.(); cleConfirme = d.id; dessinerTout('k:non'); } return true;
       case 'k-effacer-non': { const id = cleConfirme; O.son?.retour?.(); cleConfirme = null; dessinerTout(id ? `ke:${id}` : undefined); return true; }
       case 'k-effacer-oui': if (idSur(cleConfirme)) { const service = cleConfirme; cleConfirme = null; el.disabled = true; O.action('cle-effacer', { service }); } return true;
-      case 'k-essayer': if (idSur(d.id) && !el.disabled) { O.son?.ok?.(); O.action('cle-essayer', { service: d.id }); } return true;
       // Ma boîte mail (étape 7)
       case 'gm-brancher': if (!el.disabled) boiteBrancher(); return true;
       case 'gm-essayer': if (!el.disabled) { el.disabled = true; O.son?.ok?.(); O.action('mail-essayer'); } return true;
@@ -2465,24 +2457,14 @@
   function listeOffresHTML(o, x) {
     const { esc } = O, t = tO(x);
     const recherches = liste(x.recherches).filter((r) => numSur(r?.id));
-    const enCours = typeof x.en_cours === 'string' && x.en_cours;
-    // (étape 5 bis : la source, mes offres ou un des quatre sites, en haut de la liste)
+    // (étape 5 bis : la source, mes offres gardées ou un des quatre sites, en haut de la liste)
     let h = `<div class="jm-rch">${sourcesHTML()}`;
     if (recherches.length) {
       h += `<div class="jm-rch-l"><label class="jm-rch-choix"><span>${esc(t('mes_recherches'))}</span><select class="f" data-perso="of-recherche" data-k="or:choix">${recherches.map((r) => `<option value="${r.id}"${r.id === x.recherche ? ' selected' : ''}>${esc(texteSur(r.nom))}</option>`).join('')}</select></label>
           <button type="button" class="jm-rond f${ofVue === 'recherches' ? ' on' : ''}" data-perso="of-gerer" data-k="or:gerer" title="${esc(t('gerer'))}" aria-label="${esc(t('gerer'))}">${icone('reglages')}</button></div>`;
       if (x.recherche_sous) h += `<p class="jm-rch-sous">${esc(texteSur(x.recherche_sous))}</p>`;
-      h += `<button type="button" class="jm-bt principal jm-rch-go f" data-perso="of-chercher" data-k="or:chercher"${enCours ? ' disabled' : ''}>${icone('loupe')}<span>${esc(t('chercher_aj'))}</span></button>`;
-      if (enCours) h += `<div class="jm-attente petite" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(enCours)}</span></div>`;
-      // (ce qu'a donné la dernière fois : l'annonce le dit déjà quand elle est là)
-      else if (x.recherche_fois && !texteSur(x.annonce?.texte)) h += `<p class="jm-rch-fois">${esc(texteSur(x.recherche_fois))}</p>`;
     } else {
       h += `<p class="jm-rch-sous">${esc(t('sans_recherche'))}</p><div class="jm-btns serre">${bouton('of-nouvelle', 'or:nouvelle', t('nouvelle'), 'plus', '')}</div>`;
-    }
-    const a = x.annonce && typeof x.annonce === 'object' ? x.annonce : null;
-    if (a && !enCours && texteSur(a.texte)) {
-      const g = ['ok', 'attention', 'erreur'].includes(a.genre) ? a.genre : 'ok';
-      h += `<div class="jm-annonce ${g}" role="status">${icone(g === 'ok' ? 'coche' : 'attention')}<div><span>${esc(texteSur(a.texte))}</span>${a.cles === true ? bouton('of-cles', 'or:cles', t('ouvrir_cles'), 'cle', 'discret') : ''}</div></div>`;
     }
     // (étape 6 : Claude lit les offres floues, ou la clé qui lui manque)
     const ia = objet(x.ia), iaA = objet(ia.annonce);
@@ -2796,7 +2778,6 @@
     let h = `<div class="jm-d jm-of${O.anime ? ' entree' : ''}"><div class="jm-d-tete"><div class="jm-d-titres"><h1>${esc(texteSur(f.titre))}</h1><div class="jm-d-sous">${esc(texteSur(f.sous))}</div></div>
       <div class="jm-o-actions">${rond('of-favori', 'ov:favori', 'etoile', t('favori'), f.favori === true)}${rond('of-tard', 'ov:tard', 'horloge', t('plus_tard'), f.plus_tard === true)}</div></div>`;
     h += `<div class="jm-o-src"><span>${esc(texteSur(f.sources))}</span>`;
-    if (f.adzuna === true) h += `<button type="button" class="jm-adzuna f" data-perso="of-adzuna" data-k="ov:adzuna" title="${esc(t('adzuna_aide'))}"><small>${esc(t('par'))}</small><b>${esc(t('adzuna'))}</b></button>`;
     h += '</div>';
     if (f.double === true) h += `<p class="jm-o-double">${icone('copie')}<span>${esc(t('doublon'))}</span></p>`;
     // (étape 5 : « 34 candidats sur LinkedIn, vu le 18 nov. »)
@@ -2837,18 +2818,17 @@
 
   function videOffresHTML(x) {
     const { esc } = O, t = tO(x), v = objet(x.vide);
-    const b = { cles: ['of-cles', 'ov:cles', t('ouvrir_cles'), 'cle'], profil: ['of-profil', 'ov:profil', t('depuis_profil'), 'cible'],
-      nouvelle: ['of-nouvelle', 'ov:nouvelle', t('nouvelle'), 'plus'], chercher: ['of-chercher', 'ov:chercher', t('chercher_aj'), 'loupe'],
+    const b = { profil: ['of-profil', 'ov:profil', t('depuis_profil'), 'cible'],
+      nouvelle: ['of-nouvelle', 'ov:nouvelle', t('nouvelle'), 'plus'], chercher: ['cs-source', 'ov:ft', t('chercher_ft'), 'loupe', ' data-id="francetravail"'],
       filtres: ['of-retirer', 'ov:retirer', t('retirer'), 'reglages'] }[v.bouton];
-    const enCours = typeof x.en_cours === 'string' && x.en_cours;
     return `<div class="jm-vide${anime()}"><div class="jm-v-ic plasma-bord">${icone(v.icone)}</div><h1>${esc(texteSur(v.titre))}</h1>
       <p>${esc(texteSur(v.texte))}</p>
-      ${b ? bouton(b[0], b[1], b[2], b[3], 'principal grand', enCours && b[0] === 'of-chercher' ? ' disabled' : '') : ''}
+      ${b ? bouton(b[0], b[1], b[2], b[3], 'principal grand', b[4] || '') : ''}
       ${v.bouton === 'profil' ? `<div class="jm-btns centre">${bouton('of-nouvelle', 'ov:nouvelle2', t('nouvelle'), 'plus', 'second')}</div>` : ''}
       ${v.note ? `<p class="jm-note">${esc(texteSur(v.note))}</p>` : ''}</div>`;
   }
 
-  // Mes recherches : chacune avec « Chercher maintenant », « Modifier », « Supprimer » ; le formulaire en haut
+  // Mes recherches : chacune avec « Modifier », « Supprimer » ; le formulaire en haut
   function rechercheFormHTML(x) {
     const { esc } = O, t = tO(x), v = ofForm.v, d = rchDossier();
     const champ = (k, label, indice, val, max, aide) => `<label class="jm-champ"><span>${label}</span><input class="f" data-perso="of-form" data-champ="${k}" data-k="rf:${k}" maxlength="${max}" autocomplete="off" spellcheck="false" placeholder="${esc(indice)}" value="${esc(val || '')}">${aide ? `<small class="jm-aide">${esc(aide)}</small>` : ''}</label>`;
@@ -2873,17 +2853,16 @@
   function gestionHTML(x) {
     const { esc } = O, t = tO(x), g = objet(x.gestion);
     const l = liste(g.liste).filter((r) => numSur(r?.id));
-    const enCours = typeof x.en_cours === 'string' && x.en_cours;
     let h = `<div class="jm-p${anime()}"><h1>${esc(texteSur(g.titre))}</h1><p class="jm-intro">${esc(texteSur(g.intro))}</p>
       <div class="jm-outils">${bouton('of-nouvelle', 'og:nouvelle', t('nouvelle'), 'plus', '', g.plein === true || ofForm ? ' disabled' : '')}${g.profil === true ? bouton('of-profil', 'og:profil', t('depuis_profil'), 'cible', '', g.plein === true ? ' disabled' : '') : ''}${bouton('of-fermer', 'og:fermer', t('fermer'), 'gauche', 'discret')}${g.plein === true ? `<span>${esc(t('plein'))}</span>` : ''}</div>`;
     if (ofForm && !ofForm.id) h += rechercheFormHTML(x);
     for (const r of l) {
       if (ofForm && ofForm.id === r.id) { h += rechercheFormHTML(x); continue; }
-      h += `<section class="jm-cle jm-rc${r.id === x.recherche ? ' choisie' : ''}"><div class="jm-r-tete"><span class="jm-a-ic">${icone('cible')}</span><div class="jm-cle-t"><div class="jm-cle-l1"><b>${esc(texteSur(r.nom))}</b></div><p>${esc(texteSur(r.sous))}</p><p class="jm-petit">${esc(texteSur(r.derniere))}</p></div></div>`;
+      h += `<section class="jm-cle jm-rc${r.id === x.recherche ? ' choisie' : ''}"><div class="jm-r-tete"><span class="jm-a-ic">${icone('cible')}</span><div class="jm-cle-t"><div class="jm-cle-l1"><b>${esc(texteSur(r.nom))}</b></div><p>${esc(texteSur(r.sous))}</p></div></div>`;
       if (ofConfirme === r.id) {
         h += `<div class="jm-suppr"><p>${esc(texteSur(r.question))}</p><div class="jm-btns">${bouton('of-suppr-oui', 'og:oui', t('oui'), 'poubelle', 'danger', ` data-id="${r.id}"`)}${bouton('of-suppr-non', 'og:non', t('non'), '', 'second')}</div></div>`;
       } else {
-        h += `<div class="jm-btns">${bouton('of-chercher', `og:c-${r.id}`, t('chercher'), 'loupe', 'principal', ` data-id="${r.id}"${enCours ? ' disabled' : ''}`)}${bouton('of-modifier', `og:m-${r.id}`, t('modifier'), 'crayon', '', ` data-id="${r.id}"`)}${bouton('of-supprimer', `og:s-${r.id}`, t('supprimer'), 'poubelle', 'discret danger', ` data-id="${r.id}"`)}</div>`;
+        h += `<div class="jm-btns">${bouton('of-modifier', `og:m-${r.id}`, t('modifier'), 'crayon', '', ` data-id="${r.id}"`)}${bouton('of-supprimer', `og:s-${r.id}`, t('supprimer'), 'poubelle', 'discret danger', ` data-id="${r.id}"`)}</div>`;
       }
       h += '</section>';
     }
@@ -2957,13 +2936,6 @@
         return true;
       }
       case 'of-recherche': return true;
-      case 'of-chercher': {
-        if (el.disabled) return true;
-        const id = Number(d.id);
-        O.son?.ok?.();
-        O.action('o-chercher', numSur(id) ? { id } : {});
-        return true;
-      }
       case 'of-gerer': O.son?.tic?.(); ofVue = ofVue === 'recherches' ? 'offre' : 'recherches'; ofForm = null; ofConfirme = null; O.anime = !reduit(); dessinerTout('or:gerer'); return true;
       case 'of-fermer': O.son?.retour?.(); ofVue = 'offre'; ofForm = null; ofConfirme = null; O.anime = !reduit(); dessinerTout('or:gerer'); return true;
       case 'of-nouvelle': if (!el.disabled) { O.son?.ok?.(); ouvrirFormRecherche(null); } return true;
@@ -2987,7 +2959,6 @@
       case 'of-tard': if (f && numSur(f.id)) { O.son?.bascule?.(); O.action('o-plus-tard', { id: f.id }); } return true;
       case 'of-cacher': if (f && numSur(f.id)) { O.son?.ok?.(); O.action('o-cacher', { id: f.id }); } return true;
       case 'of-voir': if (f && numSur(f.id) && codeSurP(d.source)) { O.son?.ok?.(); O.action('o-voir', { id: f.id, source: d.source }); } return true;
-      case 'of-adzuna': O.son?.ok?.(); O.action('o-adzuna'); return true;
       case 'of-postule': if (f && numSur(f.id) && !el.disabled) { el.disabled = true; O.son?.ok?.(); O.action('o-postule', { id: f.id }); } return true;
       case 'of-candidature': if (f && numSur(f.candidature)) { O.son?.ok?.(); montrer('candidatures'); ouvrirCandidature(f.candidature); } return true;
       default: return false;
@@ -3038,7 +3009,7 @@
   function ordreOffres(o) {
     if (o.recherche_offres !== undefined) {
       ofForm = null;
-      if (onglet === 'offres') dessinerTout(ofVue === 'recherches' ? 'og:nouvelle' : 'or:chercher');
+      if (onglet === 'offres') dessinerTout(ofVue === 'recherches' ? 'og:nouvelle' : 'or:choix');
       return true;
     }
     // (étape 8 : la lettre gardée, une nouvelle version prête ; pour les captures, « Ma candidature » montrée)

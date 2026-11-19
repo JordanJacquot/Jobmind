@@ -156,7 +156,7 @@ fn contrat_dans(t: &str) -> Option<Contrat> {
 }
 
 /// Le contrat d'une offre : d'après son titre, puis ce que la source en dit (« CDI », « Intérim », « permanent »), puis
-/// son texte ; enfin « contract » d'Adzuna (un contrat à durée limitée : un CDD, faute de mieux).
+/// son texte ; enfin « contract » des anciennes offres d'Adzuna (un contrat à durée limitée : un CDD, faute de mieux).
 pub fn contrat_lu(source_dit: &str, titre: &str, description: &str) -> Option<Contrat> {
     let brut = normaliser(source_dit).replace("full time", "").replace("part time", "");
     contrat_dans(titre)
@@ -236,7 +236,7 @@ pub fn teletravail_lu(titre: &str, description: &str) -> Option<TeleOffre> {
 }
 
 /// Le département d'une offre : un numéro entre parenthèses (« Metz (57) »), un code postal (« 57000 Metz »), ou le nom
-/// d'un département parmi ses zones (Adzuna) ou dans son lieu (« Metz, Moselle »).
+/// d'un département parmi ses zones (les anciennes offres d'Adzuna) ou dans son lieu (« Metz, Moselle »).
 pub fn departement_lu(lieu: &str, zones: &[String]) -> Option<&'static Departement> {
     // (57), (2A), (974)
     for morceau in lieu.split('(').skip(1) {
@@ -291,7 +291,7 @@ pub struct Offre {
     pub salaire: String,
     pub publiee_le: Option<Jour>,
     pub ajoutee_le: Jour,
-    /// Les sources qui l'ont donnée (« adzuna », « linkedin »), la sienne d'abord
+    /// Les sources qui l'ont donnée (« francetravail », « linkedin »), la sienne d'abord
     pub sources: Vec<String>,
     pub favori: bool,
     pub plus_tard: bool,
@@ -683,7 +683,7 @@ pub fn hote(url: &str) -> String {
         .collect()
 }
 
-/// « Adzuna », « Adzuna et LinkedIn », « Adzuna, Indeed et LinkedIn ».
+/// « France Travail », « France Travail et LinkedIn », « France Travail, Indeed et LinkedIn ».
 pub fn noms_sources(noms: &[&str]) -> String {
     match noms {
         [] => String::new(),
@@ -730,7 +730,7 @@ mod tests {
     #[test]
     fn doublons() {
         let a = c(
-            "adzuna",
+            "francetravail",
             "Entrepôts du Val de Moselle",
             "Agent de quai H/F",
             "Ennery, Moselle",
@@ -757,24 +757,24 @@ mod tests {
         ] {
             assert!(!meme_offre(&a, &x), "{x:?}");
         }
-        assert!(!meme_offre(&c("adzuna", "", "Cariste", "Metz", ""), &c("indeed", "", "Cariste", "Metz", "")));
+        assert!(!meme_offre(&c("francetravail", "", "Cariste", "Metz", ""), &c("indeed", "", "Cariste", "Metz", "")));
         // Du même site, sous deux numéros : seulement si les textes se ressemblent
         let jour = c(
-            "adzuna",
+            "francetravail",
             "Logipôle Lorraine",
             "Cariste",
             "Metz",
             "Conduite de chariot en équipe de jour, réception des livraisons, rangement des palettes, inventaires tournants.",
         );
         let nuit = c(
-            "adzuna",
+            "francetravail",
             "Logipôle Lorraine",
             "Cariste",
             "Metz",
             "Poste de nuit : chargement des semi-remorques, préparation des expéditions urgentes, filmage, contrôle qualité.",
         );
         let encore = c(
-            "adzuna",
+            "francetravail",
             "Logipôle Lorraine",
             "Cariste (H/F)",
             "Metz",
@@ -931,16 +931,19 @@ mod tests {
         ];
         trier(&mut l);
         assert_eq!(l.iter().map(|o| o.id).collect::<Vec<_>>(), [3, 2, 1]);
-        assert!(lien_ouvrable("https://www.adzuna.fr/land/ad/1?se=x"));
+        assert!(lien_ouvrable("https://candidat.francetravail.fr/offres/recherche/detail/1"));
         for faux in
             ["javascript:alert(1)", "file:///C:/Windows", "https://a b", "http://", "ms-settings:", "https://x\"&calc"]
         {
             assert!(!lien_ouvrable(faux), "{faux}");
         }
-        assert_eq!(hote("https://www.adzuna.fr/land/ad/1?app_key=x"), "www.adzuna.fr");
-        assert_eq!(noms_sources(&["Adzuna"]), "Adzuna");
-        assert_eq!(noms_sources(&["Adzuna", "LinkedIn"]), "Adzuna et LinkedIn");
-        assert_eq!(noms_sources(&["Adzuna", "Indeed", "LinkedIn"]), "Adzuna, Indeed et LinkedIn");
+        assert_eq!(
+            hote("https://candidat.francetravail.fr/offres/recherche/detail/1?x=y"),
+            "candidat.francetravail.fr"
+        );
+        assert_eq!(noms_sources(&["France Travail"]), "France Travail");
+        assert_eq!(noms_sources(&["France Travail", "LinkedIn"]), "France Travail et LinkedIn");
+        assert_eq!(noms_sources(&["France Travail", "Indeed", "LinkedIn"]), "France Travail, Indeed et LinkedIn");
     }
 
     /// Étape 6 : « Aucun diplôme requis », « Débutant accepté », la rubrique Hors sujet et le tri par pertinence.

@@ -91,6 +91,47 @@ const JEU: &[(&str, &str, &str)] = &[
     ("Mission d'intérim de 3 mois, expérience en manutention appréciée.", "non_dit", "souhaitee"),
     ("Vous avez au moins trois ans d'expérience en tant que chef d'équipe.", "non_dit", "duree:36"),
     ("Baccalauréat obligatoire pour ce poste.", "bac", "non_dit"),
+    // La rubrique « Profil souhaité » des offres France Travail (une ligne par élément)
+    ("Profil souhaité\nExpérience\nDébutant accepté", "non_dit", "debutant"),
+    ("Expérience\n2 An(s)\nExigé", "non_dit", "duree:24"),
+    ("Expérience\n18 Mois\nExigé", "non_dit", "duree:18"),
+    // (une durée seulement souhaitée n'est pas exigée)
+    ("Expérience\n6 Mois\nSouhaité", "non_dit", "souhaitee"),
+    ("Expérience\n- 3 An(s) Exigé", "non_dit", "duree:36"),
+    ("Expérience exigée de 2 An(s)", "non_dit", "duree:24"),
+    ("Expérience souhaitée de 1 An(s)", "non_dit", "souhaitee"),
+    ("Expérience\n2 An(s)\nCuisine traditionnelle\nExigé", "non_dit", "duree:24"),
+    ("Expérience\n1 An(s) Exigé\nFormation\nBac ou équivalent Souhaité", "bac", "duree:12"),
+    ("Formation\nCAP, BEP et équivalents Cuisine Exigé", "cap_bep", "non_dit"),
+    ("Formation\nBac+2 ou équivalents Commerce\nExigé", "bac2", "non_dit"),
+    ("Formation\nBac+5 et plus ou équivalents", "bac5", "non_dit"),
+    ("Formation\nAucune formation scolaire", "aucun", "non_dit"),
+    ("Formation\nSans diplôme", "aucun", "non_dit"),
+    ("Formation\nCAP\nExigé", "cap_bep", "non_dit"),
+    ("Formation\nBac+3, Bac+4 ou équivalents Informatique\nSouhaité\nExpérience\nDébutant accepté", "bac3", "debutant"),
+    // (deux formations : la plus basse exigée, la marque « Souhaité » n'est pas prise par la ligne d'avant)
+    ("Formation\nBac ou équivalent\nBac+2 ou équivalents\nSouhaité", "bac", "non_dit"),
+    ("Formation\nBac+2 ou équivalents Souhaité\nCAP, BEP et équivalents Exigé", "cap_bep", "non_dit"),
+    ("Formation : Bac ou équivalent Exigé\nExpérience : 3 An(s) Exigé", "bac", "duree:36"),
+    ("Formation :\nCAP, BEP et équivalents\nExigé", "cap_bep", "non_dit"),
+    ("Expérience\nDébutant accepté\nFormation\nAucune formation scolaire", "aucun", "debutant"),
+    // (la rubrique passe avant le texte libre)
+    ("Une première expérience serait un plus.\nProfil souhaité\nExpérience\n2 An(s)\nExigé", "non_dit", "duree:24"),
+    ("Titulaire d'un BTS, vous aimez la vente.\nFormation\nBac ou équivalent Exigé", "bac", "non_dit"),
+    ("Débutants s'abstenir.\nExpérience\n2 An(s)\nSouhaité", "non_dit", "souhaitee"),
+    // Les pièges
+    ("Il est temps de passer un cap.\nFormation\nAssurée en interne par nos équipes.", "non_dit", "non_dit"),
+    ("Formation\nFormation assurée en interne", "aucun", "debutant"),
+    ("Formation\nBac à sable et jeux d'eau à entretenir.", "non_dit", "non_dit"),
+    ("Nous offrons une expérience\nunique à nos clients.", "non_dit", "non_dit"),
+    ("Expérience\nVous avez travaillé dans la vente.", "non_dit", "non_dit"),
+    ("Permis\nB - Véhicule léger Exigé", "non_dit", "non_dit"),
+    ("Permis B Exigé", "non_dit", "non_dit"),
+    ("Qualification : Employé qualifié", "non_dit", "non_dit"),
+    ("Qualification\nCadre\nExpérience\nDébutant accepté", "non_dit", "debutant"),
+    ("Savoir-être professionnels\nAutonomie\nRigueur\nCompétences\nPréparer les commandes", "non_dit", "non_dit"),
+    ("Type de contrat\nCDD - 6 Mois\nExpérience\nDébutant accepté", "non_dit", "debutant"),
+    ("Langues\nAnglais Souhaité\nPermis\nC - Poids lourd Exigé", "non_dit", "non_dit"),
 ];
 
 #[test]
@@ -170,6 +211,79 @@ fn les_preuves_sont_tirees_du_texte() {
     assert_eq!(l.diplome.unwrap().confiance, Confiance::Moyenne);
     assert!(!lire("", "Rien à voir.").classee());
     assert!(lire("", "Sans diplôme, débutant accepté.").classee());
+}
+
+/// Une offre France Travail entière : le texte libre, puis la rubrique « Profil souhaité » (exemple inventé, d'après
+/// la forme des pages). La rubrique est la référence, ses preuves sont des bouts du texte, mot pour mot.
+#[test]
+fn le_profil_souhaite_de_france_travail() {
+    let texte = "Le restaurant du Parc (exemple inventé) recherche un cuisinier ou une cuisinière.\n\
+                 Vous préparez les entrées et les plats du jour. Une première expérience serait un plus.\n\
+                 Formation assurée en interne sur nos recettes.\n\
+                 \n\
+                 Profil souhaité\n\
+                 Expérience\n\
+                 2 An(s)\n\
+                 Exigé\n\
+                 Formation\n\
+                 CAP, BEP et équivalents Cuisine Exigé\n\
+                 Savoir-être professionnels\n\
+                 Autonomie\n\
+                 Travail en équipe\n\
+                 Compétences\n\
+                 Réaliser les préparations de base\n\
+                 Permis\n\
+                 B - Véhicule léger Souhaité\n\
+                 Qualification\n\
+                 Employé qualifié";
+    let l = lire("Cuisinier / Cuisinière (H/F)", texte);
+    let d = l.diplome.unwrap();
+    assert_eq!((d.valeur, d.confiance), (Diplome::CapBep, Confiance::Forte));
+    assert_eq!(d.preuve, "CAP, BEP et équivalents Cuisine Exigé");
+    let e = l.experience.unwrap();
+    assert_eq!((e.valeur, e.confiance), (Experience::Duree(24), Confiance::Forte));
+    assert_eq!(e.preuve, "2 An(s)\nExigé");
+    for p in [&d.preuve, &e.preuve] {
+        assert!(texte.contains(p.as_str()), "{p}");
+        assert!(citation_presente(texte, p), "{p}");
+    }
+    assert_eq!(l.autres, ["Permis B"]);
+    // Le même avec des puces, « : » et la forme courte de l'expérience
+    let texte = "Magasinier H/F, CDD de 6 mois.\n\
+                 Profil souhaité :\n\
+                 - Expérience souhaitée de 1 An(s)\n\
+                 - Formation : Bac ou équivalent Souhaité\n\
+                 - Permis : B - Véhicule léger Exigé\n\
+                 Permis B exigé pour les livraisons.";
+    let l = lire("Magasinier (H/F)", texte);
+    let (d, e) = (l.diplome.unwrap(), l.experience.unwrap());
+    assert_eq!(
+        (d.valeur, d.confiance, d.preuve.as_str()),
+        (Diplome::Bac, Confiance::Forte, "Bac ou équivalent Souhaité")
+    );
+    assert_eq!(
+        (e.valeur, e.confiance, e.preuve.as_str()),
+        (Experience::Souhaitee, Confiance::Forte, "Expérience souhaitée de 1 An(s)")
+    );
+    for p in [&d.preuve, &e.preuve] {
+        assert!(texte.contains(p.as_str()) && citation_presente(texte, p), "{p}");
+    }
+    assert_eq!(l.autres, ["Permis B"]);
+    // Une valeur trop courte pour prouver seule : la preuve commence au titre de la rubrique
+    let texte = "Formation\nBTS\nExpérience\nDébutant accepté";
+    let l = lire("", texte);
+    let d = l.diplome.unwrap();
+    assert_eq!((d.valeur, d.preuve.as_str()), (Diplome::Bac2, "Formation\nBTS"));
+    assert!(citation_presente(texte, &d.preuve));
+    assert_eq!(l.experience.unwrap().preuve, "Débutant accepté");
+    // Débutant accepté dans la rubrique, « débutants s'abstenir » dans le texte : la rubrique l'emporte
+    let l = lire("", "Débutants s'abstenir.\nProfil souhaité\nExpérience\nDébutant accepté");
+    assert_eq!(l.experience.unwrap().valeur, Experience::Debutant);
+    // Le permis de la rubrique : « Permis C », sans doublon avec le texte
+    assert_eq!(
+        lire("", "Permis C exigé.\nPermis\nC - Poids lourd Exigé\nBE - Véhicule léger + remorque").autres,
+        ["Permis C", "Permis BE"]
+    );
 }
 
 #[test]

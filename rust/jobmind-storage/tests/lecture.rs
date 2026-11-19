@@ -39,8 +39,14 @@ const LONG: &str = "Au sein de notre entrepôt de Metz, vous préparez les comma
 #[test]
 fn migration_6_sur_une_base_de_l_etape_5() {
     let mut b = Base::en_memoire_jusqua(5, m(9)).unwrap();
-    offres::ajouter_trouvees(b.connexion(), "adzuna", &[trouvee("1", "Cariste", "Logi", "Sans diplôme.")], None, m(9))
-        .unwrap();
+    offres::ajouter_trouvees(
+        b.connexion(),
+        "francetravail",
+        &[trouvee("1", "Cariste", "Logi", "Sans diplôme.")],
+        None,
+        m(9),
+    )
+    .unwrap();
     assert_eq!(b.migrer_tout(m(10)).unwrap(), vec![6, 7, 8, 9, 10, 11, 12]);
     // L'offre d'avant est là, pas encore lue
     let l = offres::lister(b.connexion()).unwrap();
@@ -58,7 +64,7 @@ fn lecture_par_les_regles_et_relecture() {
     let c = b.connexion();
     offres::ajouter_trouvees(
         c,
-        "adzuna",
+        "francetravail",
         &[
             trouvee("1", "Agent de quai H/F", "Logi", "Débutants acceptés, formation assurée. Permis B."),
             trouvee("2", "Comptable", "Cabinet", "BTS comptabilité exigé, 3 ans d'expérience."),
@@ -87,7 +93,7 @@ fn lecture_par_les_regles_et_relecture() {
     assert_eq!(lecture::nombre_floues(c).unwrap(), 1);
     // Le même site la redonne avec un texte plus long (« Ajouter à Jobmind ») : relue
     let longue = trouvee("3", "Agent de tri", "Poste", &format!("{LONG} Aucune expérience exigée."));
-    offres::ajouter_page(c, "adzuna", &longue, None, m(11)).unwrap();
+    offres::ajouter_page(c, "francetravail", &longue, None, m(11)).unwrap();
     assert_eq!(lecture::relire(c).unwrap(), 1);
     let tri = offres::lister(c).unwrap().into_iter().find(|o| o.titre == "Agent de tri").unwrap();
     assert_eq!(tri.experience, Some(Experience::Debutant));
@@ -99,7 +105,7 @@ fn la_note_suit_ce_que_je_cherche() {
     let c = b.connexion();
     offres::ajouter_trouvees(
         c,
-        "adzuna",
+        "francetravail",
         &[trouvee("1", "Cariste", "Logi", "Sans diplôme, débutant accepté."), trouvee("2", "Boulanger", "Fournil", "")],
         None,
         m(9),
@@ -156,7 +162,7 @@ fn la_note_suit_ce_que_je_cherche() {
 fn ce_que_rend_claude() {
     let (b, _) = Base::en_memoire(m(9)).unwrap();
     let c = b.connexion();
-    offres::ajouter_trouvees(c, "adzuna", &[trouvee("1", "Agent de tri", "Poste", LONG)], None, m(9)).unwrap();
+    offres::ajouter_trouvees(c, "francetravail", &[trouvee("1", "Agent de tri", "Poste", LONG)], None, m(9)).unwrap();
     lecture::relire(c).unwrap();
     let (id, ..) = lecture::a_lire_par_ia(c, 10).unwrap()[0].clone();
     let r = ResultatIa {

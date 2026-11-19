@@ -11,11 +11,16 @@
 //! ambigu (« bac », « CAP », « licence ») ne compte que dans une phrase qui parle de diplôme ou d'exigence (« bac à
 //! sable », « cap sur l'avenir », « licence IV » ne comptent pas) ; une durée ne compte que près du mot « expérience »
 //! et jamais après « CDD », « contrat », « période d'essai », « avoir » (l'âge) ou « il y a ».
+//!
+//! Avant les phrases, la rubrique « Profil souhaité » d'une offre France Travail (« Expérience », « Formation »,
+//! « Permis », une ligne par élément, avec « Exigé » ou « Souhaité ») est lue ligne à ligne (`profil`) : c'est la
+//! référence, elle passe avant ce que dit le texte libre.
 
 use crate::offre::normaliser;
 
 /// La version des règles : une offre lue par une version plus ancienne est relue (la base le note).
-pub const VERSION_REGLES: i64 = 1;
+/// (2 : la rubrique « Profil souhaité » des offres France Travail, 20/11/2026)
+pub const VERSION_REGLES: i64 = 2;
 
 /// Le diplôme demandé.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -591,7 +596,13 @@ struct Niveau {
 }
 
 fn niveaux(p: &Phrase) -> Vec<Niveau> {
-    let contexte = p.a(&CONTEXTE);
+    niveaux_avec(p, false)
+}
+
+/// Les niveaux d'une phrase ; `force` : la phrase parle de diplôme quoi qu'il arrive (une ligne de la rubrique
+/// « Formation » d'une offre France Travail).
+fn niveaux_avec(p: &Phrase, force: bool) -> Vec<Niveau> {
+    let contexte = force || p.a(&CONTEXTE);
     let mut l = Vec::new();
     for i in 0..p.mots.len() {
         let w = p.mot(i);
@@ -1140,6 +1151,10 @@ fn experience_voulue(p: &Phrase) -> Option<usize> {
         {
             continue;
         }
+        // (l'expérience que l'entreprise offre : « Nous offrons une expérience », « vivez une expérience »)
+        if p.entre(i as isize - 3, i as isize - 1, &["offrons", "offre", "proposons", "propose", "vivez", "vivre"]) {
+            continue;
+        }
         let apres = p.mot(i + 1);
         if [
             "client",
@@ -1358,13 +1373,369 @@ fn autres(ps: &[Phrase]) -> Vec<String> {
     l
 }
 
-/// Ce que les règles lisent dans une offre : son titre et son texte.
+// ---------------------------------------------------------------------------------------------------------------
+// La rubrique « Profil souhaité » des offres France Travail
+// ---------------------------------------------------------------------------------------------------------------
+//
+// Sous le texte libre, une offre France Travail donne son profil en rubriques, une ligne par élément :
+//
+//     Profil souhaité
+//     Expérience
+//     2 An(s)
+//     Exigé
+//     Formation
+//     CAP, BEP et équivalents Cuisine Exigé
+//     Permis
+//     B - Véhicule léger Souhaité
+//
+// Le titre de la rubrique est seul sur sa ligne (ou suivi de « : » et de la valeur), la valeur sur la ligne suivante,
+// « Exigé » ou « Souhaité » au bout de la valeur ou seul sur une des deux lignes d'après. C'est la référence : ce
+// qu'elle dit passe avant le texte libre. Seules les formes connues de France Travail comptent (« Débutant accepté »,
+// « 2 An(s) », « Bac+2 ou équivalents »...) : une ligne « Formation » d'une annonce ordinaire suivie d'une phrase
+// (« Formation assurée en interne », « Vous serez formé ») ne donne rien ici, les phrases sont lues comme avant.
+//
+// La preuve est le bout du texte qui va du début de la valeur à la fin de « Exigé » ou « Souhaité » (tel quel, retours
+// à la ligne compris : un bout contigu du texte), et commence au titre de la rubrique si la valeur seule est trop courte
+// pour prouver quoi que ce soit (« Formation BTS »).
+
+/// Les rubriques du profil.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Rubrique {
+    Experience,
+    Formation,
+    Permis,
+    /// Une rubrique qui ne dit ni diplôme ni expérience (« Savoir-être professionnels », « Qualification »...)
+    Autre,
+}
+
+/// Les titres des rubriques, en mots remis au propre.
+const RUBRIQUES: &[(&str, Rubrique)] = &[
+    ("experience", Rubrique::Experience),
+    ("experiences", Rubrique::Experience),
+    ("formation", Rubrique::Formation),
+    ("formations", Rubrique::Formation),
+    ("permis", Rubrique::Permis),
+    ("permis de conduire", Rubrique::Permis),
+    ("profil souhaite", Rubrique::Autre),
+    ("profil recherche", Rubrique::Autre),
+    ("savoir etre professionnels", Rubrique::Autre),
+    ("savoir etre professionnel", Rubrique::Autre),
+    ("savoir etre", Rubrique::Autre),
+    ("savoir faire", Rubrique::Autre),
+    ("competences", Rubrique::Autre),
+    ("competence", Rubrique::Autre),
+    ("qualification", Rubrique::Autre),
+    ("qualifications", Rubrique::Autre),
+    ("langue", Rubrique::Autre),
+    ("langues", Rubrique::Autre),
+    ("informations complementaires", Rubrique::Autre),
+    ("salaire", Rubrique::Autre),
+    ("deplacements", Rubrique::Autre),
+    ("secteur d activite", Rubrique::Autre),
+    ("duree du travail", Rubrique::Autre),
+    ("type de contrat", Rubrique::Autre),
+];
+
+/// « Exigé » ou « Souhaité ».
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Marque {
+    Exige,
+    Souhaite,
+}
+
+fn marque(m: &str) -> Option<Marque> {
+    match m {
+        "exige" | "exigee" | "exiges" | "exigees" | "indispensable" | "obligatoire" | "requis" | "requise" => {
+            Some(Marque::Exige)
+        }
+        "souhaite" | "souhaitee" | "souhaites" | "souhaitees" | "souhaitable" | "apprecie" | "appreciee" => {
+            Some(Marque::Souhaite)
+        }
+        _ => None,
+    }
+}
+
+/// Une ligne du texte, sans la puce du début ni les espaces autour : sa place dans le texte et ses mots.
+struct Ligne<'a> {
+    debut: usize,
+    fin: usize,
+    p: Phrase<'a>,
+    /// Le titre d'une rubrique
+    rubrique: Option<Rubrique>,
+}
+
+/// La ligne `t[debut..fin]`, resserrée (sans puce ni espaces autour) ; rien si elle n'a pas de mot.
+fn ligne_du_texte(t: &str, debut: usize, fin: usize) -> Option<Ligne<'_>> {
+    let x = &t[debut..fin];
+    let a = debut + x.find(char::is_alphanumeric)?;
+    let b = debut + x.trim_end().len();
+    let p = decouper(&t[a..b]);
+    (!p.mots.is_empty()).then_some(Ligne { debut: a, fin: b, p, rubrique: None })
+}
+
+/// La rubrique dont ces mots sont le titre.
+fn titre_rubrique(mots: &[String]) -> Option<Rubrique> {
+    let m = mots.join(" ");
+    RUBRIQUES.iter().find(|(r, _)| *r == m).map(|x| x.1)
+}
+
+/// Les lignes du texte ; un titre suivi de « : » (« Formation : Bac+2 Exigé ») fait deux lignes, le titre et la valeur.
+fn lignes(t: &str) -> Vec<Ligne<'_>> {
+    let mut l = Vec::new();
+    let mut debut = 0;
+    for x in t.split_inclusive('\n') {
+        let (d, f) = (debut, debut + x.trim_end_matches(['\n', '\r']).len());
+        debut += x.len();
+        let Some(mut ligne) = ligne_du_texte(t, d, f) else { continue };
+        ligne.rubrique = titre_rubrique(&ligne.p.mots);
+        // (« Qualification : Employé qualifié »)
+        if ligne.rubrique.is_none()
+            && let Some(k) = t[ligne.debut..ligne.fin].find(':')
+            && let Some(r) = titre_rubrique(&decouper(&t[ligne.debut..ligne.debut + k]).mots)
+            && let Some(valeur) = ligne_du_texte(t, ligne.debut + k + 1, ligne.fin)
+        {
+            let titre = &t[ligne.debut..ligne.debut + k];
+            let fin = ligne.debut + titre.trim_end().len();
+            l.push(Ligne { debut: ligne.debut, fin, p: decouper(titre), rubrique: Some(r) });
+            l.push(valeur);
+            continue;
+        }
+        l.push(ligne);
+    }
+    l
+}
+
+/// Une ligne qui n'est que « Exigé » ou « Souhaité » (ou « Cette expérience est indispensable »).
+fn ligne_marque(l: &Ligne) -> Option<Marque> {
+    let m = &l.p.mots;
+    match m.len() {
+        1 => marque(&m[0]),
+        4 if m[0] == "cette" && m[2] == "est" => marque(&m[3]),
+        _ => None,
+    }
+}
+
+/// Une durée à la façon de France Travail : « 2 An(s) », « 6 Mois », « 3 ans minimum » (rien d'autre sur la ligne).
+fn duree_ft(m: &[&str]) -> Option<u16> {
+    let n = nombre(m.first()?)?;
+    let mois = match *m.get(1)? {
+        "an" | "ans" | "annee" | "annees" => n.checked_mul(12)?,
+        "mois" => n,
+        _ => return None,
+    };
+    let reste_permis = m[2..].iter().all(|x| ["s", "minimum", "mini", "min"].contains(x));
+    (reste_permis && (1..=600).contains(&mois)).then_some(mois)
+}
+
+/// Ce que dit une ligne d'expérience (exigée ou souhaitée : sa marque).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ValeurExperience {
+    Debutant,
+    Mois(u16),
+    /// Une expérience, sans durée (« Expérience exigée »)
+    Demandee,
+}
+
+/// La forme courte « Expérience exigée de 2 An(s) », « Expérience souhaitée de 6 Mois », seule sur sa ligne : la durée
+/// et la marque.
+fn experience_courte(m: &[&str]) -> Option<(u16, Marque)> {
+    if m.first() != Some(&"experience") || m.get(2) != Some(&"de") {
+        return None;
+    }
+    let mq = marque(m.get(1)?).or_else(|| (m[1] == "demandee").then_some(Marque::Exige))?;
+    Some((duree_ft(&m[3..])?, mq))
+}
+
+/// Une ligne de la rubrique « Expérience » (sans sa marque au bout).
+fn valeur_experience(m: &[&str]) -> Option<ValeurExperience> {
+    let debutant = ["debutant", "debutants", "debutante", "debutantes"].contains(m.first()?)
+        && m.len() <= 5
+        && m[1..].iter().any(|x| x.starts_with("accepte") || x.starts_with("bienvenu"));
+    if debutant {
+        return Some(ValeurExperience::Debutant);
+    }
+    if let Some(mois) = duree_ft(m) {
+        return Some(ValeurExperience::Mois(mois));
+    }
+    // (« Expérience exigée », « Expérience souhaitée » : la marque est lue à part)
+    match m {
+        ["experience"] | ["experience", "demandee"] => Some(ValeurExperience::Demandee),
+        _ => None,
+    }
+}
+
+/// Une ligne de la rubrique « Formation » (sans sa marque au bout) : le diplôme et la confiance.
+fn valeur_formation(l: &Ligne, n: usize) -> Option<(Diplome, Confiance)> {
+    let m: Vec<&str> = l.p.mots[..n].iter().map(String::as_str).collect();
+    let debut = |x: &[&str]| m.len() >= x.len() && m[..x.len()] == *x;
+    if debut(&["aucune", "formation"]) || debut(&["sans", "diplome"]) || debut(&["aucun", "diplome"]) {
+        return Some((Diplome::Aucun, Confiance::Forte));
+    }
+    // (« Primaire à 4e », « 3ème achevée ou Brevet » : aucun diplôme de la liste, déduit)
+    if ["primaire", "4eme", "3eme", "2nd", "2nde", "seconde", "1ere"].contains(m.first()?) {
+        return Some((Diplome::Aucun, Confiance::Moyenne));
+    }
+    let p = Phrase { brut: l.p.brut, mots: l.p.mots[..n].to_vec(), places: l.p.places[..n].to_vec() };
+    let niv = niveaux_avec(&p, true).into_iter().find(|x| !x.nie)?;
+    let au_debut = niv.i == 0 || (niv.i == 1 && ["niveau", "diplome", "titre"].contains(&m[0]));
+    au_debut.then_some((niv.diplome, if niv.sur { Confiance::Forte } else { Confiance::Moyenne }))
+}
+
+/// Une ligne de la rubrique « Permis » : « B - Véhicule léger » donne « Permis B ».
+fn valeur_permis(m: &[&str]) -> Option<String> {
+    let lettre = if m.first() == Some(&"permis") { m.get(1)? } else { m.first()? };
+    ["b", "c", "ce", "c1", "c1e", "d", "de", "be", "a", "a1", "a2", "am", "ec"]
+        .contains(lettre)
+        .then(|| format!("Permis {}", lettre.to_uppercase()))
+}
+
+/// Ce que dit la rubrique « Profil souhaité ».
+#[derive(Debug, Default)]
+struct Profil {
+    diplome: Option<Trouve<Diplome>>,
+    experience: Option<Trouve<Experience>>,
+    permis: Vec<String>,
+}
+
+/// Ce que dit une ligne de valeur.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Valeur {
+    /// Une expérience, et la marque dite dans la ligne même (« Expérience souhaitée de 1 An(s) »)
+    Experience(ValeurExperience, Option<Marque>),
+    Formation(Diplome, Confiance),
+    Permis(String),
+}
+
+/// La valeur d'une ligne dans cette rubrique, d'après ses `n` premiers mots (sans la marque du bout).
+fn valeur(r: Option<Rubrique>, l: &Ligne, n: usize) -> Option<Valeur> {
+    let mots: Vec<&str> = l.p.mots[..n].iter().map(String::as_str).collect();
+    // (la forme courte se dit d'elle-même, dans une rubrique ou non)
+    if let Some((mois, m)) = experience_courte(&mots) {
+        return Some(Valeur::Experience(ValeurExperience::Mois(mois), Some(m)));
+    }
+    match r? {
+        Rubrique::Experience => valeur_experience(&mots).map(|v| Valeur::Experience(v, None)),
+        Rubrique::Formation => valeur_formation(l, n).map(|(d, c)| Valeur::Formation(d, c)),
+        Rubrique::Permis => valeur_permis(&mots).map(Valeur::Permis),
+        Rubrique::Autre => None,
+    }
+}
+
+/// Le nombre de mots d'une ligne sans la marque du bout, et cette marque (« CAP, BEP et équivalents Exigé »).
+fn sans_marque(l: &Ligne) -> (usize, Option<Marque>) {
+    let n = l.p.mots.len();
+    match marque(l.p.mot(n - 1)) {
+        Some(m) if n > 1 => (n - 1, Some(m)),
+        _ => (n, None),
+    }
+}
+
+/// Lit la rubrique « Profil souhaité » d'une offre France Travail (rien pour une autre offre).
+fn profil(t: &str) -> Profil {
+    let ls = lignes(t);
+    // (la rubrique en cours, et le début de son titre)
+    let mut courante: Option<(Rubrique, usize)> = None;
+    // (les expériences et les formations lues : valeur, marque, preuve)
+    let mut exps: Vec<(ValeurExperience, Option<Marque>, String)> = Vec::new();
+    let mut forms: Vec<(Diplome, Confiance, Option<Marque>, String)> = Vec::new();
+    let mut permis = Vec::new();
+    let mut k = 0;
+    while k < ls.len() {
+        let l = &ls[k];
+        if let Some(r) = l.rubrique {
+            courante = Some((r, l.debut));
+            k += 1;
+            continue;
+        }
+        let r = courante.map(|x| x.0);
+        let (n, mut mq) = sans_marque(l);
+        let Some(v) = valeur(r, l, n) else {
+            // (une ligne d'une autre forme : la rubrique est finie, le reste est du texte libre)
+            if r.is_some_and(|r| r != Rubrique::Autre) {
+                courante = None;
+            }
+            k += 1;
+            continue;
+        };
+        // La marque au bout de la ligne, sinon seule sur l'une des deux lignes suivantes (avec, entre les deux, une
+        // ligne qui n'est ni un titre ni une autre valeur : la spécialité)
+        let (mut fin, mut suite) = (l.fin, k + 1);
+        if mq.is_none() {
+            for (j, x) in ls.iter().enumerate().skip(k + 1).take(2) {
+                if let Some(m) = ligne_marque(x) {
+                    (mq, fin, suite) = (Some(m), x.fin, j + 1);
+                    break;
+                }
+                if x.rubrique.is_some() || valeur(r, x, sans_marque(x).0).is_some() {
+                    break;
+                }
+            }
+        }
+        // La preuve, assez longue pour prouver (sinon depuis le titre de la rubrique)
+        let p = &t[l.debut..fin];
+        let preuve = match courante {
+            Some((_, d)) if !citation_presente(t, p) => t[d..fin].to_string(),
+            _ => p.to_string(),
+        };
+        match v {
+            Valeur::Experience(x, m) => exps.push((x, m.or(mq), preuve)),
+            Valeur::Formation(d, c) => forms.push((d, c, mq, preuve)),
+            Valeur::Permis(x) => {
+                if !permis.contains(&x) {
+                    permis.push(x);
+                }
+            }
+        }
+        k = suite;
+    }
+    // L'expérience : débutant accepté, puis la plus petite durée exigée, puis une expérience exigée, puis souhaitée
+    // (une durée seulement souhaitée, « 2 An(s) Souhaité », n'est pas exigée : souhaitée, la durée reste dans la preuve)
+    let forte = |valeur, preuve: &String| Trouve { valeur, preuve: preuve.clone(), confiance: Confiance::Forte };
+    let souhaitee = |m: Option<Marque>| m == Some(Marque::Souhaite);
+    let experience = exps
+        .iter()
+        .find(|x| x.0 == ValeurExperience::Debutant)
+        .map(|x| forte(Experience::Debutant, &x.2))
+        .or_else(|| {
+            exps.iter()
+                .filter_map(|x| match x.0 {
+                    ValeurExperience::Mois(m) if !souhaitee(x.1) => Some((m, &x.2)),
+                    _ => None,
+                })
+                .min_by_key(|x| x.0)
+                .map(|(m, p)| forte(Experience::Duree(m), p))
+        })
+        .or_else(|| {
+            exps.iter()
+                .find(|x| x.0 == ValeurExperience::Demandee && !souhaitee(x.1))
+                .map(|x| forte(Experience::Demandee, &x.2))
+        })
+        .or_else(|| {
+            exps.iter()
+                .find(|x| x.0 != ValeurExperience::Debutant && souhaitee(x.1))
+                .map(|x| forte(Experience::Souhaitee, &x.2))
+        });
+    // Le diplôme : le plus bas exigé, sinon le plus bas souhaité
+    let plus_bas = |exige: bool| {
+        forms.iter().filter(|x| souhaitee(x.2) != exige).min_by_key(|x| x.0).map(|x| Trouve {
+            valeur: x.0,
+            preuve: x.3.clone(),
+            confiance: x.1,
+        })
+    };
+    let diplome = plus_bas(true).or_else(|| plus_bas(false));
+    Profil { diplome, experience, permis }
+}
+
+/// Ce que les règles lisent dans une offre : son titre et son texte. La rubrique « Profil souhaité » d'une offre
+/// France Travail (`profil`) passe avant ce que disent les phrases.
 pub fn lire(titre: &str, texte: &str) -> LectureOffre {
     let mut morceaux = phrases(titre);
     morceaux.extend(phrases(texte));
     let ps: Vec<Phrase> = morceaux.into_iter().map(decouper).filter(|p| !p.mots.is_empty()).collect();
-    let experience = experience(&ps);
-    let mut diplome = diplome(&ps);
+    let fiche = profil(texte);
+    let experience = fiche.experience.or_else(|| experience(&ps));
+    let mut diplome = fiche.diplome.or_else(|| diplome(&ps));
     // « Débutants acceptés, formation assurée » : aucun diplôme demandé, déduit
     if diplome.is_none() && experience.as_ref().is_some_and(|e| e.valeur == Experience::Debutant) {
         for p in &ps {
@@ -1378,7 +1749,14 @@ pub fn lire(titre: &str, texte: &str) -> LectureOffre {
             }
         }
     }
-    LectureOffre { diplome, experience, autres: autres(&ps) }
+    // (le permis de la rubrique « Permis », sans doublon)
+    let mut autres = autres(&ps);
+    for x in fiche.permis {
+        if !autres.contains(&x) {
+            autres.push(x);
+        }
+    }
+    LectureOffre { diplome, experience, autres }
 }
 
 /// Le plus haut diplôme cité dans un texte (un CV) : les niveaux trouvés, sauf ceux qui sont niés.

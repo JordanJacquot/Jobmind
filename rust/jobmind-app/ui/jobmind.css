@@ -396,7 +396,6 @@ button.jm-cal-d.oui:hover, button.jm-cal-d.oui:focus { background: color-mix(in 
 .jm-rch-choix select { width: 100%; height: 38px; padding: 0 10px; border-radius: 11px; border: 1px solid transparent; background: rgba(255, 255, 255, 0.055); font: inherit; font-size: 14.5px; font-weight: 600; color: var(--texte); outline: none; }
 .jm-rch-choix select:focus { border-color: color-mix(in srgb, var(--jm) 50%, transparent); }
 .jm-rch-sous { margin: 0; font-size: 13px; line-height: 1.4; color: var(--pale); }
-.jm-rch-fois { margin: 0; font-size: 12.5px; color: var(--pale); }
 .jm-rch-go { width: 100%; }
 .jm-attente.petite { margin-top: 0; padding: 9px 12px; font-size: 13px; gap: 10px; }
 .jm-attente.petite .jm-roue { width: 15px; height: 15px; }
@@ -426,13 +425,6 @@ button.jm-cal-d.oui:hover, button.jm-cal-d.oui:focus { background: color-mix(in 
 /* L'offre ouverte */
 .jm-o-actions { display: flex; gap: 6px; flex: none; }
 .jm-o-src { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin-top: 10px; font-size: 14px; color: var(--pale); }
-/* La mention d'Adzuna (ses conditions : le mot « Adzuna » sur chaque annonce montrée, 116 x 23 px au moins, lié à
-   adzuna.fr) */
-.jm-adzuna { display: inline-flex; align-items: center; gap: 7px; min-width: 116px; height: 30px; padding: 0 12px; border-radius: 9px; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--ligne); color: var(--doux); }
-.jm-adzuna small { font-size: 12px; }
-.jm-adzuna b { font-size: 16px; font-weight: 800; letter-spacing: 0.2px; color: var(--texte); }
-.jm-adzuna:hover, .jm-adzuna:focus { background: rgba(255, 255, 255, 0.1); }
-.jm-adzuna.f:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--jm) 55%, transparent); }
 .jm-o-double { display: flex; align-items: center; gap: 8px; margin: 10px 0 0; font-size: 13.5px; color: var(--doux); }
 .jm-o-double svg { width: 15px; height: 15px; color: var(--jm); flex: none; }
 .jm-infos { display: flex; flex-wrap: wrap; gap: 10px 34px; margin-top: 22px; }

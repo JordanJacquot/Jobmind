@@ -98,7 +98,7 @@ fn les_exports_preparent_la_boite() {
 fn sauvegarder_puis_remettre() {
     let e = Essai::nouveau("remise");
     let mut d = Donnees::ouvrir(&e.0, horloge_figee(m(9, 0)), false);
-    std::fs::write(e.0.join("data").join("cles.json"), b"{\"adzuna_id\":\"chiffree\"}").unwrap();
+    std::fs::write(e.0.join("data").join("cles.json"), b"{\"claude\":\"chiffree\"}").unwrap();
     let mut bord = Bord::default();
     {
         let b = d.base.as_ref().unwrap();
@@ -129,7 +129,7 @@ fn sauvegarder_puis_remettre() {
     let lu = sauvegarde::lire_fichier(&zip, &e.0).map(Box::new);
     let f = bord.retour(RetourFichier::Lu { nom: "ma sauvegarde.zip".into(), contenu: lu });
     assert_eq!(f.ordre, Some(json!({ "kit": "accueil", "sauvegarde": "question" })));
-    let v = vue_reglages(&bord, d.base.as_ref(), &e.0, m(11, 0));
+    let v = vue_reglages(&bord, &e.0, m(11, 0));
     textes_simples(&v);
     assert_eq!(v["sauvegarde"]["attente"]["fichier"], "ma sauvegarde.zip");
     assert_eq!(
@@ -161,7 +161,7 @@ fn sauvegarder_puis_remettre() {
     let copie = sauvegarde::lire_fichier(&avant[0].path(), &e.0).unwrap();
     assert_eq!(copie.resume.candidatures, 3);
     // Les clés de ce PC n'ont pas bougé
-    assert_eq!(std::fs::read(e.0.join("data").join("cles.json")).unwrap(), b"{\"adzuna_id\":\"chiffree\"}");
+    assert_eq!(std::fs::read(e.0.join("data").join("cles.json")).unwrap(), b"{\"claude\":\"chiffree\"}");
     // « Non » à une question : rien ne change
     bord.geste(&Contexte { base: d.base.as_ref(), dossier: &e.0 }, RESTAURER, &Value::Null, m(12, 0));
     let lu = sauvegarde::lire_fichier(&avant[0].path(), &e.0).map(Box::new);
@@ -209,7 +209,7 @@ fn remettre_quand_la_base_est_abimee() {
     let f = bord.retour(RetourFichier::Lu { nom: "sauvegarde.zip".into(), contenu: lu });
     assert_eq!(f.ordre, Some(json!({ "kit": "accueil", "sauvegarde": "question" })));
     // La question est montrée même sans base
-    let v = vue_reglages(&bord, None, &e.0, m(9, 2));
+    let v = vue_reglages(&bord, &e.0, m(9, 2));
     assert_eq!(v["sauvegarde"]["attente"]["fichier"], "sauvegarde.zip");
     // Oui : remise
     let f = bord.restaurer(&mut d, None, m(9, 3));
@@ -278,31 +278,20 @@ fn remise_sans_copie_possible_rien_ne_change() {
     assert!(!sauvegarde::en_attente(&e.0));
 }
 
+/// Le rafraîchissement automatique est parti avec Adzuna (20/11/2026) : plus de réglage, plus de geste.
 #[test]
-fn le_rythme_du_rafraichissement() {
+fn plus_de_rafraichissement_automatique() {
     let e = Essai::nouveau("rythme");
     let (b, _) = Base::ouvrir(&e.0, m(9, 0)).unwrap();
     let mut bord = Bord::default();
     let ctx = Contexte { base: Some(&b), dossier: &e.0 };
-    let v = vue_reglages(&bord, Some(&b), &e.0, m(9, 0));
-    assert_eq!(v["rafraichir"]["valeur"], 6);
-    assert!(v["rafraichir"]["dernier"].is_null());
-    let f = bord.geste(&ctx, RYTHME, &json!({ "heures": 12 }), m(9, 0));
-    assert_eq!(f.message.as_deref(), Some("Jobmind cherchera de nouvelles offres toute seule toutes les 12 heures."));
-    let f = bord.geste(&ctx, RYTHME, &json!({ "heures": 0 }), m(9, 0));
-    assert_eq!(f.message.as_deref(), Some("Jobmind ne cherchera plus de nouvelles offres toute seule."));
-    // Un rythme qui n'est pas proposé : refusé
-    for faux in [json!({ "heures": 5 }), json!({ "heures": -6 }), json!({ "heures": "6" }), json!(null)] {
-        let f = bord.geste(&ctx, RYTHME, &faux, m(9, 0));
-        assert!(f.message.is_none() && !f.change, "{faux}");
-    }
-    assert_eq!(rafraichir::rythme(b.connexion()).unwrap(), 0);
-    rafraichir::commencer(b.connexion(), m(8, 5)).unwrap();
-    rafraichir::noter(b.connexion(), m(8, 5), None, 30, 4, rafraichir::EtatTour::Ok, "").unwrap();
-    let v = vue_reglages(&bord, Some(&b), &e.0, m(9, 0));
+    let v = vue_reglages(&bord, &e.0, m(9, 0));
     textes_simples(&v);
-    assert_eq!(v["rafraichir"]["dernier"], "Dernière fois : aujourd'hui à 8 h 05, 4 nouvelles offres.");
-    assert_eq!(v["rafraichir"]["choix"].as_array().unwrap().len(), 5);
+    assert!(v.get("rafraichir").is_none(), "{v}");
+    assert!(!v.to_string().contains("Adzuna"));
+    assert!(!est_geste("r-rythme"));
+    let f = bord.geste(&ctx, "r-rythme", &json!({ "heures": 12 }), m(9, 0));
+    assert!(f.message.is_none() && !f.change);
 }
 
 #[test]

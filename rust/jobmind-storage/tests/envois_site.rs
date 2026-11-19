@@ -29,7 +29,7 @@ fn base_avec_offre() -> (Base, i64) {
         longitude: None,
         brut: "{}".into(),
     };
-    offres::ajouter_trouvees(b.connexion(), "adzuna", &[o], None, m(9, 0)).unwrap();
+    offres::ajouter_trouvees(b.connexion(), "francetravail", &[o], None, m(9, 0)).unwrap();
     let id = offres::lister(b.connexion()).unwrap()[0].id;
     (b, id)
 }

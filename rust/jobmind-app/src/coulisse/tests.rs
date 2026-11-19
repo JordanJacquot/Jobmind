@@ -181,12 +181,14 @@ fn liste_offre_et_ajout() {
     assert_eq!(v["liste"]["suivante"], true);
     assert_eq!(v["sites"][0]["etat"], "Pas connecté à LinkedIn");
     assert!(v["attente"].is_null());
-    // (la liste déroulante « Où chercher » : « Chercher sur Adzuna » pour les offres gardées)
+    // (la liste déroulante « Où chercher » : « Mes offres gardées », sans recherche, pour les offres gardées)
     assert_eq!(v["textes"]["ou_t"], "Où chercher");
-    assert_eq!(
-        v["textes"]["chercher"].as_str().unwrap().replace("{site}", v["textes"]["mes_offres"].as_str().unwrap()),
-        "Chercher sur Adzuna"
-    );
+    assert_eq!(v["textes"]["mes_offres"], "Mes offres gardées");
+    assert!(!v.to_string().contains("Adzuna"));
+    // (au lancement de Jobmind, « Où chercher » s'ouvre sur France Travail)
+    let depart = Coulisse::avec_gardes([false; 4]);
+    assert_eq!(depart.source, Some(Site::FranceTravail));
+    assert_eq!(depart.vue(jour())["source"], "francetravail");
     sans_tiret_long(&v);
     // Un résultat ouvert : son offre lue en coulisse, montrée dans le design de Jobmind
     let f = c.geste(Some(&b), OUVRIR, &json!({ "i": 1 }), m(9, 2));

@@ -52,7 +52,7 @@ fn fiche() -> Fiche {
         ville: "Metz".into(),
         envoyee_le: Jour::nouveau(2026, 11, 19).unwrap(),
         moyen: Moyen::Mail,
-        source: "Adzuna".into(),
+        source: "France Travail".into(),
         lien: String::new(),
         envoye: "Madame, Monsieur,\n\nJe vous propose ma candidature.\n\nJordan".into(),
         cv: "CV Jordan.pdf".into(),
@@ -62,7 +62,7 @@ fn fiche() -> Fiche {
 
 fn base_avec_offre() -> (Base, i64) {
     let (b, _) = Base::en_memoire(m(9, 0)).unwrap();
-    offres::ajouter_trouvees(b.connexion(), "adzuna", &[trouvee("1", "Cariste")], None, m(9, 0)).unwrap();
+    offres::ajouter_trouvees(b.connexion(), "francetravail", &[trouvee("1", "Cariste")], None, m(9, 0)).unwrap();
     let id = offres::lister(b.connexion()).unwrap()[0].id;
     (b, id)
 }
@@ -70,7 +70,7 @@ fn base_avec_offre() -> (Base, i64) {
 #[test]
 fn migration_10_sur_une_base_de_l_etape_9() {
     let mut b = Base::en_memoire_jusqua(9, m(9, 0)).unwrap();
-    offres::ajouter_trouvees(b.connexion(), "adzuna", &[trouvee("1", "Cariste")], None, m(9, 0)).unwrap();
+    offres::ajouter_trouvees(b.connexion(), "francetravail", &[trouvee("1", "Cariste")], None, m(9, 0)).unwrap();
     assert_eq!(b.migrer_tout(m(10, 0)).unwrap(), vec![10, 11, 12]);
     let id = offres::lister(b.connexion()).unwrap()[0].id;
     assert_eq!(envois::rythme(b.connexion(), m(10, 0).jour()).unwrap(), (None, 0));

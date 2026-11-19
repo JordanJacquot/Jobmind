@@ -465,7 +465,6 @@ impl Profil {
             return Fait::refus(CLE_NON_GARDEE, "Clés : coffre absent".into());
         };
         let nom = match service {
-            Service::Adzuna => "Adzuna",
             Service::Claude => "Claude",
             // (la boîte Gmail a sa rubrique à elle : crate::mail)
             Service::Gmail | Service::Sites => return Fait::default(),
@@ -761,31 +760,33 @@ mod tests {
         assert_eq!(p.style_ouvert, Some(1));
         p.geste(&mut ctx, STYLE_SUPPRIMER, &json!({ "id": 1 }), m(9));
         assert_eq!(p.style_ouvert, None);
-        // Les clés : Adzuna en deux parties, refusée si l'une est fausse (rien gardé), puis gardée
-        let mauvaise = json!({ "service": "adzuna", "valeurs": { "adzuna_id": "1a2b3c4d", "adzuna_cle": "court" } });
+        // Les clés : Claude, refusée si elle est fausse (rien gardé), puis gardée ; Adzuna (retiré) : rien
+        let mauvaise = json!({ "service": "claude", "valeurs": { "claude": "sk-ant-court" } });
         let f = p.geste(&mut ctx, CLE_GARDER, &mauvaise, m(9));
         assert!(f.message.unwrap().contains("incomplète"));
         assert!(!f.journal.unwrap().contains("court"));
-        let bonne = json!({ "service": "adzuna", "valeurs": { "adzuna_id": "1a2b3c4d", "adzuna_cle": "0123456789abcdef0123456789abcdef" } });
-        let f = p.geste(&mut ctx, CLE_GARDER, &bonne, m(9));
-        assert_eq!(f.message.as_deref(), Some("Clé Adzuna enregistrée. Elle est chiffrée sur ce PC."));
-        assert_eq!(f.journal.as_deref(), Some("Clés : clé adzuna enregistrée"));
-        let f = p.geste(&mut ctx, CLE_GARDER, &json!({ "service": "claude", "valeurs": { "claude": "sk-ant-api03-InventeeInventeeInventeeInventee_00" } }), m(9));
+        let retiree = json!({ "service": "adzuna", "valeurs": { "adzuna_id": "1a2b3c4d", "adzuna_cle": "0123456789abcdef0123456789abcdef" } });
+        assert_eq!(p.geste(&mut ctx, CLE_GARDER, &retiree, m(9)), Fait::default());
+        let f = p.geste(&mut ctx, CLE_GARDER, &json!({ "service": "claude", "valeurs": { "claude": "sk-ant-api03-InventeeInventeeInventeeInventee_cdef" } }), m(9));
         assert!(f.bravo);
+        assert_eq!(f.message.as_deref(), Some("Clé Claude enregistrée. Elle est chiffrée sur ce PC."));
+        assert_eq!(f.journal.as_deref(), Some("Clés : clé claude enregistrée"));
         let (v, _) = p.vue(Some(&b), ctx.cles.as_deref());
         assert_eq!(
-            v.cles.iter().find(|(c, _)| *c == Cle::AdzunaCle).unwrap().1,
+            v.cles.iter().find(|(c, _)| *c == Cle::Claude).unwrap().1,
             Some(EtatCle::Gardee("se termine par cdef".into()))
         );
+        assert!(v.cles.iter().all(|(c, _)| !c.code().contains("adzuna")), "{:?}", v.cles);
         // L'état de la page ne contient aucune clé
         let e = crate::ecran::etat("0.3.0", &crate::ecran::Vue { profil: &v, ..crate::ecran::Vue::vide(m(9).jour()) })
             .to_string();
         for cle in ["0123456789abcdef0123456789abcdef", "1a2b3c4d", "InventeeInventee"] {
             assert!(!e.contains(cle), "clé dans l'état : {cle}");
         }
-        assert!(e.contains("se termine par cdef") && !e.contains("Les 3 clés"));
-        let f = p.geste(&mut ctx, CLE_EFFACER, &json!({ "service": "adzuna" }), m(9));
-        assert_eq!(f.message.as_deref(), Some("Clé Adzuna effacée."));
+        assert!(e.contains("se termine par cdef") && e.contains("Ta clé Claude est là"));
+        assert_eq!(p.geste(&mut ctx, CLE_EFFACER, &json!({ "service": "adzuna" }), m(9)), Fait::default());
+        let f = p.geste(&mut ctx, CLE_EFFACER, &json!({ "service": "claude" }), m(9));
+        assert_eq!(f.message.as_deref(), Some("Clé Claude effacée."));
         let _ = std::fs::remove_dir_all(&d);
     }
 

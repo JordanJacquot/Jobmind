@@ -1,5 +1,6 @@
 //! Étape 12 : le tableau de bord (onglet Candidatures, « Mon bilan »), l'export des candidatures en CSV et en PDF, la
-//! sauvegarde et sa restauration, et le réglage du rafraîchissement automatique des recherches (Mon profil, Réglages).
+//! sauvegarde et sa restauration (Mon profil, Réglages). Le réglage du rafraîchissement automatique des recherches est
+//! parti avec Adzuna (20/11/2026), la seule source qu'il refaisait.
 //!
 //! Tout fichier passe par une boîte de Windows ouverte sur un fil à part, posée sur la fenêtre de Jobmind, jamais une
 //! autre fenêtre : « Enregistrer sous » (le dossier Documents la première fois) pour un export ou une sauvegarde,
@@ -16,7 +17,6 @@ use std::path::Path;
 
 use jobmind_core::Jour;
 use jobmind_core::tableau::{self, Tableau};
-use jobmind_storage::rafraichir::{self, RYTHMES};
 use jobmind_storage::sauvegarde::{self, Contenu, ErreurSauvegarde, Resume};
 use jobmind_storage::{Base, Donnees, Moment, candidatures, offres as base_offres};
 use serde_json::{Value, json};
@@ -30,8 +30,7 @@ pub const SAUVER: &str = "s-sauver";
 pub const RESTAURER: &str = "s-restaurer";
 pub const OUI: &str = "s-oui";
 pub const NON: &str = "s-non";
-pub const RYTHME: &str = "r-rythme";
-const GESTES: [&str; 7] = [CSV, PDF, SAUVER, RESTAURER, OUI, NON, RYTHME];
+const GESTES: [&str; 6] = [CSV, PDF, SAUVER, RESTAURER, OUI, NON];
 
 /// Un geste de l'étape 12.
 pub fn est_geste(id: &str) -> bool {
@@ -132,7 +131,7 @@ pub fn phrase_resume(r: &Resume) -> String {
 impl Bord {
     /// Un geste de la page : vérifié, puis préparé. « Oui, remettre » passe par [`Bord::restaurer`] (il faut les données
     /// entières).
-    pub fn geste(&mut self, ctx: &Contexte, id: &str, valeur: &Value, maintenant: Moment) -> Fait {
+    pub fn geste(&mut self, ctx: &Contexte, id: &str, _valeur: &Value, maintenant: Moment) -> Fait {
         if id == NON {
             if self.attente.take().is_some() {
                 self.annonce = Some(("Rien n'a été changé.".into(), "ok"));
@@ -161,25 +160,6 @@ impl Bord {
         let Some(base) = ctx.base else {
             return Fait::refus(SANS_BASE, format!("Bord : {id} impossible, la base n'est pas ouverte"));
         };
-        if id == RYTHME {
-            let h = valeur.get("heures").and_then(Value::as_u64).and_then(|h| u32::try_from(h).ok());
-            return match h.filter(|h| RYTHMES.contains(h)) {
-                None => Fait { journal: Some("Rafraîchissement : rythme refusé".into()), ..Fait::default() },
-                Some(h) => match rafraichir::changer_rythme(base.connexion(), h) {
-                    Ok(_) => Fait {
-                        message: Some(if h == 0 {
-                            "Jobmind ne cherchera plus de nouvelles offres toute seule.".into()
-                        } else {
-                            format!("Jobmind cherchera de nouvelles offres toute seule {}.", texte_rythme(h))
-                        }),
-                        journal: Some(format!("Rafraîchissement : toutes les {h} h (0 : coupé)")),
-                        change: true,
-                        ..Fait::default()
-                    },
-                    Err(e) => Fait::refus(PAS_ENREGISTRE, format!("Rafraîchissement : rythme non gardé ({e})")),
-                },
-            };
-        }
         if self.boite {
             return message("Une fenêtre pour choisir un fichier est déjà ouverte.");
         }
@@ -361,39 +341,8 @@ impl Bord {
     }
 }
 
-/// « toutes les 6 heures », « une fois par jour ».
-pub fn texte_rythme(h: u32) -> String {
-    match h {
-        0 => "jamais".into(),
-        24 => "une fois par jour".into(),
-        h => format!("toutes les {h} heures"),
-    }
-}
-
-/// Mon profil, Réglages : le rafraîchissement, l'export et la sauvegarde.
-pub fn vue_reglages(bord: &Bord, base: Option<&Base>, dossier: &Path, maintenant: Moment) -> Value {
-    let c = base.map(Base::connexion);
-    let rythme = c.and_then(|c| rafraichir::rythme(c).ok()).unwrap_or(rafraichir::RYTHME_DEFAUT);
-    let dernier = c.and_then(|c| rafraichir::dernier_tour(c).ok().flatten()).map(|t| {
-        let mut s = if t.le.jour() == maintenant.jour() {
-            let q = quand(t.le);
-            format!("Dernière fois : aujourd'hui {}", &q[q.find(" à ").map_or(0, |i| i + 1)..])
-        } else {
-            format!("Dernière fois : {}", quand(t.le).replace(&format!(" {}", t.le.annee), ""))
-        };
-        if t.plafond {
-            s.push_str(", les recherches du jour étaient déjà toutes faites.");
-        } else if t.erreurs > 0 && t.nouvelles == 0 {
-            s.push_str(", Adzuna n'a pas répondu.");
-        } else {
-            s.push_str(&match t.nouvelles {
-                0 => ", aucune nouvelle offre.".to_string(),
-                1 => ", 1 nouvelle offre.".to_string(),
-                k => format!(", {k} nouvelles offres."),
-            });
-        }
-        s
-    });
+/// Mon profil, Réglages : l'export et la sauvegarde.
+pub fn vue_reglages(bord: &Bord, dossier: &Path, maintenant: Moment) -> Value {
     let autos = sauvegarde::automatiques(dossier);
     let auj = maintenant.jour();
     let auto = match autos.first() {
@@ -418,19 +367,6 @@ pub fn vue_reglages(bord: &Bord, base: Option<&Base>, dossier: &Path, maintenant
         })
     });
     json!({
-        "rafraichir": {
-            "titre": "Chercher de nouvelles offres toute seule",
-            "texte": "Quand Jobmind est ouverte, elle refait tes recherches gardées chez Adzuna, sans dépasser les \
-                      limites du jour. LinkedIn, Indeed, Welcome to the Jungle et France Travail : jamais toute \
-                      seule, seulement quand tu cliques.",
-            "valeur": rythme,
-            "choix": RYTHMES.iter().map(|h| json!({ "heures": h, "texte": match h {
-                0 => "Jamais".to_string(),
-                24 => "1 fois par jour".to_string(),
-                h => format!("Toutes les {h} h"),
-            } })).collect::<Vec<_>>(),
-            "dernier": dernier,
-        },
         "export": {
             "titre": "Exporter mes candidatures",
             "texte": "Un tableau à ouvrir dans Excel, ou un PDF à imprimer. Tu choisis où le ranger (Documents au \

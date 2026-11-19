@@ -59,7 +59,7 @@ fn base(avec_cv: bool) -> (Base, i64) {
         longitude: None,
         brut: "{}".into(),
     };
-    base_offres::ajouter_trouvees(c, "adzuna", &[o], None, m(9, 0)).unwrap();
+    base_offres::ajouter_trouvees(c, "francetravail", &[o], None, m(9, 0)).unwrap();
     if avec_cv {
         let n = NouveauCv { nom: "CV 2026", fichier: None, genre: GenreCv::Texte, texte: CV, taille: None };
         profil::ajouter_cv(c, &n, m(9, 0)).unwrap();

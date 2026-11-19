@@ -9,7 +9,9 @@ chaque candidature vite sans qu'elle sonne comme une IA, et savoir à tout momen
 1. **Les offres** : plusieurs sources par leurs API officielles et flux RSS (France Travail, Adzuna...), une liste
    unique sans doublons, des recherches gardées et rafraîchies au clic ou à intervalle régulier. Chaque offre est
    archivée en entier sur le PC.
-   - Sources par API : Adzuna seulement. Jooble retiré le 19/11/2026, décision de Jordan.
+   - Sources par API : aucune. Jooble retiré le 19/11/2026, Adzuna le 20/11/2026 (décisions de Jordan : le résumé
+     d'Adzuna ne disait pas le diplôme ni l'expérience demandés). France Travail d'abord, lu sur son site en coulisse
+     (sa rubrique « Profil souhaité » est la référence) ; les offres déjà gardées d'Adzuna restent.
    - Tous les métiers, pas seulement l'informatique.
    - Filtres : mots-clés, lieu (région, département, ville et rayon), contrat, télétravail, date, source, et
      **diplôme demandé** (dont « aucun diplôme requis »), expérience demandée.
@@ -23,7 +25,7 @@ chaque candidature vite sans qu'elle sonne comme une IA, et savoir à tout momen
        - dans l'onglet Offres, Jordan choisit la source (Mes offres, LinkedIn, Indeed, Welcome to the Jungle, France
          Travail) et sa recherche (celles de « Ce que je cherche » ou de Mes recherches) ; « Chercher sur LinkedIn »
          ouvre la page de résultats du site en coulisse, la lit (titre, entreprise, lieu, date, lien, nombre de
-         candidats quand la liste le montre) et l'affiche comme les offres d'Adzuna. « Page suivante » sur un clic
+         candidats quand la liste le montre) et l'affiche comme les offres gardées. « Page suivante » sur un clic
          seulement ;
        - un clic sur un résultat : Jobmind ouvre l'offre en coulisse, la lit (données du site, règles par site, texte
          principal, nombre de candidats) et la montre comme une offre de l'onglet Offres, avec **« Ajouter à
@@ -97,8 +99,8 @@ chaque candidature vite sans qu'elle sonne comme une IA, et savoir à tout momen
 **PC / téléphone** : PC seulement.
 **Avec les autres applis** : aucune ne recoupe Jobmind. Pont possible plus tard : le moteur d'IA local de Mindcare.
 **Droits administrateur** : aucun.
-**Internet** : oui, pour (1) lire les offres par les API et flux officiels (France Travail et Adzuna demandent une clé
-gratuite, créée une fois par Jordan sur leur site) ; (2) l'IA Claude, qui reçoit l'offre et le profil à chaque
+**Internet** : oui, pour (1) lire les offres sur les sites (France Travail d'abord, lu en coulisse sur un clic ; Adzuna,
+par sa clé, jusqu'au 20/11/2026) ; (2) l'IA Claude, qui reçoit l'offre et le profil à chaque
 génération (quelques centimes par lettre) ; pour lire et trier les offres, un modèle Claude plus petit et bon marché,
 seulement sur les offres que les règles simples n'ont pas su classer. Clés gardées chiffrées sur le PC (DPAPI).
 **Données gardées** (D:\Mindset\Jobmind\) : base SQLite dans data\ (offres archivées, recherches, profil, style,

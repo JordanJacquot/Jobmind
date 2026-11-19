@@ -1,8 +1,8 @@
 //! Ce que l'onglet Offres montre (étape 4 du plan), dessiné par ui\jobmind.js : la barre des filtres (le texte cherché
 //! dans tout le texte des offres gardées, le lieu, le contrat, le télétravail, toutes / favoris / plus tard / cachées),
-//! à gauche la recherche gardée choisie, « Chercher maintenant » et la liste des offres, à droite l'offre ouverte (son
-//! texte gardé sur ce PC, ses sources et « Voir sur le site », la mention « Adzuna » liée à adzuna.fr pour chaque offre
-//! d'Adzuna, favori, plus tard, « Pas pour moi », « J'ai postulé »), ou « Mes recherches ».
+//! à gauche la recherche gardée choisie et la liste des offres gardées, à droite l'offre ouverte (son texte gardé sur ce
+//! PC, ses sources et « Voir sur le site », favori, plus tard, « Pas pour moi », « J'ai postulé »), ou « Mes
+//! recherches ». Les offres gardées avant le retrait d'Adzuna (20/11/2026) restent, avec « Voir sur Adzuna ».
 //!
 //! Étape 6 : chaque offre a sa pastille (« Très proche », « Proche », « Un peu », « Hors sujet ») et sa raison en une
 //! ligne ; l'offre ouverte dit le diplôme et l'expérience demandés avec leur preuve (le bout de phrase de l'offre) et
@@ -13,18 +13,16 @@
 //! listes des départements et des régions ne sont pas répétées : la page les prend dans Mon profil (« Ce que je
 //! cherche »). Aucune adresse d'offre n'est envoyée à la page : « Voir sur le site » la demande à l'appli.
 
-use jobmind_core::Heure;
 use jobmind_core::Jour;
 use jobmind_core::lecture::{Confiance, LuPar};
 use jobmind_core::offre::{Offre, TeleOffre, noms_sources};
 use jobmind_core::recherche::{Contrat, GenreLieu, Lieu, RAYONS, Teletravail};
 use jobmind_core::recherches::NOMBRE_MAX;
-use jobmind_storage::Moment;
-use jobmind_storage::offres::{OffreComplete, RechercheGardee};
+use jobmind_storage::offres::OffreComplete;
 use serde_json::{Value, json};
 
 use crate::ecran::{AUCUNE_OFFRE, OFFRES};
-use crate::offres::{LISTE_MAX, VueOffres, n_offres, nom_source};
+use crate::offres::{LISTE_MAX, VueOffres, nom_source};
 use jobmind_storage::lecture::TEXTE_MIN_IA;
 
 /// Les textes de l'onglet (la page les pose tels quels), en objet.
@@ -53,28 +51,6 @@ pub fn recherche_texte(mots: &str, l: &Lieu) -> String {
     }
 }
 
-/// « aujourd'hui à 14 h 05 », « le 17 nov. à 9 h 30 ».
-fn moment_texte(m: Moment, aujourdhui: Jour) -> String {
-    let h = Heure::nouvelle(m.heure, m.minute).map(Heure::texte).unwrap_or_default();
-    if m.jour() == aujourdhui {
-        format!("aujourd'hui à {h}")
-    } else {
-        format!("le {} à {h}", m.jour().court(aujourdhui))
-    }
-}
-
-/// Ce qu'a donné la dernière fois d'une recherche.
-fn derniere_fois(r: &RechercheGardee, aujourdhui: Jour) -> String {
-    match (r.derniere_fois, r.dernier_nombre) {
-        (Some(m), Some(n)) => {
-            format!("Dernière fois {}, {} trouvées", moment_texte(m, aujourdhui), n_offres(n.max(0) as usize))
-                .replace("1 offre trouvées", "1 offre trouvée")
-        }
-        (Some(m), None) => format!("Dernière fois {}", moment_texte(m, aujourdhui)),
-        _ => "Pas encore lancée".into(),
-    }
-}
-
 /// « Entrepôts du Val de Moselle, Ennery » (sans entreprise : le lieu seul).
 fn sous(o: &Offre) -> String {
     let lieu = o.lieu.split(',').next().unwrap_or_default().trim();
@@ -90,7 +66,7 @@ fn noms(o: &Offre) -> String {
     noms_sources(&o.sources.iter().map(|s| nom_source(s)).collect::<Vec<_>>())
 }
 
-/// La petite ligne d'une offre : « CDI, le 17 nov., sur Adzuna et LinkedIn ».
+/// La petite ligne d'une offre : « CDI, le 17 nov., sur France Travail et LinkedIn ».
 fn ligne3(o: &Offre, aujourdhui: Jour) -> String {
     let mut l: Vec<String> = Vec::new();
     if let Some(c) = o.contrat {
@@ -150,7 +126,8 @@ fn lu_vue(nom: &str, lu: Option<(String, &str, LuPar, Confiance)>, lue: bool, ab
 fn fiche(x: &OffreComplete, aujourdhui: Jour, claude: bool) -> Value {
     let o = &x.offre;
     let l = &x.lecture;
-    // (le texte d'Adzuna n'est qu'un résumé de l'annonce : ce qu'il ne dit pas, l'annonce complète peut le dire)
+    // (le texte d'une offre gardée d'Adzuna n'est qu'un résumé de l'annonce : ce qu'il ne dit pas, l'annonce complète
+    // peut le dire)
     let absent = if x.description_de == "adzuna" { "Pas dans le résumé d'Adzuna" } else { "Non dit dans l'offre" };
     let mut lecture = vec![
         lu_vue(
@@ -240,7 +217,7 @@ fn fiche(x: &OffreComplete, aujourdhui: Jour, claude: bool) -> Value {
             ),
             _ => "Le site n'a donné aucun texte pour cette offre. Lis-la sur le site.".to_string(),
         },
-        // (Adzuna, ou une source retirée depuis : seulement le début ; une page lue : le texte entier)
+        // (une source retirée, Adzuna ou Jooble : seulement le début ; une page lue : le texte entier)
         "note": match x.description_de.as_str() {
             "site" => "Le texte entier de l'annonce, lu sur la page du site.".to_string(),
             "linkedin" | "indeed" | "wttj" | "francetravail" => {
@@ -251,7 +228,6 @@ fn fiche(x: &OffreComplete, aujourdhui: Jour, claude: bool) -> Value {
         },
         "gardee": gardee,
         "liens": liens,
-        "adzuna": o.sources.iter().any(|s| s == "adzuna"),
         "favori": o.favori,
         "plus_tard": o.plus_tard,
         "cachee": o.cachee,
@@ -272,16 +248,7 @@ fn fiche(x: &OffreComplete, aujourdhui: Jour, claude: bool) -> Value {
 
 /// Le panneau de droite quand il n'y a pas d'offre à montrer : ce qui manque, et le bouton pour avancer.
 fn vide(v: &VueOffres) -> Value {
-    let (icone, titre, texte, bouton, note): (&str, String, &str, &str, &str) = if !v.cles {
-        (
-            "cle",
-            "Il manque une clé".into(),
-            "Pour chercher des offres, Jobmind a besoin de ta clé Adzuna : un code gratuit, créé une seule fois sur \
-             son site.",
-            "cles",
-            "",
-        )
-    } else if v.recherches.is_empty() {
+    let (icone, titre, texte, bouton, note): (&str, String, &str, &str, &str) = if v.recherches.is_empty() {
         (
             "cible",
             "Aucune recherche pour l'instant".into(),
@@ -293,8 +260,8 @@ fn vide(v: &VueOffres) -> Value {
         (
             "loupe",
             AUCUNE_OFFRE.into(),
-            "Choisis une recherche à gauche, puis « Chercher sur Adzuna ». Jobmind lui demande les offres, et \
-             garde chacune sur ce PC.",
+            "Choisis France Travail dans « Où chercher », en haut à gauche, puis « Chercher sur France Travail ». \
+             Chaque offre que tu ajoutes avec « Ajouter à Jobmind » est gardée ici.",
             "chercher",
             "Chaque offre gardée reste lisible ici, même si elle disparaît du site.",
         )
@@ -310,8 +277,8 @@ fn vide(v: &VueOffres) -> Value {
     json!({ "icone": icone, "titre": titre, "texte": texte, "bouton": bouton, "note": note })
 }
 
-/// Mes recherches (le panneau de droite « Gérer ») : chaque recherche avec ce qu'elle cherche et sa dernière fois.
-fn gestion(v: &VueOffres, aujourdhui: Jour) -> Value {
+/// Mes recherches (le panneau de droite « Gérer ») : chaque recherche avec ce qu'elle cherche.
+fn gestion(v: &VueOffres) -> Value {
     let l: Vec<Value> = v
         .recherches
         .iter()
@@ -326,8 +293,6 @@ fn gestion(v: &VueOffres, aujourdhui: Jour) -> Value {
                 "id": r.id,
                 "nom": r.nom,
                 "sous": recherche_texte(&r.mots, &r.lieu),
-                "derniere": derniere_fois(r, aujourdhui),
-                "message": r.dernier_message.clone().unwrap_or_default(),
                 "valeurs": { "nom": r.nom, "mots": r.mots, "lieu": genre.code(), "ville": ville, "rayon": rayon,
                              "departement": dep, "region": reg },
                 "question": format!("Supprimer la recherche « {} » ? Les offres qu'elle a trouvées restent gardées.", r.nom),
@@ -336,8 +301,8 @@ fn gestion(v: &VueOffres, aujourdhui: Jour) -> Value {
         .collect();
     json!({
         "titre": "Mes recherches",
-        "intro": "Chaque recherche dit ce que tu cherches et où. « Chercher maintenant » demande ses offres à \
-                  Adzuna.",
+        "intro": "Chaque recherche dit ce que tu cherches et où. Choisis-en une, puis « Chercher sur France Travail » \
+                  (ou un autre site) dans « Où chercher ».",
         "liste": l,
         "plein": v.recherches.len() >= NOMBRE_MAX,
         "profil": v.profil,
@@ -406,7 +371,6 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
             "Ajoute ta clé Claude pour que Jobmind lise aussi les offres floues.".to_string()
         },
     });
-    let annonce = v.annonce.as_ref().map(|a| json!({ "texte": a.texte, "genre": a.genre, "cles": a.cles }));
     json!({
         "id": OFFRES,
         "nom": "Offres",
@@ -417,7 +381,7 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
         "dossier": {
             "icone": "loupe",
             "titre": AUCUNE_OFFRE,
-            "texte": "Jobmind rassemble ici les offres d'Adzuna, et celles que tu ajoutes depuis les sites, sans \
+            "texte": "Jobmind rassemble ici les offres que tu ajoutes depuis les sites, France Travail d'abord, sans \
                       doublons.",
             "note": "Chaque offre gardée reste lisible sur ce PC, même si elle disparaît du site.",
         },
@@ -454,10 +418,6 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
             "recherches": v.recherches.iter().map(|r| json!({ "id": r.id, "nom": r.nom })).collect::<Vec<_>>(),
             "recherche": choisie.map(|r| r.id),
             "recherche_sous": choisie.map(|r| recherche_texte(&r.mots, &r.lieu)),
-            "recherche_fois": choisie.map(|r| derniere_fois(r, aujourdhui)),
-            "en_cours": v.en_cours,
-            "annonce": annonce,
-            "cles": v.cles,
             "lignes": v.liste.iter().map(|o| ligne(o, ouverte, aujourdhui)).collect::<Vec<_>>(),
             "plus": if v.total > LISTE_MAX {
                 format!("Seules les {LISTE_MAX} premières sont montrées : précise les filtres pour voir les autres.")
@@ -466,7 +426,7 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
             },
             "fiche": v.ouverte.as_ref().map(|o| fiche(o, aujourdhui, v.claude)),
             "vide": vide(v),
-            "gestion": gestion(v, aujourdhui),
+            "gestion": gestion(v),
             "textes": textes(&[
                 ("i_texte", "Chercher dans mes offres : quai, nuit, magasin..."),
                 ("ville", "Ville"),
@@ -479,8 +439,7 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
                 ("teletravail", "Télétravail"),
                 ("mes_recherches", "Ma recherche"),
                 ("gerer", "Gérer mes recherches"),
-                ("chercher", "Chercher maintenant"),
-                ("chercher_aj", "Chercher sur Adzuna"),
+                ("chercher_ft", "Chercher sur France Travail"),
                 ("liste_t", "Les plus récentes en haut"),
                 ("vide_l", "Aucune offre avec ces filtres."),
                 ("sans_recherche", "Crée une recherche pour commencer."),
@@ -495,9 +454,6 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
                 ("postule", "J'ai postulé"),
                 ("voir_candidature", "Voir ma candidature"),
                 ("postule_deja", "Tu as noté une candidature pour cette offre."),
-                ("par", "Offre trouvée par"),
-                ("adzuna", "Adzuna"),
-                ("adzuna_aide", "Ouvrir le site d'Adzuna"),
                 ("texte_t", "L'offre"),
                 ("doublon", "La même offre était sur plusieurs sites : elle n'est montrée qu'une fois."),
                 ("nouvelle_l", "Nouvelle"),
@@ -540,11 +496,10 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::offres::Annonce;
     use jobmind_core::lecture::{Diplome, Experience};
     use jobmind_core::pertinence::Niveau;
     use jobmind_storage::lecture::{LectureGardee, Lu};
-    use jobmind_storage::offres::{Lien, VueCandidats};
+    use jobmind_storage::offres::{Lien, RechercheGardee, VueCandidats};
 
     fn j(d: u32) -> Jour {
         Jour::nouveau(2026, 11, d).unwrap()
@@ -578,9 +533,6 @@ mod tests {
             nom: "Agent de quai".into(),
             mots: "agent de quai".into(),
             lieu: Lieu::Ville { nom: "Metz".into(), rayon: 30 },
-            derniere_fois: Moment::nouveau(2026, 11, 18, 14, 5, 0),
-            dernier_nombre: Some(19),
-            dernier_message: Some("19 offres trouvées".into()),
         };
         VueOffres {
             liste: vec![a.clone(), b],
@@ -619,9 +571,7 @@ mod tests {
             }),
             recherches: vec![r],
             recherche: Some(4),
-            annonce: Some(Annonce { texte: "19 offres trouvées sur Adzuna.".into(), genre: "ok", cles: false }),
             saisie: crate::offres::VIDE.saisie.clone(),
-            cles: true,
             profil: true,
             ..VueOffres::default()
         }
@@ -635,7 +585,6 @@ mod tests {
         assert_eq!(e["nombre"], 1);
         assert_eq!(o["compte"], "2 offres gardées");
         assert_eq!(o["recherche_sous"], "agent de quai, autour de Metz (30 km)");
-        assert_eq!(o["recherche_fois"], "Dernière fois aujourd'hui à 14 h 05, 19 offres trouvées");
         let l = o["lignes"].as_array().unwrap();
         assert_eq!(l[0]["l3"], "CDI, le 17 nov., sur Adzuna et LinkedIn");
         assert_eq!(l[0]["sel"], true);
@@ -644,7 +593,10 @@ mod tests {
         let f = &o["fiche"];
         assert_eq!(f["sous"], "Entrepôts du Val de Moselle, Ennery");
         assert_eq!(f["sources"], "Trouvée sur Adzuna et LinkedIn");
-        assert_eq!((f["double"].as_bool(), f["adzuna"].as_bool()), (Some(true), Some(true)));
+        assert_eq!(f["double"].as_bool(), Some(true));
+        // (une offre gardée avant le retrait d'Adzuna : son lien vers l'annonce reste)
+        assert_eq!(f["liens"][0]["nom"], "Voir sur Adzuna");
+        assert!(f.get("adzuna").is_none());
         assert_eq!(f["liens"][1]["nom"], "Voir sur LinkedIn");
         assert_eq!(f["candidats"], "Plus de 100 candidats sur LinkedIn, vu le 17 nov.");
         assert_eq!(f["infos"][1]["valeur"], "21 800 à 23 500 € par an");
@@ -673,7 +625,7 @@ mod tests {
             }
         }
         let mut cas = vec![exemple(), crate::offres::VIDE.clone()];
-        cas.push(VueOffres { cles: true, ..crate::offres::VIDE.clone() });
+        cas.push(VueOffres { profil: true, ..crate::offres::VIDE.clone() });
         for v in &cas {
             let e = onglet(v, j(18));
             let mut t = Vec::new();
@@ -739,14 +691,16 @@ mod tests {
     #[test]
     fn les_panneaux_vides() {
         let rien = crate::offres::VIDE.clone();
-        assert_eq!(onglet(&rien, j(18))["offres"]["vide"]["bouton"], "cles");
-        let avec_cle = VueOffres { cles: true, profil: true, ..rien.clone() };
-        assert_eq!(onglet(&avec_cle, j(18))["offres"]["vide"]["bouton"], "profil");
+        assert_eq!(onglet(&rien, j(18))["offres"]["vide"]["bouton"], "nouvelle");
+        let avec_profil = VueOffres { profil: true, ..rien.clone() };
+        assert_eq!(onglet(&avec_profil, j(18))["offres"]["vide"]["bouton"], "profil");
         let mut x = exemple();
         x.liste.clear();
         x.ouverte = None;
         x.gardees = 0;
-        assert_eq!(onglet(&x, j(18))["offres"]["vide"]["bouton"], "chercher");
+        let e = onglet(&x, j(18));
+        assert_eq!(e["offres"]["vide"]["bouton"], "chercher");
+        assert!(e["offres"]["vide"]["texte"].as_str().unwrap().contains("France Travail"));
         x.gardees = 3;
         x.filtres_actifs = true;
         let e = onglet(&x, j(18));

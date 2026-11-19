@@ -14,13 +14,10 @@
 //! (windows\systeme.rs), le signal du vrai Mindset n'est jamais levé (pont.rs) ; un fichier `capture.demande` dans
 //! le dossier de données fait écrire l'image de la fenêtre dans `capture.png`, à côté ; un fichier `ordre.demande`
 //! (un ordre au kit en JSON) est envoyé à la page (ouvrir une page ou la fiche d'une carte, pour les captures) ;
-//! `exemples.demande` remplit la base de candidatures et d'un profil inventés ; `import.demande` (le chemin d'un CV
+//! `exemples.demande` remplit la base de candidatures, d'offres gardées et d'un profil inventés ; `import.demande` (le chemin d'un CV
 //! d'essai) l'importe comme « Importer un fichier », sans la boîte « Ouvrir ».
 //!
-//! Étape 4 : les recherches d'offres partent vers un faux serveur local (127.0.0.1) qui imite Adzuna avec des offres
-//! inventées (jobmind-sources, option « faux ») ; `reseau.essai` change sa réponse.
-//!
-//! Étape 8 : la candidature est demandée au même faux serveur, qui imite aussi Claude (`/v1/messages`,
+//! Étape 8 : la candidature est demandée à un faux serveur local (127.0.0.1, jobmind-sources, option « faux »), qui imite aussi Claude (`/v1/messages`,
 //! jobmind-llm, option « faux ») ; `claude.essai` change sa réponse, `cle-claude.demande` donne une clé inventée.
 //!
 //! Étape 5 (et 5 bis) : la vue des sites n'affiche que ce même faux serveur, qui imite les quatre sites (une adresse
@@ -36,11 +33,9 @@
 use std::path::{Path, PathBuf};
 
 use jobmind_core::candidature::{Entretien, Fiche, Moyen};
-use jobmind_core::cle::Cle;
 use jobmind_core::recherche::{SaisieRecherche, verifier_recherche};
 use jobmind_core::{Heure, Jour, Statut};
 use jobmind_storage::candidatures;
-use jobmind_storage::cles::Cles;
 use jobmind_storage::profil::{self, GenreCv, NouveauCv};
 use jobmind_storage::{Journal, Moment};
 use jobmind_vie::Noms;
@@ -55,9 +50,6 @@ pub const ORDRE_DEMANDE: &str = "ordre.demande";
 pub const EXEMPLES_DEMANDE: &str = "exemples.demande";
 /// Ce fichier (le chemin d'un CV d'essai) fait importer ce CV comme « Importer un fichier », sans la boîte « Ouvrir ».
 pub const IMPORT_DEMANDE: &str = "import.demande";
-/// Étape 4 : ce fichier change la réponse du faux serveur d'Adzuna à la prochaine recherche (« coupe » : le
-/// réseau coupé, « quota », « refuse » : la clé refusée ; autre chose : normale).
-pub const RESEAU: &str = "reseau.essai";
 /// Étape 8 : ce fichier change la réponse du faux Claude local à la prochaine candidature demandée (« refus »,
 /// « quota », « cle », « surcharge », « abime », « lent », « coupe » : personne n'écoute ; autre chose : normale).
 pub const CLAUDE: &str = "claude.essai";
@@ -68,8 +60,6 @@ pub const SMTP: &str = "smtp.essai";
 /// Étape 12 : ce fichier (un chemin dans le dossier d'essai) remplace la prochaine boîte « Enregistrer sous » ou
 /// « Ouvrir » de Windows (un export, une sauvegarde, une sauvegarde à remettre) ; lu une fois, puis effacé.
 pub const FICHIER_ESSAI: &str = "fichier.essai";
-/// Étape 12 : ce fichier fait partir tout de suite le rafraîchissement automatique des recherches (faux serveur local).
-pub const RAFRAICHIR_DEMANDE: &str = "rafraichir.demande";
 /// Étape 8 : ce fichier donne la clé Claude inventée ci-dessous (le profil d'exemple n'a pas de clé Claude).
 pub const CLE_CLAUDE_DEMANDE: &str = "cle-claude.demande";
 /// Une clé Claude inventée, de la bonne forme ; elle ne part que vers le faux Claude local de l'essai.
@@ -97,7 +87,7 @@ const EXEMPLES: [Exemple; 10] = [
         "Préparateur de commandes",
         "Thionville",
         Moyen::Mail,
-        "Adzuna",
+        "Welcome to the Jungle",
         &[(Statut::Entretien, 6)],
         Some((2, 9, 30, "Zone Actipôle, Thionville")),
         "Appel de la responsable. Entretien sur place, apporter le CV et le CACES. Demander les horaires exacts.",
@@ -133,7 +123,7 @@ const EXEMPLES: [Exemple; 10] = [
         "Technicien support",
         "Nancy",
         Moyen::Site,
-        "Adzuna",
+        "France Travail",
         &[(Statut::Positive, 1)],
         None,
         "Premier échange positif, ils veulent me revoir.",
@@ -144,7 +134,7 @@ const EXEMPLES: [Exemple; 10] = [
         "Technicien réseaux",
         "Thionville",
         Moyen::Site,
-        "Adzuna",
+        "LinkedIn",
         &[(Statut::Negative, 8)],
         None,
         "Ils ont pris quelqu'un avec plus d'expérience en fibre.",
@@ -173,13 +163,7 @@ fn lettre(poste: &str) -> String {
 
 /// Remplit la base d'essai avec [`EXEMPLES`] si `exemples.demande` est là (puis le supprime). Seulement dans la
 /// construction d'essai, seulement dans son dossier de données.
-pub fn exemples_demandes(
-    dossier: &Path,
-    base: Option<&jobmind_storage::Base>,
-    cles: &mut Cles,
-    maintenant: Moment,
-    journal: &Journal,
-) {
+pub fn exemples_demandes(dossier: &Path, base: Option<&jobmind_storage::Base>, maintenant: Moment, journal: &Journal) {
     let demande = dossier.join(EXEMPLES_DEMANDE);
     if !demande.is_file() {
         return;
@@ -190,7 +174,11 @@ pub fn exemples_demandes(
         Ok(n) => journal.ecrire(&format!("Essai : {n} candidatures d'exemple ajoutées")),
         Err(e) => journal.ecrire(&format!("Essai : exemples non ajoutés ({e})")),
     }
-    match remplir_profil(b.connexion(), cles, maintenant) {
+    match remplir_offres(b.connexion(), maintenant) {
+        Ok(n) => journal.ecrire(&format!("Essai : {n} offres d'exemple gardées")),
+        Err(e) => journal.ecrire(&format!("Essai : offres d'exemple non gardées ({e})")),
+    }
+    match remplir_profil(b.connexion(), maintenant) {
         Ok(()) => journal.ecrire("Essai : profil d'exemple ajouté"),
         Err(e) => journal.ecrire(&format!("Essai : profil d'exemple non ajouté ({e})")),
     }
@@ -220,13 +208,9 @@ const STYLES: [(&str, &str); 3] = [
     ),
 ];
 
-/// Remplit le profil d'exemple : un CV collé, « Ce que je cherche », trois textes pour le style, et la clé
-/// inventée d'Adzuna (celle de Claude reste à donner), chiffrées par le vrai coffre dans le dossier d'essai.
-fn remplir_profil(
-    c: &jobmind_storage::rusqlite::Connection,
-    cles: &mut Cles,
-    maintenant: Moment,
-) -> Result<(), String> {
+/// Remplit le profil d'exemple : un CV collé, « Ce que je cherche » et trois textes pour le style (la clé de Claude
+/// reste à donner : `cle-claude.demande`).
+fn remplir_profil(c: &jobmind_storage::rusqlite::Connection, maintenant: Moment) -> Result<(), String> {
     let e = |x: jobmind_storage::rusqlite::Error| x.to_string();
     let n = NouveauCv { nom: "CV 2026", fichier: None, genre: GenreCv::Texte, texte: CV_EXEMPLE, taille: None };
     profil::ajouter_cv(c, &n, maintenant).map_err(e)?;
@@ -252,7 +236,18 @@ fn remplir_profil(
         let jour = maintenant.jour().plus(-(5 - i as i64 * 2));
         profil::ajouter_style(c, titre, texte, a_ce_jour(jour, 10)).map_err(e)?;
     }
-    cles.garder_plusieurs(&[(Cle::AdzunaId, "1a2b3c4d"), (Cle::AdzunaCle, "0123456789abcdef0123456789ab4f2a")])
+    Ok(())
+}
+
+/// Des offres gardées d'exemple (les offres inventées de jobmind-sources, comme lues sur France Travail), pour les
+/// captures de l'onglet Offres.
+fn remplir_offres(
+    c: &jobmind_storage::rusqlite::Connection,
+    maintenant: Moment,
+) -> jobmind_storage::rusqlite::Result<usize> {
+    let l = jobmind_sources::faux::offres_inventees();
+    jobmind_storage::offres::ajouter_trouvees(c, "francetravail", &l, None, maintenant)?;
+    Ok(l.len())
 }
 
 fn a_ce_jour(j: Jour, h: u32) -> Moment {
@@ -482,6 +477,7 @@ pub fn mode_smtp(t: &str) -> jobmind_mail::faux_smtp::ModeSmtp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use jobmind_storage::cles::Cles;
 
     #[test]
     fn adresses_de_la_vue_des_sites_d_essai() {
@@ -546,21 +542,22 @@ mod tests {
         }
     }
 
-    /// Le profil d'exemple des captures : un CV, ce que je cherche, trois textes, une clé sur deux (chiffrées par le
-    /// vrai DPAPI, dans un dossier d'essai).
+    /// Le profil d'exemple des captures : un CV, ce que je cherche, trois textes, aucune clé ; et douze offres gardées.
     #[test]
     fn profil_d_exemple() {
         let m = Moment::nouveau(2026, 11, 18, 9, 0, 0).unwrap();
         let (b, _) = jobmind_storage::Base::en_memoire(m).unwrap();
         let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let d = std::env::temp_dir().join(format!("JobmindEssai-{}-exemple-{n}", std::process::id()));
-        let (mut cles, _) = Cles::ouvrir(&d, Box::new(crate::windows::dpapi::Dpapi));
-        remplir_profil(b.connexion(), &mut cles, m).unwrap();
+        let (cles, _) = Cles::ouvrir(&d, Box::new(crate::windows::dpapi::Dpapi));
+        remplir_profil(b.connexion(), m).unwrap();
+        assert_eq!(remplir_offres(b.connexion(), m).unwrap(), 12);
+        assert_eq!(jobmind_storage::offres::lister(b.connexion()).unwrap().len(), 12);
         let (v, _) = crate::profil::Profil::default().vue(Some(&b), Some(&cles));
         assert_eq!((v.cvs.len(), v.style.len()), (1, 3));
         assert_eq!(v.recherche.as_ref().unwrap().postes.len(), 4);
         let e = crate::ecran::etat("0.3.0", &crate::ecran::Vue { profil: &v, ..crate::ecran::Vue::vide(m.jour()) });
-        assert_eq!(e["accueil"]["perso"]["onglets"][2]["rubriques"][3]["sous"], "1 clé sur 2");
+        assert_eq!(e["accueil"]["perso"]["onglets"][2]["rubriques"][3]["sous"], "Aucune clé pour l'instant");
         let _ = std::fs::remove_dir_all(&d);
     }
 }

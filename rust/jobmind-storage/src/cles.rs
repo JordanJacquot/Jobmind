@@ -1,4 +1,4 @@
-//! Les clés (étape 3 du plan) : celles des sources d'offres et de l'IA, jamais dans la base ni en clair. Chacune est
+//! Les clés (étape 3 du plan) : celle de l'IA, de la boîte mail et des sites, jamais dans la base ni en clair. Chacune est
 //! chiffrée par un [`Coffre`] (Windows : DPAPI, portée utilisateur, dans jobmind-app) puis gardée dans
 //! `data\cles.json` (`{"version": 1, "cles": {"claude": "<chiffré, en hexadécimal>"}}`), écrit à côté puis remplacé
 //! d'un coup. Seul le même utilisateur Windows, sur ce PC, peut les rouvrir.
@@ -6,6 +6,9 @@
 //! Ce qui reste en mémoire : les clés chiffrées, et pour l'écran les 4 derniers caractères de chacune (lus une fois à
 //! l'ouverture et à chaque changement). Une clé claire n'est rendue que par [`Cles::lire`] (les étapes 4 et 8, au
 //! moment de s'en servir). Jamais une clé au journal : seulement son nom.
+//!
+//! La clé d'une source retirée (Adzuna le 20/11/2026, Jooble avant), gardée par une ancienne version, est effacée du
+//! fichier à l'ouverture ([`RETIREES`]) : jamais lue, jamais déchiffrée.
 
 use std::collections::BTreeMap;
 use std::io::Write as _;
@@ -18,6 +21,8 @@ use serde_json::{Map, Value, json};
 pub const FICHIER: &str = "cles.json";
 /// Un fichier plus gros n'est pas une liste de clés.
 const TAILLE_MAX: u64 = 64 * 1024;
+/// Les noms des clés des sources retirées : effacées du fichier à l'ouverture.
+pub const RETIREES: [&str; 3] = ["adzuna_id", "adzuna_cle", "jooble"];
 
 /// Ce qui chiffre et déchiffre les clés (Windows : DPAPI).
 pub trait Coffre {
@@ -52,12 +57,14 @@ fn existe(p: &Path) -> bool {
     std::fs::symlink_metadata(p).is_ok()
 }
 
-/// Les clés chiffrées d'un fichier. Un fichier absent : aucune clé. Une erreur : le fichier est abîmé (la raison).
-fn lire_chemin(fichier: &Path) -> Result<BTreeMap<Cle, Vec<u8>>, String> {
+/// Les clés chiffrées d'un fichier, et s'il garde encore la clé d'une source retirée ([`RETIREES`]). Un fichier
+/// absent : aucune clé. Une erreur : le fichier est abîmé (la raison).
+fn lire_chemin(fichier: &Path) -> Result<(BTreeMap<Cle, Vec<u8>>, bool), String> {
     let mut l = BTreeMap::new();
+    let mut retiree = false;
     let m = match std::fs::metadata(fichier) {
         Ok(m) => m,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(l),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((l, false)),
         Err(e) => return Err(e.to_string()),
     };
     if m.len() > TAILLE_MAX {
@@ -67,13 +74,14 @@ fn lire_chemin(fichier: &Path) -> Result<BTreeMap<Cle, Vec<u8>>, String> {
     let v: Value = serde_json::from_str(t.trim_start_matches('\u{feff}')).map_err(|e| e.to_string())?;
     let cles = v.get("cles").and_then(Value::as_object).ok_or("pas de liste de clés")?;
     for (code, x) in cles {
+        retiree |= RETIREES.contains(&code.as_str());
         // (une clé inconnue de cette version est laissée de côté)
         let (Some(cle), Some(chiffree)) = (Cle::depuis_code(code), x.as_str().and_then(depuis_hex)) else {
             continue;
         };
         l.insert(cle, chiffree);
     }
-    Ok(l)
+    Ok((l, retiree))
 }
 
 fn depuis_hex(t: &str) -> Option<Vec<u8>> {
@@ -95,9 +103,14 @@ impl Cles {
         let fichier = Cles::chemin_dans(dossier_donnees);
         let mut c = Cles { fichier, coffre, chiffrees: BTreeMap::new(), etats: BTreeMap::new() };
         let journal = match lire_chemin(&c.fichier) {
-            Ok(l) => {
+            Ok((l, retiree)) => {
                 c.chiffrees = l;
-                None
+                // (la clé d'une source retirée : le fichier réécrit sans elle ; rien d'elle au journal)
+                match retiree.then(|| c.ecrire()) {
+                    Some(Ok(())) => Some("Clés : clé d'une source retirée effacée".to_string()),
+                    Some(Err(e)) => Some(format!("Clés : clé d'une source retirée non effacée ({e})")),
+                    None => None,
+                }
             }
             Err(r) => {
                 let abime = c.fichier.with_extension("json.abime");
@@ -105,7 +118,7 @@ impl Cles {
                 // (Jobmind arrêtée pendant une écriture : la nouvelle liste, complète et lisible, est reprise)
                 let nouveau = c.fichier.with_extension("json.nouveau");
                 match lire_chemin(&nouveau) {
-                    Ok(l) if existe(&nouveau) && std::fs::rename(&nouveau, &c.fichier).is_ok() => {
+                    Ok((l, _)) if existe(&nouveau) && std::fs::rename(&nouveau, &c.fichier).is_ok() => {
                         c.chiffrees = l;
                         Some(format!("Clés : fichier abîmé mis de côté ({r}), la dernière liste écrite reprise"))
                     }
@@ -177,7 +190,7 @@ impl Cles {
         self.garder_plusieurs(&[(cle, clair)])
     }
 
-    /// Garde plusieurs clés ensemble (les deux codes d'Adzuna) : toutes, ou aucune.
+    /// Garde plusieurs clés ensemble (l'adresse Gmail et son mot de passe) : toutes, ou aucune.
     pub fn garder_plusieurs(&mut self, cles: &[(Cle, &str)]) -> Result<(), String> {
         let avant = self.chiffrees.clone();
         for (cle, clair) in cles {
@@ -261,28 +274,56 @@ mod tests {
         assert!(j.is_none());
         assert_eq!(c.etat(Cle::Claude), None);
         c.garder(Cle::Claude, CLAUDE).unwrap();
-        c.garder_plusieurs(&[(Cle::AdzunaId, "1a2b3c4d"), (Cle::AdzunaCle, "0123456789abcdef0123456789abcdef")])
+        c.garder_plusieurs(&[(Cle::GmailAdresse, "essai.jobmind@exemple.fr"), (Cle::GmailMdp, "abcdefghijkl3c4d")])
             .unwrap();
         assert_eq!(c.etat(Cle::Claude), Some(&EtatCle::Gardee("se termine par 1111".into())));
         // Le fichier ne contient aucune clé en clair, ni en hexadécimal simple
         let f = std::fs::read_to_string(Cles::chemin_dans(&d)).unwrap();
-        for clair in [CLAUDE, "1a2b3c4d", "0123456789abcdef0123456789abcdef"] {
+        for clair in [CLAUDE, "essai.jobmind@exemple.fr", "abcdefghijkl3c4d"] {
             assert!(!f.contains(clair) && !f.contains(&hex(clair.as_bytes())), "{f}");
         }
         // Rouvert : les mêmes clés
         let (c2, _) = Cles::ouvrir(&d, Box::new(Faux(0x5A)));
         assert_eq!(c2.lire(Cle::Claude).as_deref(), Some(CLAUDE));
-        assert_eq!(c2.etat(Cle::AdzunaId), Some(&EtatCle::Gardee("se termine par 3c4d".into())));
+        assert_eq!(c2.etat(Cle::GmailMdp), Some(&EtatCle::Gardee("se termine par 3c4d".into())));
         // Un autre coffre (un autre utilisateur) ne les lit pas
         let (c3, j) = Cles::ouvrir(&d, Box::new(Faux(0x11)));
         assert_eq!(c3.etat(Cle::Claude), Some(&EtatCle::Illisible));
         assert!(j.unwrap().contains("illisibles"));
         // Effacées
-        assert!(c.effacer(&[Cle::AdzunaId, Cle::AdzunaCle]).unwrap());
+        assert!(c.effacer(&[Cle::GmailAdresse, Cle::GmailMdp]).unwrap());
         assert!(!c.effacer(&[Cle::GmailMdp]).unwrap());
         let (c4, _) = Cles::ouvrir(&d, Box::new(Faux(0x5A)));
-        assert_eq!(c4.etat(Cle::AdzunaId), None);
+        assert_eq!(c4.etat(Cle::GmailMdp), None);
         assert!(c4.etat(Cle::Claude).is_some());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// La clé d'une source retirée (Adzuna, Jooble), gardée par une ancienne version : effacée du fichier à l'ouverture,
+    /// jamais lue ni écrite au journal ; les autres clés restent, et le fichier n'est plus réécrit ensuite.
+    #[test]
+    fn cle_d_une_source_retiree_effacee() {
+        let d = dossier("retiree");
+        let (mut c, _) = Cles::ouvrir(&d, Box::new(Faux(0x5A)));
+        c.garder(Cle::Claude, CLAUDE).unwrap();
+        let f = Cles::chemin_dans(&d);
+        let ancienne = Faux(0x5A).fermer(b"0123456789abcdef0123456789abcdef").unwrap();
+        let t = std::fs::read_to_string(&f).unwrap().replace(
+            "\"cles\": {",
+            &format!("\"cles\": {{\"adzuna_id\": \"{}\", \"adzuna_cle\": \"{}\",", hex(b"1a2b3c4d"), hex(&ancienne)),
+        );
+        std::fs::write(&f, &t).unwrap();
+        assert!(std::fs::read_to_string(&f).unwrap().contains("adzuna_cle"), "{t}");
+        let (c2, j) = Cles::ouvrir(&d, Box::new(Faux(0x5A)));
+        let j = j.unwrap();
+        assert_eq!(j, "Clés : clé d'une source retirée effacée");
+        assert!(!j.contains("0123") && !j.contains("cdef"));
+        let apres = std::fs::read_to_string(&f).unwrap();
+        assert!(!apres.contains("adzuna"), "{apres}");
+        assert_eq!(c2.lire(Cle::Claude).as_deref(), Some(CLAUDE));
+        // Rouvert : plus rien à effacer
+        let (_, j) = Cles::ouvrir(&d, Box::new(Faux(0x5A)));
+        assert!(j.is_none());
         let _ = std::fs::remove_dir_all(&d);
     }
 

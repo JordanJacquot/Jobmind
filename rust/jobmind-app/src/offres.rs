@@ -1,15 +1,12 @@
 //! Les gestes de l'onglet Offres (étape 4 du plan) : ouvrir une offre, favori, « plus tard », « Pas pour moi », les
-//! filtres, les recherches gardées (tirées de « Ce que je cherche » ou tapées), « Chercher maintenant », « J'ai
-//! postulé », « Voir sur le site » (étape 5 bis : la petite fenêtre du site, crate::coulisse) ; et dans Mes clés, « Essayer
-//! la clé ». Chaque saisie est vérifiée ici par jobmind-core (jamais confiance dans la page), puis écrite dans la base.
+//! filtres, les recherches gardées (tirées de « Ce que je cherche » ou tapées, dont se servent les sites lus en
+//! coulisse : crate::coulisse), « J'ai postulé », « Voir sur le site » (étape 5 bis : la petite fenêtre du site,
+//! crate::coulisse). Chaque saisie est vérifiée ici par jobmind-core (jamais confiance dans la page), puis écrite dans
+//! la base.
 //!
-//! « Chercher maintenant » ne bloque jamais la fenêtre : le geste prépare la tâche ([`Tache`], sans aucune clé) ; le
-//! programme lit les clés au dernier moment et la fait tourner sur un fil à part (une demande à chaque source, jamais
-//! de boucle) ; le résultat revient ici ([`Offres::fini`]), qui garde chaque offre (doublons rattachés) et dit ce qui a
-//! été trouvé. Une recherche a son numéro (`jeton`) : un résultat arrivé trop tard est laissé.
-//!
-//! Jobmind reste très en dessous des limites des sources : une recherche à la fois, pas deux fois la même dans la
-//! minute, et au plus [`LIMITE_ADZUNA`] demandes par jour à Adzuna.
+//! Adzuna a été retiré le 20/11/2026 (décision de Jordan : son résumé ne disait pas le diplôme ni l'expérience
+//! demandés) : plus aucune recherche ne part d'ici. Les offres déjà gardées qui en viennent restent dans la liste, avec
+//! leur lien vers l'annonce.
 //!
 //! Le journal ne reçoit jamais une clé ni une adresse entière : seulement ce qui a été fait, et l'hôte d'un lien.
 //!
@@ -17,8 +14,8 @@
 //! un autre « Ce que je cherche » ou un autre CV est refaite (jobmind-storage, `lecture`) ; les filtres « Aucun
 //! diplôme requis » et « Débutant accepté », le tri (les plus pertinentes ou les plus récentes), la rubrique « Hors
 //! sujet » et « Pas hors sujet ». Les offres floues (les règles n'ont pas trouvé le diplôme ou l'expérience) sont
-//! données au petit modèle de Claude, par lots de [`LOT_IA`], après une recherche ou sur un clic, jamais plus de
-//! [`PLAFOND_IA`] par jour, une seule fois chacune ; sans clé Claude, seules les règles servent, et c'est dit.
+//! données au petit modèle de Claude, par lots de [`LOT_IA`], sur un clic, jamais plus de [`PLAFOND_IA`] par jour,
+//! une seule fois chacune ; sans clé Claude, seules les règles servent, et c'est dit.
 
 use std::collections::HashSet;
 use std::sync::LazyLock;
@@ -35,11 +32,9 @@ use jobmind_core::pertinence::{self, OffreANoter};
 use jobmind_core::recherche::Lieu;
 use jobmind_core::recherches::{self, NOMBRE_MAX, SaisieRechercheGardee, depuis_profil};
 use jobmind_llm::{ErreurLlm, LlmProvider, Modele};
-use jobmind_sources::{ErreurSource, OffreTrouvee, Recherche};
 use jobmind_storage::cles::{Cles, EtatCle};
 use jobmind_storage::lecture::{self as base_lecture, ResultatIa};
-use jobmind_storage::offres::{self as base_offres, Bilan, Marque, OffreComplete, RechercheGardee};
-use jobmind_storage::rafraichir::{self, EtatTour};
+use jobmind_storage::offres::{self as base_offres, Marque, OffreComplete, RechercheGardee};
 use jobmind_storage::rusqlite;
 use jobmind_storage::{Base, Moment, candidatures, profil};
 use serde_json::{Value, json};
@@ -52,20 +47,16 @@ pub const FAVORI: &str = "o-favori";
 pub const PLUS_TARD: &str = "o-plus-tard";
 pub const CACHER: &str = "o-cacher";
 pub const FILTRES: &str = "o-filtres";
-pub const CHERCHER: &str = "o-chercher";
 pub const CHOISIR: &str = "o-choisir";
 pub const RECHERCHE: &str = "o-recherche";
 pub const RECHERCHE_SUPPRIMER: &str = "o-recherche-supprimer";
 pub const DEPUIS_PROFIL: &str = "o-depuis-profil";
 pub const POSTULE: &str = "o-postule";
 pub const VOIR: &str = "o-voir";
-pub const ADZUNA: &str = "o-adzuna";
 /// Étape 6 : « Pas hors sujet » (et son contraire), « Lire avec Claude »
 pub const PAS_HORS_SUJET: &str = "o-pas-hors-sujet";
 pub const LIRE_IA: &str = "o-lire-ia";
-/// Mes clés : « Essayer la clé »
-pub const ESSAYER: &str = "cle-essayer";
-const GESTES: [&str; 16] = [
+const GESTES: [&str; 13] = [
     PAS_HORS_SUJET,
     LIRE_IA,
     OUVRIR,
@@ -73,28 +64,19 @@ const GESTES: [&str; 16] = [
     PLUS_TARD,
     CACHER,
     FILTRES,
-    CHERCHER,
     CHOISIR,
     RECHERCHE,
     RECHERCHE_SUPPRIMER,
     DEPUIS_PROFIL,
     POSTULE,
     VOIR,
-    ADZUNA,
-    ESSAYER,
 ];
 
-/// Un geste de l'onglet Offres (ou « Essayer la clé »).
+/// Un geste de l'onglet Offres.
 pub fn est_geste(id: &str) -> bool {
     GESTES.contains(&id)
 }
 
-/// Les demandes par jour que Jobmind s'autorise, par source.
-pub const LIMITE_ADZUNA: u32 = 100;
-/// La phrase quand les demandes du jour sont toutes faites.
-pub const PLAFOND: &str = "Tu as déjà fait beaucoup de recherches aujourd'hui. Réessaie demain.";
-/// Une même recherche ne repart pas avant ce nombre de secondes.
-pub const PAUSE_SECONDES: i64 = 60;
 /// La liste montre au plus ce nombre d'offres (les filtres resserrent).
 pub const LISTE_MAX: usize = 150;
 /// Étape 6 : Claude lit au plus ce nombre d'offres floues à la fois...
@@ -175,7 +157,7 @@ pub fn cout_texte(millioniemes: u64) -> String {
     }
 }
 
-/// Le nom d'une source (« Adzuna »).
+/// Le nom d'une source (« France Travail » ; « Adzuna » : les offres gardées avant son retrait).
 pub fn nom_source(code: &str) -> &'static str {
     match code {
         "adzuna" => "Adzuna",
@@ -188,32 +170,12 @@ pub fn nom_source(code: &str) -> &'static str {
     }
 }
 
-fn limite(s: Service) -> u32 {
-    if s == Service::Adzuna { LIMITE_ADZUNA } else { 0 }
-}
-
 /// La clé de ce service est entière et lisible.
 pub fn cle_prete(cles: Option<&Cles>, s: Service) -> bool {
     cles.is_some_and(|c| s.parties().iter().all(|p| matches!(c.etat(*p), Some(EtatCle::Gardee(_)))))
 }
 
-/// Ce que le fil des recherches doit faire. Aucune clé ici : le programme les lit au moment de lancer le fil.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Tache {
-    /// « Chercher maintenant » : cette recherche, chez ces sources
-    Chercher { jeton: u64, recherche_id: i64, recherche: Recherche, services: Vec<Service> },
-    /// « Essayer la clé » : une toute petite recherche
-    Essayer { jeton: u64, service: Service },
-}
-
-/// Ce que le fil rapporte : chaque source et sa réponse.
-#[derive(Debug, Clone)]
-pub struct Retour {
-    pub jeton: u64,
-    pub resultats: Vec<(Service, Result<Vec<OffreTrouvee>, ErreurSource>)>,
-}
-
-/// La phrase sous « Chercher maintenant » : ce qu'a donné la dernière fois, ou ce qui ne va pas.
+/// La phrase sous « Lire avec Claude » : ce qu'a donné la dernière lecture, ou ce qui ne va pas.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Annonce {
     pub texte: String,
@@ -221,28 +183,6 @@ pub struct Annonce {
     pub genre: &'static str,
     /// Le souci vient d'une clé : l'écran propose « Ouvrir Mes clés »
     pub cles: bool,
-}
-
-/// Une recherche en cours.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EnCours {
-    pub jeton: u64,
-    pub recherche_id: Option<i64>,
-    pub texte: String,
-    /// Étape 12 : refaite toute seule (le rafraîchissement automatique), sans bulle de l'écran
-    pub auto: bool,
-}
-
-/// Étape 12 : un tour du rafraîchissement automatique : les recherches qui restent à refaire, son moment, ce qu'il a
-/// trouvé jusqu'ici.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Tour {
-    pub file: Vec<i64>,
-    pub le: Moment,
-    pub nouvelles: usize,
-    pub erreurs: usize,
-    /// Les sources dont la clé était prête au début du tour (aucune clé ici)
-    pub services: Vec<Service>,
 }
 
 /// Ce que l'écran montre de l'onglet Offres, lu dans la base.
@@ -262,12 +202,8 @@ pub struct VueOffres {
     pub ouverte: Option<OffreComplete>,
     pub recherches: Vec<RechercheGardee>,
     pub recherche: Option<i64>,
-    pub en_cours: Option<String>,
-    pub annonce: Option<Annonce>,
     pub saisie: SaisieFiltres,
     pub filtres_actifs: bool,
-    /// La clé Adzuna est prête
-    pub cles: bool,
     /// « Ce que je cherche » est enregistré
     pub profil: bool,
     /// Étape 6 : le nombre d'offres rangées hors sujet, et d'offres floues que Claude pourrait lire
@@ -294,23 +230,17 @@ fn saisie_vide() -> SaisieFiltres {
     }
 }
 
-/// L'onglet Offres : l'offre ouverte, les filtres, la recherche choisie, celle en cours.
+/// L'onglet Offres : l'offre ouverte, les filtres, la recherche choisie.
 #[derive(Debug, Clone)]
 pub struct Offres {
     pub ouverte: Option<i64>,
     pub filtres: Filtres,
     pub saisie: SaisieFiltres,
     pub recherche: Option<i64>,
-    pub en_cours: Option<EnCours>,
-    pub annonce: Option<Annonce>,
-    /// Le moment où chaque recherche est partie (pas deux fois dans la minute)
-    parties: Vec<(i64, i64)>,
     jetons: u64,
     /// Étape 6 : la lecture par Claude en cours (son jeton, le nombre d'offres), et ce qu'a donné la dernière
     pub ia: Option<(u64, usize)>,
     pub ia_annonce: Option<Annonce>,
-    /// Étape 12 : le tour du rafraîchissement automatique en cours
-    pub tour: Option<Tour>,
 }
 
 impl Default for Offres {
@@ -320,13 +250,9 @@ impl Default for Offres {
             filtres: Filtres::tous(),
             saisie: saisie_vide(),
             recherche: None,
-            en_cours: None,
-            annonce: None,
-            parties: Vec::new(),
             jetons: 0,
             ia: None,
             ia_annonce: None,
-            tour: None,
         }
     }
 }
@@ -362,7 +288,7 @@ pub struct Contexte<'a> {
 }
 
 impl Offres {
-    /// Une sauvegarde vient d'être remise : tout revient au départ, sauf le compteur des demandes (un vieux résultat
+    /// Une sauvegarde vient d'être remise : tout revient au départ, sauf le compteur des lectures (un vieux résultat
     /// n'est jamais pris pour un nouveau).
     pub fn apres_remise(&mut self) {
         let jetons = self.jetons;
@@ -375,9 +301,6 @@ impl Offres {
         let mut v = VueOffres {
             saisie: self.saisie.clone(),
             filtres_actifs: self.filtres.actifs(),
-            en_cours: self.en_cours.as_ref().map(|e| e.texte.clone()),
-            annonce: self.annonce.clone(),
-            cles: cle_prete(cles, Service::Adzuna),
             claude: cle_prete(cles, Service::Claude),
             ia_en_cours: self
                 .ia
@@ -450,17 +373,6 @@ impl Offres {
         if id == FILTRES {
             return self.filtrer(valeur);
         }
-        if id == ADZUNA {
-            return Fait {
-                voir: Some(jobmind_sources::adzuna::SITE.to_string()),
-                journal: Some("Offres : site d'Adzuna demandé (petite fenêtre du site)".into()),
-                change: true,
-                ..Fait::default()
-            };
-        }
-        if id == ESSAYER {
-            return self.essayer(ctx, valeur, maintenant);
-        }
         let Some(base) = ctx.base else {
             return Fait::refus(
                 crate::suivi::SANS_BASE,
@@ -476,14 +388,13 @@ impl Offres {
                 self.recherche = numero(valeur);
                 Ok(Fait { change: true, ..Fait::default() })
             }
-            CHERCHER => self.chercher(base, ctx.cles, valeur, maintenant, false),
             RECHERCHE => self.enregistrer_recherche(base, valeur, maintenant),
             RECHERCHE_SUPPRIMER => supprimer_recherche(base, valeur),
             DEPUIS_PROFIL => self.depuis_profil(base, maintenant),
             POSTULE => postule(base, valeur, maintenant),
             VOIR => voir(base, valeur),
             PAS_HORS_SUJET => marquer(base, valeur, Marque::PasHorsSujet),
-            LIRE_IA => return self.lire_floues(ctx, numero(valeur), false, maintenant),
+            LIRE_IA => return self.lire_floues(ctx, numero(valeur), maintenant),
             _ => Ok(Fait::default()),
         };
         r.unwrap_or_else(|e| Fait::refus(PAS_ENREGISTRE, format!("Offres : {id} non enregistré ({e})")))
@@ -524,396 +435,13 @@ impl Offres {
         }
     }
 
-    /// « Chercher maintenant » : la tâche du fil des recherches, si une clé est prête et les limites le permettent.
-    fn chercher(
-        &mut self,
-        base: &Base,
-        cles: Option<&Cles>,
-        v: &Value,
-        maintenant: Moment,
-        auto: bool,
-    ) -> rusqlite::Result<Fait> {
-        let c = base.connexion();
-        if self.en_cours.is_some() {
-            return Ok(message("Une recherche est déjà en cours : attends sa fin."));
-        }
-        let rid = numero(v).or(self.recherche);
-        let Some(r) = base_offres::lister_recherches(c)?.into_iter().find(|r| Some(r.id) == rid) else {
-            return Ok(message("Choisis d'abord une recherche."));
-        };
-        // (étape 12 : refaite toute seule, les sources prêtes au début du tour)
-        let prets: Vec<Service> = match (&self.tour, auto) {
-            (Some(t), true) => t.services.clone(),
-            _ => [Service::Adzuna].into_iter().filter(|s| cle_prete(cles, *s)).collect(),
-        };
-        if prets.is_empty() {
-            let t = "Pour chercher des offres, Jobmind a besoin de ta clé Adzuna. Donne-la dans Mon profil, \
-                     rubrique Mes clés.";
-            if auto {
-                return Ok(message(t));
-            }
-            self.annonce = Some(Annonce { texte: t.into(), genre: "erreur", cles: true });
-            return Ok(Fait {
-                message: Some(t.into()),
-                journal: Some("Offres : recherche impossible, aucune clé".into()),
-                change: true,
-                ..Fait::default()
-            });
-        }
-        let s = maintenant.secondes();
-        self.parties.retain(|(_, quand)| s - quand < PAUSE_SECONDES);
-        if self.parties.iter().any(|(x, _)| *x == r.id) {
-            return Ok(message("Cette recherche vient d'être faite. Réessaie dans une minute."));
-        }
-        // Les limites du jour, comptées avant de partir
-        let jour = maintenant.jour();
-        let mut services = Vec::new();
-        for sv in prets {
-            if base_offres::appels(c, jour, sv.code())? < limite(sv) {
-                base_offres::compter_appel(c, jour, sv.code())?;
-                services.push(sv);
-            }
-        }
-        if services.is_empty() {
-            return Ok(message(PLAFOND));
-        }
-        self.parties.push((r.id, s));
-        self.jetons += 1;
-        let (lieu, rayon) = recherches::lieu_pour_source(&r.lieu);
-        // (une ville prise dans les propositions, « Sarrebourg (57400) » : Adzuna cherche par le nom seul)
-        let lieu = jobmind_sources::communes::nom_seul(&lieu);
-        let noms = offre::noms_sources(&services.iter().map(|x| nom_source(x.code())).collect::<Vec<_>>());
-        if !auto {
-            self.recherche = Some(r.id);
-        }
-        self.en_cours = Some(EnCours {
-            jeton: self.jetons,
-            recherche_id: Some(r.id),
-            texte: if auto {
-                format!("Jobmind refait toute seule la recherche « {} » sur {noms}...", r.nom)
-            } else {
-                format!("Recherche « {} » en cours sur {noms}...", r.nom)
-            },
-            auto,
-        });
-        Ok(Fait {
-            reseau: Some(Tache::Chercher {
-                jeton: self.jetons,
-                recherche_id: r.id,
-                recherche: Recherche { mots_cles: r.mots.clone(), lieu, rayon_km: rayon, nombre: 0 },
-                services: services.clone(),
-            }),
-            journal: Some(format!(
-                "Offres : recherche {} lancée ({})",
-                r.id,
-                services.iter().map(|s| s.code()).collect::<Vec<_>>().join(", ")
-            )),
-            change: true,
-            ..Fait::default()
-        })
-    }
-
-    /// « Essayer la clé » (Mes clés) : une toute petite recherche, comptée comme les autres.
-    fn essayer(&mut self, ctx: &Contexte, v: &Value, maintenant: Moment) -> Fait {
-        let service = match Service::depuis_code(&texte(v, "service")) {
-            Some(s @ Service::Adzuna) => s,
-            _ => return Fait::default(),
-        };
-        let nom = nom_source(service.code());
-        if !cle_prete(ctx.cles, service) {
-            return message(format!("Donne d'abord ta clé {nom}."));
-        }
-        if self.en_cours.is_some() {
-            return message("Une recherche est déjà en cours : attends sa fin.");
-        }
+    /// Étape 6 : les offres floues données à Claude, sur un clic (`seule` : celle-ci seulement, sur un clic dans
+    /// l'offre).
+    pub fn lire_floues(&mut self, ctx: &Contexte, seule: Option<i64>, maintenant: Moment) -> Fait {
         let Some(base) = ctx.base else {
-            return Fait::refus(crate::suivi::SANS_BASE, "Offres : essai impossible, la base n'est pas ouverte".into());
-        };
-        let jour = maintenant.jour();
-        let compte = base_offres::appels(base.connexion(), jour, service.code()).and_then(|n| {
-            if n < limite(service) {
-                base_offres::compter_appel(base.connexion(), jour, service.code()).map(Some)
-            } else {
-                Ok(None)
-            }
-        });
-        match compte {
-            Ok(Some(_)) => {}
-            Ok(None) => return message("Tu as déjà fait beaucoup de recherches aujourd'hui. Réessaie demain."),
-            Err(e) => return Fait::refus(PAS_ENREGISTRE, format!("Offres : essai non compté ({e})")),
-        }
-        self.jetons += 1;
-        self.en_cours = Some(EnCours {
-            jeton: self.jetons,
-            recherche_id: None,
-            texte: format!("Essai de la clé {nom} en cours..."),
-            auto: false,
-        });
-        Fait {
-            message: Some(format!("Essai de la clé {nom} en cours...")),
-            reseau: Some(Tache::Essayer { jeton: self.jetons, service }),
-            journal: Some(format!("Clés : essai de la clé {} lancé", service.code())),
-            change: true,
-            ..Fait::default()
-        }
-    }
-
-    /// Le résultat du fil des recherches : chaque offre gardée, ce qui a été trouvé dit en une phrase.
-    pub fn fini(&mut self, base: Option<&Base>, r: Retour, maintenant: Moment) -> Fait {
-        let Some(en_cours) = self.en_cours.as_ref().filter(|e| e.jeton == r.jeton).cloned() else {
-            return Fait {
-                journal: Some("Offres : résultat d'une recherche abandonnée, laissé".into()),
-                ..Fait::default()
-            };
-        };
-        self.en_cours = None;
-        let Some(rid) = en_cours.recherche_id else { return essai_fini(r) };
-        let Some(base) = base else {
-            return Fait::refus(crate::suivi::SANS_BASE, "Offres : résultat perdu, la base n'est pas ouverte".into());
-        };
-        let mut bilan = Bilan::default();
-        let mut trouvees = 0usize;
-        let mut ok: Vec<&str> = Vec::new();
-        let mut erreurs: Vec<ErreurSource> = Vec::new();
-        let mut journal: Vec<String> = Vec::new();
-        for (s, res) in &r.resultats {
-            match res {
-                Ok(l) => match base_offres::ajouter_trouvees(base.connexion(), s.code(), l, Some(rid), maintenant) {
-                    Ok(b) => {
-                        bilan.ajouter(b);
-                        trouvees += l.len();
-                        ok.push(nom_source(s.code()));
-                        journal.push(format!("{} : {} offres, {} nouvelles", s.code(), l.len(), b.nouvelles));
-                    }
-                    Err(e) => {
-                        journal.push(format!("{} : non gardées ({e})", s.code()));
-                        erreurs.push(ErreurSource::Illisible(nom_source(s.code()).into(), "base".into()));
-                    }
-                },
-                Err(e) => {
-                    journal.push(format!("{} : {} ({e})", s.code(), e.code()));
-                    erreurs.push(e.clone());
-                }
-            }
-        }
-        let mut texte = String::new();
-        if !ok.is_empty() {
-            texte = if trouvees == 0 {
-                format!(
-                    "Aucune offre trouvée sur {}. Essaie d'autres mots ou un lieu plus large.",
-                    offre::noms_sources(&ok)
-                )
-            } else {
-                let nouv = match bilan.nouvelles - bilan.fusionnees {
-                    0 => "aucune nouvelle".to_string(),
-                    1 => "1 nouvelle".to_string(),
-                    n => format!("{n} nouvelles"),
-                };
-                let mut t = format!("{} trouvées sur {}, dont {nouv}.", n_offres(trouvees), offre::noms_sources(&ok));
-                if trouvees == 1 {
-                    t = t.replacen("trouvées", "trouvée", 1);
-                }
-                if bilan.fusionnees > 0 {
-                    t.push_str(" Les offres en double sont regroupées.");
-                }
-                t
-            };
-        }
-        // (un même souci chez plusieurs sources : une seule phrase)
-        let mut dits: Vec<&str> = Vec::new();
-        for e in &erreurs {
-            if dits.contains(&e.code()) {
-                continue;
-            }
-            dits.push(e.code());
-            let memes: Vec<&str> = erreurs.iter().filter(|x| x.code() == e.code()).map(ErreurSource::source).collect();
-            if !texte.is_empty() {
-                texte.push(' ');
-            }
-            texte.push_str(&if memes.len() > 1 { e.message_groupe(&offre::noms_sources(&memes)) } else { e.message() });
-        }
-        let genre = match (ok.is_empty(), erreurs.is_empty()) {
-            (_, true) => "ok",
-            (false, false) => "attention",
-            (true, false) => "erreur",
-        };
-        let cles = erreurs.iter().any(ErreurSource::vient_de_la_cle);
-        let nombre = i64::try_from(trouvees).unwrap_or(i64::MAX);
-        let _ = base_offres::noter_recherche(base.connexion(), rid, maintenant, nombre, &texte);
-        // (étape 12 : refaite toute seule : notée, sans bulle de l'écran ; puis la recherche suivante du tour)
-        if en_cours.auto {
-            let nouvelles = bilan.nouvelles.saturating_sub(bilan.fusionnees);
-            let etat = if ok.is_empty() { EtatTour::Erreur } else { EtatTour::Ok };
-            let _ = rafraichir::noter(base.connexion(), maintenant, Some(rid), trouvees, nouvelles, etat, &texte);
-            let journal = format!("Offres : recherche {rid} refaite toute seule ({})", journal.join(" ; "));
-            let Some(tour) = self.tour.as_mut() else {
-                return Fait { journal: Some(journal), change: true, ..Fait::default() };
-            };
-            tour.nouvelles += nouvelles;
-            if ok.is_empty() {
-                // (aucune source n'a répondu : le réseau ou les clés ; le tour s'arrête là, rien n'est redemandé)
-                tour.erreurs += 1;
-                tour.file.clear();
-            }
-            let mut f = self.suivante(base, maintenant);
-            // (la suite d'abord : la fin du tour, ou la recherche suivante, se lit au journal même coupé)
-            f.journal = Some(match f.journal {
-                Some(j) => format!("{j} ; {journal}"),
-                None => journal,
-            });
-            f.change = true;
-            return f;
-        }
-        self.annonce = Some(Annonce { texte: texte.clone(), genre, cles });
-        Fait {
-            message: Some(texte),
-            bravo: bilan.nouvelles > bilan.fusionnees,
-            journal: Some(format!("Offres : recherche {rid} finie ({})", journal.join(" ; "))),
-            change: true,
-            ..Fait::default()
-        }
-    }
-
-    /// Étape 12 : le rafraîchissement automatique (le programme l'appelle quand un tour est dû) : chaque recherche
-    /// gardée refaite chez Adzuna seulement, l'une après l'autre, dans les mêmes limites que « Chercher
-    /// maintenant » (une à la fois, pas deux fois la même dans la minute, les demandes du jour comptées) ; jamais un
-    /// site (LinkedIn, Indeed, Welcome to the Jungle, France Travail). Rien ne part si une recherche est déjà en cours,
-    /// ou sans clé.
-    pub fn rafraichir(&mut self, base: &Base, cles: Option<&Cles>, maintenant: Moment) -> Fait {
-        if self.en_cours.is_some() || self.tour.is_some() {
-            return Fait::default();
-        }
-        let services: Vec<Service> = [Service::Adzuna].into_iter().filter(|s| cle_prete(cles, *s)).collect();
-        let c = base.connexion();
-        if let Err(e) = rafraichir::commencer(c, maintenant) {
-            return Fait { journal: Some(format!("Offres : rafraîchissement non noté ({e})")), ..Fait::default() };
-        }
-        if services.is_empty() {
-            return Fait {
-                journal: Some("Offres : rafraîchissement automatique laissé (aucune clé Adzuna)".into()),
-                ..Fait::default()
-            };
-        }
-        let file: Vec<i64> = match base_offres::lister_recherches(c) {
-            Ok(l) => l.into_iter().map(|r| r.id).collect(),
-            Err(e) => {
-                return Fait {
-                    journal: Some(format!("Offres : rafraîchissement impossible ({e})")),
-                    ..Fait::default()
-                };
-            }
-        };
-        if file.is_empty() {
-            return Fait {
-                journal: Some("Offres : rafraîchissement automatique laissé (aucune recherche gardée)".into()),
-                ..Fait::default()
-            };
-        }
-        let n = file.len();
-        self.tour = Some(Tour { file, le: maintenant, nouvelles: 0, erreurs: 0, services });
-        let mut f = self.suivante(base, maintenant);
-        let debut = format!("Offres : rafraîchissement automatique ({n} recherche{})", if n > 1 { "s" } else { "" });
-        f.journal = Some(match f.journal {
-            Some(j) => format!("{debut} ; {j}"),
-            None => debut,
-        });
-        f
-    }
-
-    /// Étape 12 : la recherche suivante du tour (une recherche disparue ou faite il y a moins d'une minute est
-    /// passée ; le plafond du jour atteint arrête le tour), ou la fin du tour.
-    fn suivante(&mut self, base: &Base, maintenant: Moment) -> Fait {
-        loop {
-            let Some(tour) = self.tour.as_mut() else { return Fait::default() };
-            if tour.file.is_empty() {
-                return self.finir_tour(base);
-            }
-            let rid = tour.file.remove(0);
-            match self.chercher(base, None, &json!({ "id": rid }), maintenant, true) {
-                Ok(f) if f.reseau.is_some() => return Fait { message: None, bravo: false, ..f },
-                Ok(f) if f.message.as_deref() == Some(PLAFOND) => {
-                    let _ =
-                        rafraichir::noter(base.connexion(), maintenant, Some(rid), 0, 0, EtatTour::Plafond, PLAFOND);
-                    if let Some(t) = self.tour.as_mut() {
-                        t.file.clear();
-                    }
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    let _ = rafraichir::noter(base.connexion(), maintenant, Some(rid), 0, 0, EtatTour::Erreur, "base");
-                    if let Some(t) = self.tour.as_mut() {
-                        t.file.clear();
-                        t.erreurs += 1;
-                    }
-                    let mut f = self.finir_tour(base);
-                    f.journal = Some(format!("{} (base : {e})", f.journal.unwrap_or_default()));
-                    return f;
-                }
-            }
-        }
-    }
-
-    /// Étape 12 : la fin d'un tour : les nouvelles offres comptées pour la carte de Mindset, et la bulle « 5 nouvelles
-    /// offres », une seule fois.
-    fn finir_tour(&mut self, base: &Base) -> Fait {
-        let Some(tour) = self.tour.take() else { return Fait::default() };
-        let c = base.connexion();
-        let _ = rafraichir::ajouter_nouvelles(c, tour.nouvelles);
-        let bulle = jobmind_storage::bulles::retenir_offres(c, tour.nouvelles, tour.le).ok().flatten();
-        Fait {
-            journal: Some(format!(
-                "Offres : rafraîchissement automatique fini ({} nouvelle(s) offre(s){}{})",
-                tour.nouvelles,
-                if tour.erreurs > 0 { ", une source n'a pas répondu" } else { "" },
-                if bulle.is_some() { ", bulle mise en attente" } else { "" }
-            )),
-            change: true,
-            ..Fait::default()
-        }
-    }
-
-    /// Étape 12 : un tour du rafraîchissement automatique est en cours.
-    pub fn tour_en_cours(&self) -> bool {
-        self.tour.is_some()
-    }
-
-    /// Étape 12 : la recherche en cours est refaite toute seule.
-    pub fn auto_en_cours(&self) -> bool {
-        self.en_cours.as_ref().is_some_and(|e| e.auto)
-    }
-
-    /// La recherche a duré trop longtemps : abandonnée (un résultat qui arriverait ensuite est laissé).
-    pub fn trop_long(&mut self) -> Fait {
-        // (étape 12 : refaite toute seule : le tour s'arrête sans rien dire à l'écran)
-        if self.en_cours.take().is_some_and(|e| e.auto) {
-            self.tour = None;
-            return Fait {
-                journal: Some("Offres : recherche refaite toute seule trop longue, tour arrêté".into()),
-                change: true,
-                ..Fait::default()
-            };
-        }
-        self.en_cours = None;
-        let t = "La recherche a pris trop de temps. Vérifie ta connexion à internet, puis réessaie.";
-        self.annonce = Some(Annonce { texte: t.into(), genre: "erreur", cles: false });
-        Fait::refus(t, "Offres : recherche trop longue, abandonnée".into())
-    }
-
-    /// Étape 6 : les offres floues données à Claude (`seule` : celle-ci seulement, sur un clic dans l'offre). `auto` :
-    /// après une recherche, sans rien dire s'il n'y a rien à faire (pas de clé, rien de flou, le plafond atteint).
-    pub fn lire_floues(&mut self, ctx: &Contexte, seule: Option<i64>, auto: bool, maintenant: Moment) -> Fait {
-        let silence = |j: &str| Fait { journal: Some(j.into()), ..Fait::default() };
-        let Some(base) = ctx.base else {
-            return if auto {
-                Fait::default()
-            } else {
-                Fait::refus(crate::suivi::SANS_BASE, "IA : base fermée".into())
-            };
+            return Fait::refus(crate::suivi::SANS_BASE, "IA : base fermée".into());
         };
         if !cle_prete(ctx.cles, Service::Claude) {
-            if auto {
-                return Fait::default();
-            }
             let t = ErreurLlm::CleManquante.message();
             self.ia_annonce = Some(Annonce { texte: t.clone(), genre: "attention", cles: true });
             return Fait {
@@ -924,11 +452,7 @@ impl Offres {
             };
         }
         if self.ia.is_some() {
-            return if auto {
-                silence("IA : une lecture est déjà en cours")
-            } else {
-                message("Claude lit déjà des offres : attends la fin.")
-            };
+            return message("Claude lit déjà des offres : attends la fin.");
         }
         let c = base.connexion();
         let lu = (|| -> rusqlite::Result<(u32, Vec<OffreIa>)> {
@@ -949,17 +473,9 @@ impl Offres {
         };
         if offres.is_empty() {
             if deja >= PLAFOND_IA {
-                return if auto {
-                    silence("IA : plafond du jour atteint")
-                } else {
-                    message(format!("Claude a déjà lu {PLAFOND_IA} offres aujourd'hui. La suite demain."))
-                };
+                return message(format!("Claude a déjà lu {PLAFOND_IA} offres aujourd'hui. La suite demain."));
             }
-            return if auto {
-                Fait::default()
-            } else {
-                message("Aucune offre floue à lire : Jobmind a déjà tout compris.")
-            };
+            return message("Aucune offre floue à lire : Jobmind a déjà tout compris.");
         }
         self.jetons += 1;
         let n = offres.len();
@@ -1053,11 +569,6 @@ impl Offres {
     /// Le jeton de la lecture par Claude en cours.
     pub fn jeton_ia(&self) -> Option<u64> {
         self.ia.map(|x| x.0)
-    }
-
-    /// Le jeton de la recherche en cours.
-    pub fn jeton_en_cours(&self) -> Option<u64> {
-        self.en_cours.as_ref().map(|e| e.jeton)
     }
 
     fn enregistrer_recherche(&mut self, base: &Base, v: &Value, maintenant: Moment) -> rusqlite::Result<Fait> {
@@ -1186,27 +697,6 @@ fn preparer(c: &rusqlite::Connection) -> rusqlite::Result<()> {
         )
     })?;
     Ok(())
-}
-
-/// Le résultat d'un essai de clé.
-fn essai_fini(r: Retour) -> Fait {
-    let Some((s, res)) = r.resultats.into_iter().next() else { return Fait { change: true, ..Fait::default() } };
-    let nom = nom_source(s.code());
-    match res {
-        Ok(_) => Fait {
-            message: Some(format!("La clé {nom} marche : {nom} a bien répondu.")),
-            bravo: true,
-            journal: Some(format!("Clés : essai de la clé {} réussi", s.code())),
-            change: true,
-            ..Fait::default()
-        },
-        Err(e) => Fait {
-            message: Some(e.message()),
-            journal: Some(format!("Clés : essai de la clé {} : {} ({e})", s.code(), e.code())),
-            change: true,
-            ..Fait::default()
-        },
-    }
 }
 
 fn marquer(base: &Base, v: &Value, m: Marque) -> rusqlite::Result<Fait> {
@@ -1338,7 +828,7 @@ pub fn cles_claires(cles: &Cles, s: Service) -> Option<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jobmind_sources::{adzuna, faux};
+    use jobmind_sources::{OffreTrouvee, faux};
     use jobmind_storage::cles::Coffre;
 
     /// Après la remise d'une sauvegarde : l'écran revient au départ, le compteur des demandes continue (un vieux
@@ -1379,18 +869,22 @@ mod tests {
         d
     }
 
-    fn reponses() -> Vec<(Service, Result<Vec<OffreTrouvee>, ErreurSource>)> {
-        vec![(Service::Adzuna, adzuna::lire(200, &faux::reponse_adzuna(), false))]
+    /// Des offres gardées avant le retrait d'Adzuna : les offres inventées, avec le lien d'Adzuna vers l'annonce.
+    fn anciennes_adzuna() -> Vec<OffreTrouvee> {
+        faux::offres_inventees()
+            .into_iter()
+            .map(|o| OffreTrouvee { url: format!("https://www.adzuna.fr/land/ad/{}?se=essai", o.id_source), ..o })
+            .collect()
     }
 
-    /// Le scénario de l'écran : sans clé, « Chercher maintenant » renvoie vers Mes clés ; les recherches tirées de
-    /// « Ce que je cherche » ; avec les clés, la tâche part (sans clé dedans), le résultat est gardé, les doublons
-    /// regroupés ; pas deux fois dans la minute ; puis favori, filtre, « J'ai postulé ».
+    /// Le scénario de l'écran : les recherches tirées de « Ce que je cherche » ; les offres gardées avant le retrait
+    /// d'Adzuna restent dans la liste (rangées, lues, notées) ; puis favori, filtre, « J'ai postulé » et « Voir sur le
+    /// site » vers l'annonce d'Adzuna. Plus aucune recherche ne part d'ici.
     #[test]
-    fn scenario_chercher_garder_filtrer_postuler() {
+    fn scenario_offres_gardees_filtrer_postuler() {
         let d = essai("offres");
         let (b, _) = Base::en_memoire(m(9, 0)).unwrap();
-        let (mut cles, _) = Cles::ouvrir(&d, Box::new(Faux));
+        let (cles, _) = Cles::ouvrir(&d, Box::new(Faux));
         let mut o = Offres::default();
         // Ce que je cherche, puis les recherches qui en viennent
         let s = jobmind_core::recherche::verifier_recherche(&jobmind_core::recherche::SaisieRecherche {
@@ -1407,53 +901,19 @@ mod tests {
         assert_eq!(f.message.as_deref(), Some("2 recherches créées à partir de « Ce que je cherche »."));
         let f = o.geste(&Contexte { base: Some(&b), cles: Some(&cles) }, DEPUIS_PROFIL, &Value::Null, m(9, 0));
         assert_eq!(f.message.as_deref(), Some("Tes recherches sont déjà là."));
-        // Sans clé : rien ne part, l'annonce renvoie vers Mes clés
-        let f = o.geste(&Contexte { base: Some(&b), cles: Some(&cles) }, CHERCHER, &json!({}), m(9, 1));
-        assert!(f.reseau.is_none());
-        assert!(f.message.unwrap().contains("Mes clés"));
-        assert!(o.annonce.as_ref().unwrap().cles);
-        // Avec la clé Adzuna
-        cles.garder_plusieurs(&[(Cle::AdzunaId, "1a2b3c4d"), (Cle::AdzunaCle, "0123456789abcdef0123456789abcdef")])
-            .unwrap();
         let ctx = Contexte { base: Some(&b), cles: Some(&cles) };
-        let f = o.geste(&ctx, CHERCHER, &json!({}), m(9, 2));
-        let Some(Tache::Chercher { jeton, recherche_id, recherche, services }) = f.reseau.clone() else {
-            panic!("{f:?}")
-        };
-        assert_eq!(services, [Service::Adzuna]);
-        assert_eq!(
-            (recherche.mots_cles.as_str(), recherche.lieu.as_str(), recherche.rayon_km),
-            ("agent de quai", "Metz", 30)
-        );
-        // La tâche ne contient aucune clé
-        let t = format!("{f:?}");
-        assert!(!t.contains("0123456789abcdef") && !t.contains("1a2b3c4d"), "{t}");
-        let (v, _) = o.vue(Some(&b), Some(&cles));
-        assert_eq!(v.en_cours.as_deref(), Some("Recherche « Agent de quai » en cours sur Adzuna..."));
-        // Une seconde pendant la première : refusée
-        assert!(o.geste(&ctx, CHERCHER, &json!({}), m(9, 2)).reseau.is_none());
-        // Le résultat : 12 offres, 12 gardées, l'annonce
-        let f = o.fini(Some(&b), Retour { jeton, resultats: reponses() }, m(9, 3));
-        assert_eq!(f.message.as_deref(), Some("12 offres trouvées sur Adzuna, dont 12 nouvelles."));
-        assert!(f.bravo);
-        assert!(
-            f.journal
-                .as_deref()
-                .unwrap()
-                .starts_with(&format!("Offres : recherche {recherche_id} finie (adzuna : 12 offres"))
-        );
+        // Les recherches d'avant ne partent plus : « Chercher maintenant » et « Essayer la clé » ne sont plus des gestes
+        for retire in ["o-chercher", "o-adzuna", "cle-essayer"] {
+            assert!(!est_geste(retire), "{retire}");
+            assert_eq!(o.geste(&ctx, retire, &json!({ "service": "adzuna" }), m(9, 1)), Fait::default());
+        }
+        // Les offres gardées par une ancienne recherche chez Adzuna
+        let recherche_id = o.vue(Some(&b), Some(&cles)).0.recherches[0].id;
+        base_offres::ajouter_trouvees(b.connexion(), "adzuna", &anciennes_adzuna(), Some(recherche_id), m(9, 3))
+            .unwrap();
         let (v, _) = o.vue(Some(&b), Some(&cles));
         // (étape 6 : les offres qui ne parlent ni d'agent de quai ni de cariste sont rangées dans « Hors sujet »)
         assert_eq!((v.gardees, v.total, v.nouvelles, v.liste.len(), v.hors_sujet), (12, 4, 12, 4, 8));
-        assert_eq!(v.recherches[0].dernier_nombre, Some(12));
-        assert!(v.en_cours.is_none());
-        // Un résultat qui arrive trop tard : laissé
-        assert!(o.fini(Some(&b), Retour { jeton, resultats: reponses() }, m(9, 3)).message.is_none());
-        // Pas deux fois dans la minute ; les demandes du jour comptées
-        let f =
-            o.geste(&ctx, CHERCHER, &json!({ "id": recherche_id }), Moment::nouveau(2026, 11, 18, 9, 2, 50).unwrap());
-        assert_eq!(f.message.as_deref(), Some("Cette recherche vient d'être faite. Réessaie dans une minute."));
-        assert_eq!(base_offres::appels(b.connexion(), m(9, 0).jour(), "adzuna").unwrap(), 1);
         // Ouvrir, favori, cacher
         let quai = v.liste.iter().find(|x| x.titre == "Agent de quai H/F").unwrap().id;
         o.geste(&ctx, OUVRIR, &json!({ "id": quai }), m(9, 4));
@@ -1471,8 +931,7 @@ mod tests {
         assert_eq!(v.liste.iter().map(|x| x.titre.as_str()).collect::<Vec<_>>(), ["Cariste CACES 3"]);
         assert_eq!(v.ouverte.as_ref().unwrap().offre.titre, "Cariste CACES 3");
         o.geste(&ctx, FILTRES, &json!({ "genre": "departement", "departement": "54" }), m(9, 5));
-        // (Nancy et Pont-à-Mousson chez Adzuna ; étape 6 : les
-        // deux sont hors sujet pour « agent de quai, cariste »)
+        // (Nancy et Pont-à-Mousson ; étape 6 : les deux sont hors sujet pour « agent de quai, cariste »)
         assert_eq!(o.vue(Some(&b), Some(&cles)).0.total, 0);
         o.geste(&ctx, FILTRES, &json!({ "genre": "departement", "departement": "54", "liste": "hors_sujet" }), m(9, 5));
         assert_eq!(o.vue(Some(&b), Some(&cles)).0.total, 2);
@@ -1501,102 +960,14 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
-    /// Les erreurs de la source : Adzuna ne répond pas, refuse la clé ; la recherche trop longue ; l'essai d'une clé.
-    #[test]
-    fn erreurs_et_essai_de_cle() {
-        let d = essai("offres-erreurs");
-        let (b, _) = Base::en_memoire(m(9, 0)).unwrap();
-        let (mut cles, _) = Cles::ouvrir(&d, Box::new(Faux));
-        let mut o = Offres::default();
-        let ctx = Contexte { base: Some(&b), cles: Some(&cles) };
-        let f = o.geste(&ctx, RECHERCHE, &json!({ "mots": "cariste", "lieu": "partout" }), m(9, 0));
-        assert_eq!(f.message.as_deref(), Some("Recherche ajoutée."));
-        // Essayer la clé : sans clé Adzuna, rien
-        assert_eq!(
-            o.geste(&ctx, ESSAYER, &json!({ "service": "adzuna" }), m(9, 0)).message.as_deref(),
-            Some("Donne d'abord ta clé Adzuna.")
-        );
-        cles.garder_plusieurs(&[(Cle::AdzunaId, "1a2b3c4d"), (Cle::AdzunaCle, "0123456789abcdef0123456789abcdef")])
-            .unwrap();
-        let ctx = Contexte { base: Some(&b), cles: Some(&cles) };
-        // Adzuna ne répond pas
-        let f = o.geste(&ctx, CHERCHER, &json!({}), m(9, 1));
-        let Some(Tache::Chercher { jeton, services, .. }) = f.reseau else { panic!() };
-        assert_eq!(services, [Service::Adzuna]);
-        let f = o.fini(
-            Some(&b),
-            Retour {
-                jeton,
-                resultats: vec![(
-                    Service::Adzuna,
-                    Err(ErreurSource::Reseau("Adzuna".into(), "connexion impossible".into())),
-                )],
-            },
-            m(9, 2),
-        );
-        assert_eq!(f.message.as_deref(), Some("Adzuna ne répond pas. Vérifie ta connexion à internet, puis réessaie."));
-        assert_eq!(o.annonce.as_ref().unwrap().genre, "erreur");
-        assert!(!o.annonce.as_ref().unwrap().cles);
-        // Adzuna refuse la clé : l'annonce renvoie vers Mes clés
-        let f = o.geste(&ctx, CHERCHER, &json!({}), m(9, 5));
-        let Some(Tache::Chercher { jeton, .. }) = f.reseau else { panic!("{f:?}") };
-        let f = o.fini(
-            Some(&b),
-            Retour {
-                jeton,
-                resultats: vec![(Service::Adzuna, Err(ErreurSource::CleRefusee("Adzuna".into(), "statut 401".into())))],
-            },
-            m(9, 6),
-        );
-        assert_eq!(f.message.as_deref(), Some("Adzuna refuse ta clé. Vérifie-la dans Mon profil, rubrique Mes clés."));
-        let a = o.annonce.clone().unwrap();
-        assert_eq!((a.genre, a.cles), ("erreur", true));
-        // Trop longue
-        let f = o.geste(&ctx, CHERCHER, &json!({}), m(9, 10));
-        assert!(f.reseau.is_some());
-        let f = o.trop_long();
-        assert!(f.message.unwrap().contains("trop de temps"));
-        assert!(o.en_cours.is_none());
-        // Essayer la clé : ni Claude, ni une source retirée (Jooble, une ancienne page) ; Adzuna : la tâche, son résultat
-        assert!(o.geste(&ctx, ESSAYER, &json!({ "service": "claude" }), m(9, 11)).reseau.is_none());
-        let f = o.geste(&ctx, ESSAYER, &json!({ "service": "jooble" }), m(9, 11));
-        assert!(f.reseau.is_none() && f.message.is_none() && o.en_cours.is_none());
-        let f = o.geste(&ctx, ESSAYER, &json!({ "service": "adzuna" }), m(9, 11));
-        let Some(Tache::Essayer { jeton, service }) = f.reseau else { panic!() };
-        assert_eq!(service, Service::Adzuna);
-        let f = o.fini(Some(&b), Retour { jeton, resultats: vec![(Service::Adzuna, Ok(Vec::new()))] }, m(9, 12));
-        assert_eq!(f.message.as_deref(), Some("La clé Adzuna marche : Adzuna a bien répondu."));
-        let f = o.geste(&ctx, ESSAYER, &json!({ "service": "adzuna" }), m(9, 13));
-        let Some(Tache::Essayer { jeton, .. }) = f.reseau else { panic!() };
-        let f = o.fini(
-            Some(&b),
-            Retour {
-                jeton,
-                resultats: vec![(Service::Adzuna, Err(ErreurSource::Bloquee("Adzuna".into(), "statut 403".into())))],
-            },
-            m(9, 14),
-        );
-        assert_eq!(f.message.as_deref(), Some("Adzuna a bloqué la demande pour l'instant. Réessaie plus tard."));
-        // La limite du jour : au bout, plus rien ne part
-        while base_offres::appels(b.connexion(), m(9, 0).jour(), "adzuna").unwrap() < LIMITE_ADZUNA {
-            base_offres::compter_appel(b.connexion(), m(9, 0).jour(), "adzuna").unwrap();
-        }
-        let f = o.geste(&ctx, CHERCHER, &json!({}), m(11, 0));
-        assert!(f.reseau.is_none());
-        assert_eq!(f.message.as_deref(), Some("Tu as déjà fait beaucoup de recherches aujourd'hui. Réessaie demain."));
-        let _ = std::fs::remove_dir_all(&d);
-    }
-
     /// Une recherche sans poste ni mot, autour d'une ville (demande de Jordan, 19/11/2026 : « rien dans poste, autour
-    /// de Sarrebourg, aucun diplôme, débutant accepté ») : acceptée, envoyée à Adzuna sans mots, et ses offres ne sont
-    /// jamais rangées « Hors sujet » faute de poste ; sans lieu non plus, refusée.
+    /// de Sarrebourg, aucun diplôme, débutant accepté ») : acceptée, et ses offres ne sont jamais rangées
+    /// « Hors sujet » faute de poste ; sans lieu non plus, refusée.
     #[test]
     fn recherche_sans_poste_autour_d_une_ville() {
         let d = essai("offres-sans-poste");
         let (b, _) = Base::en_memoire(m(9, 0)).unwrap();
-        let (mut cles, _) = Cles::ouvrir(&d, Box::new(Faux));
-        cles.garder_plusieurs(&[(Cle::AdzunaId, "1a2b3c4d"), (Cle::AdzunaCle, "0123456789abcdef0123456789abcdef")])
-            .unwrap();
+        let (cles, _) = Cles::ouvrir(&d, Box::new(Faux));
         let ctx = Contexte { base: Some(&b), cles: Some(&cles) };
         let mut o = Offres::default();
         // « Ce que je cherche » sans poste : tous les métiers autour de Sarrebourg
@@ -1632,16 +1003,11 @@ mod tests {
             crate::vue_offres::recherche_texte(&v.recherches[1].mots, &v.recherches[1].lieu),
             "Tous les métiers, autour de Phalsbourg (10 km)"
         );
-        // Chercher : Adzuna reçoit le lieu, sans mots
-        let f = o.geste(&ctx, CHERCHER, &json!({ "id": v.recherches[0].id }), m(9, 1));
-        let Some(Tache::Chercher { jeton, recherche, .. }) = f.reseau else { panic!("{f:?}") };
-        assert_eq!((recherche.mots_cles.as_str(), recherche.lieu.as_str(), recherche.rayon_km), ("", "Sarrebourg", 20));
-        let jobmind_sources::http::Demande::Get { params, .. } =
-            adzuna::Adzuna::nouvelle(&jobmind_sources::http::HttpUreq::nouveau(true), adzuna::ADRESSE, "a", "b")
-                .demande(&recherche);
-        assert!(!params.iter().any(|(k, _)| k == "what"), "{params:?}");
-        // Le résultat : toutes les offres, aucune hors sujet faute de poste ; les filtres s'appliquent ensuite
-        o.fini(Some(&b), Retour { jeton, resultats: reponses() }, m(9, 2));
+        // Les offres de cette recherche (lues sur un site) : toutes gardées, aucune hors sujet faute de poste ; les
+        // filtres s'appliquent ensuite
+        let rid = v.recherches[0].id;
+        base_offres::ajouter_trouvees(b.connexion(), "francetravail", &faux::offres_inventees(), Some(rid), m(9, 2))
+            .unwrap();
         let (v, _) = o.vue(Some(&b), Some(&cles));
         assert_eq!((v.gardees, v.hors_sujet), (12, 0));
         assert_eq!(v.total, 12);
@@ -1649,118 +1015,6 @@ mod tests {
         let (v, _) = o.vue(Some(&b), Some(&cles));
         assert!(v.total < 12 && v.total > 0, "{}", v.total);
         let _ = std::fs::remove_dir_all(&d);
-    }
-
-    /// Étape 12 : le rafraîchissement automatique : chaque recherche gardée refaite l'une après l'autre chez Adzuna
-    /// seulement (jamais un site), sans bulle de l'écran ; les doublons ne comptent pas ; la bulle de Mindset
-    /// une seule fois par tour ; le réseau coupé arrête le tour ; le plafond du jour aussi ; sans clé, rien ne part.
-    #[test]
-    fn rafraichissement_automatique() {
-        let d = essai("offres-auto");
-        let (b, _) = Base::en_memoire(m(9, 0)).unwrap();
-        let (mut cles, _) = Cles::ouvrir(&d, Box::new(Faux));
-        let mut o = Offres::default();
-        // Sans clé : rien ne part, mais le tour est noté (pas de nouvel essai toutes les 30 s)
-        let ctx = Contexte { base: Some(&b), cles: Some(&cles) };
-        o.geste(&ctx, RECHERCHE, &json!({ "mots": "cariste", "lieu": "partout" }), m(9, 0));
-        o.geste(&ctx, RECHERCHE, &json!({ "mots": "agent de quai", "lieu": "partout" }), m(9, 0));
-        let choisie = o.recherche;
-        let f = o.rafraichir(&b, Some(&cles), m(9, 30));
-        assert!(f.reseau.is_none() && o.tour.is_none());
-        assert_eq!(rafraichir::dernier(b.connexion()).unwrap(), Some(m(9, 30)));
-        cles.garder_plusieurs(&[(Cle::AdzunaId, "1a2b3c4d"), (Cle::AdzunaCle, "0123456789abcdef0123456789abcdef")])
-            .unwrap();
-        let ctx = Contexte { base: Some(&b), cles: Some(&cles) };
-        // Le tour : la première recherche part, sans message à l'écran, sans rien charger des sites
-        let f = o.rafraichir(&b, Some(&cles), m(10, 0));
-        let Some(Tache::Chercher { jeton, services, recherche_id, .. }) = f.reseau.clone() else { panic!("{f:?}") };
-        assert_eq!(services, [Service::Adzuna]);
-        assert!(f.message.is_none() && f.coulisse.is_empty() && f.voir.is_none(), "{f:?}");
-        assert!(o.auto_en_cours() && o.tour_en_cours());
-        assert_eq!(o.recherche, choisie, "le choix de Jordan ne bouge pas");
-        // Pendant ce temps, « Chercher maintenant » attend
-        assert_eq!(
-            o.geste(&ctx, CHERCHER, &json!({}), m(10, 0)).message.as_deref(),
-            Some("Une recherche est déjà en cours : attends sa fin.")
-        );
-        // Un second tour demandé pendant le premier : rien
-        assert!(o.rafraichir(&b, Some(&cles), m(10, 0)).reseau.is_none());
-        // La première revient : 12 nouvelles, puis la seconde part
-        let f = o.fini(Some(&b), Retour { jeton, resultats: reponses() }, m(10, 1));
-        assert!(f.message.is_none() && !f.bravo);
-        let Some(Tache::Chercher { jeton: j2, recherche_id: r2, .. }) = f.reseau.clone() else { panic!("{f:?}") };
-        assert_ne!(r2, recherche_id);
-        assert!(f.journal.unwrap().contains("refaite toute seule"));
-        // La seconde ne trouve que les mêmes offres (des doublons) : le tour finit, 12 nouvelles en tout
-        let f = o.fini(Some(&b), Retour { jeton: j2, resultats: reponses() }, m(10, 2));
-        assert!(f.reseau.is_none() && f.message.is_none());
-        assert!(f.journal.unwrap().contains("fini (12 nouvelle(s) offre(s), bulle mise en attente)"));
-        assert!(!o.tour_en_cours() && o.en_cours.is_none());
-        assert_eq!(rafraichir::nouvelles(b.connexion()).unwrap(), 12);
-        let t = rafraichir::dernier_tour(b.connexion()).unwrap().unwrap();
-        assert_eq!((t.le, t.nouvelles, t.erreurs, t.plafond), (m(10, 0), 12, 0, false));
-        let bulles: Vec<String> = b
-            .connexion()
-            .prepare("SELECT titre FROM bulles WHERE onglet = 'offres'")
-            .unwrap()
-            .query_map([], |r| r.get(0))
-            .unwrap()
-            .collect::<Result<_, _>>()
-            .unwrap();
-        assert_eq!(bulles, ["12 nouvelles offres"]);
-        assert_eq!(base_offres::appels(b.connexion(), m(10, 0).jour(), "adzuna").unwrap(), 2);
-        // Le réseau coupé : le tour s'arrête à la première, rien de plus n'est demandé, aucune bulle
-        let f = o.rafraichir(&b, Some(&cles), m(16, 0));
-        let Some(Tache::Chercher { jeton, .. }) = f.reseau else { panic!() };
-        let coupe = |s: &str| Err(ErreurSource::Reseau(s.into(), "connexion impossible".into()));
-        let f = o.fini(Some(&b), Retour { jeton, resultats: vec![(Service::Adzuna, coupe("Adzuna"))] }, m(16, 1));
-        assert!(f.reseau.is_none() && f.message.is_none());
-        let t = rafraichir::dernier_tour(b.connexion()).unwrap().unwrap();
-        assert_eq!((t.nouvelles, t.erreurs), (0, 1));
-        assert_eq!(base_offres::appels(b.connexion(), m(10, 0).jour(), "adzuna").unwrap(), 3);
-        let n: i64 = b.connexion().query_row("SELECT COUNT(*) FROM bulles", [], |r| r.get(0)).unwrap();
-        assert_eq!(n, 1);
-        // Trop long : le tour s'arrête sans bulle de l'écran
-        let f = o.rafraichir(&b, Some(&cles), m(17, 0));
-        assert!(f.reseau.is_some());
-        let f = o.trop_long();
-        assert!(f.message.is_none() && !o.tour_en_cours() && o.en_cours.is_none());
-        // Le plafond du jour atteint : rien ne part
-        while base_offres::appels(b.connexion(), m(9, 0).jour(), "adzuna").unwrap() < limite(Service::Adzuna) {
-            base_offres::compter_appel(b.connexion(), m(9, 0).jour(), "adzuna").unwrap();
-        }
-        let f = o.rafraichir(&b, Some(&cles), m(22, 0));
-        assert!(f.reseau.is_none() && f.message.is_none());
-        assert!(rafraichir::dernier_tour(b.connexion()).unwrap().unwrap().plafond);
-        assert!(!o.tour_en_cours());
-        let _ = std::fs::remove_dir_all(&d);
-    }
-
-    /// Le même souci chez plusieurs sources (ici une seconde imaginée, LinkedIn) : une seule phrase, au pluriel.
-    #[test]
-    fn meme_souci_une_phrase() {
-        let (b, _) = Base::en_memoire(m(9, 0)).unwrap();
-        let mut o = Offres::default();
-        o.geste(
-            &Contexte { base: Some(&b), cles: None },
-            RECHERCHE,
-            &json!({ "mots": "cariste", "lieu": "partout" }),
-            m(9, 0),
-        );
-        o.en_cours = Some(EnCours { jeton: 7, recherche_id: o.recherche, texte: String::new(), auto: false });
-        let reseau = |n: &str| Err(ErreurSource::Reseau(n.into(), "connexion impossible".into()));
-        let f = o.fini(
-            Some(&b),
-            Retour {
-                jeton: 7,
-                resultats: vec![(Service::Adzuna, reseau("Adzuna")), (Service::Adzuna, reseau("LinkedIn"))],
-            },
-            m(9, 1),
-        );
-        assert_eq!(
-            f.message.as_deref(),
-            Some("Adzuna et LinkedIn ne répondent pas. Vérifie ta connexion à internet, puis réessaie.")
-        );
     }
 
     /// Une fausse IA : rend ces réponses dans l'ordre (aucun réseau).
@@ -1805,7 +1059,7 @@ mod tests {
         };
         base_offres::ajouter_trouvees(
             c,
-            "adzuna",
+            "francetravail",
             &[
                 t("1", "Cariste", "Sans diplôme, débutant accepté."),
                 t("2", "Cariste confirmé", "CACES 3, 2 ans d'expérience exigés."),
@@ -1886,7 +1140,7 @@ mod tests {
         };
         base_offres::ajouter_trouvees(
             c,
-            "adzuna",
+            "francetravail",
             &[t("1", "Employé polyvalent"), t("2", "Vendeur"), t("3", "Caissier")],
             None,
             m(9, 0),
@@ -1896,9 +1150,8 @@ mod tests {
         let mut o = Offres::default();
         let (v, _) = o.vue(Some(&b), Some(&cles));
         assert_eq!((v.floues, v.claude), (3, false));
-        // Sans clé : rien ne part ; après une recherche, rien n'est dit
+        // Sans clé : rien ne part, et c'est dit
         let ctx = Contexte { base: Some(&b), cles: Some(&cles) };
-        assert!(o.lire_floues(&ctx, None, true, m(9, 1)).ia.is_none());
         let f = o.geste(&ctx, LIRE_IA, &json!({}), m(9, 1));
         assert!(f.ia.is_none());
         assert_eq!(
@@ -1967,7 +1220,7 @@ mod tests {
             (OUVRIR, json!({ "id": "1" })),
             (FAVORI, json!({ "id": 99 })),
             (CACHER, json!(null)),
-            (CHERCHER, json!({ "id": 42 })),
+            ("o-chercher", json!({ "id": 42 })),
             (RECHERCHE, json!({ "mots": "", "lieu": "ville" })),
             (RECHERCHE, json!({ "mots": "cariste", "lieu": "ville", "ville": "<script>", "rayon": 10 })),
             (RECHERCHE_SUPPRIMER, json!({ "id": -3 })),
@@ -1975,15 +1228,14 @@ mod tests {
             (VOIR, json!({ "id": 99 })),
             (FILTRES, json!({ "genre": "region", "region": "Lorraine" })),
             (DEPUIS_PROFIL, json!(null)),
-            (ESSAYER, json!({ "service": "google" })),
+            ("cle-essayer", json!({ "service": "adzuna" })),
+            ("o-adzuna", json!(null)),
         ] {
             let f = o.geste(&ctx, id, &v, m(9, 0));
-            assert!(!f.bravo && f.reseau.is_none() && f.voir.is_none() && f.candidature.is_none(), "{id} {v} {f:?}");
+            assert!(!f.bravo && f.voir.is_none() && f.candidature.is_none(), "{id} {v} {f:?}");
         }
         assert_eq!(base_offres::nombre_recherches(b.connexion()).unwrap(), 0);
-        assert!(est_geste(CHERCHER) && est_geste(ESSAYER) && !est_geste("c-ouvrir"));
-        // Le site d'Adzuna : toujours le même lien
-        assert_eq!(o.geste(&ctx, ADZUNA, &Value::Null, m(9, 0)).voir, Some("https://www.adzuna.fr".into()));
+        assert!(est_geste(LIRE_IA) && !est_geste("o-chercher") && !est_geste("cle-essayer") && !est_geste("c-ouvrir"));
         // Sans base
         let f = o.geste(&Contexte { base: None, cles: None }, OUVRIR, &json!({ "id": 1 }), m(9, 0));
         assert_eq!(f.message.as_deref(), Some(crate::suivi::SANS_BASE));

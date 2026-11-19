@@ -1,8 +1,11 @@
 //! Le rafraîchissement automatique des recherches gardées (étape 12) : son rythme (réglage de Mon profil, Réglages ;
 //! coupé ou toutes les 3, 6, 12 ou 24 heures), la dernière fois qu'il a tourné, chaque recherche refaite notée (table
 //! `rafraichissements`, migration 12) et les nouvelles offres qu'il a trouvées et que Jordan n'a pas encore vues (la
-//! carte de Mindset les compte ; ouvrir l'onglet Offres les remet à zéro). Seulement Adzuna : les sites
-//! (LinkedIn, Indeed, Welcome to the Jungle, France Travail) ne sont jamais chargés tout seuls.
+//! carte de Mindset les compte ; ouvrir l'onglet Offres les remet à zéro).
+//!
+//! Depuis le retrait d'Adzuna (20/11/2026), la seule source qu'il refaisait, plus rien ne le fait tourner : les sites
+//! (LinkedIn, Indeed, Welcome to the Jungle, France Travail) ne sont jamais chargés tout seuls. Ce qu'il a noté reste
+//! lisible dans une ancienne base ; le compteur des nouvelles offres (la carte de Mindset) reste à zéro.
 
 use rusqlite::{Connection, OptionalExtension, params};
 

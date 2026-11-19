@@ -21,19 +21,16 @@
 # (étape 3 : un clic sur « Importer un fichier », puis la VRAIE boîte « Ouvrir » de Windows trouvée parmi les fenêtres de
 # l'essai, capturée dans <Prefixe>-<vue>-boite.png, le chemin tapé dans son champ et « Importer » cliqué). Chaque vue est
 # capturée après son geste ; un import attend la fin de sa lecture (journal : « Profil : CV ... importé » ou « fichier refusé »).
-# Étape 4 (l'onglet Offres, contre le faux serveur local qui imite Adzuna, jamais internet) : « chercher »
-# (un clic sur « Chercher maintenant », puis attendre la fin de la recherche au journal), « offre:<n> » (l'offre n
+# Étape 4 (l'onglet Offres : les offres d'exemple gardées par exemples.demande, jamais internet) : « offre:<n> » (l'offre n
 # ouverte), « recherches » (Mes recherches), « nouvelle-recherche » (son formulaire ; « rf-saisie:<mots|nom|ville>=<texte> » y tape une valeur, « clic:rf:ok »
 # l'enregistre), « filtres:<champ>=<valeur>;... »
-# (des filtres posés, par exemple filtres:liste=favoris ou filtres:genre=ville;ville=Metz;rayon=10), « reseau:<mode> »
-# (la réponse du faux serveur pour la suite : normal, coupe, quota, refuse ; sans capture), « essayer:adzuna »
-# (« Essayer la clé » dans Mes clés, puis attendre sa réponse).
+# (des filtres posés, par exemple filtres:liste=favoris ou filtres:genre=ville;ville=Metz;rayon=10).
 # Étapes 5 et 5 bis (les sites, contre les sites imités du faux serveur local, jamais un vrai site) :
 # « voir:<nom>=<adresse> » (la petite fenêtre du site ouverte sur cette page, comme « Voir sur le site » :
 # voir.demande, lu seulement par la construction d'essai ; une adresse d'un site est changée pour la page qui l'imite ;
 # attendre que sa page soit chargée ; capture <Prefixe>-voir-<nom>.png), « ajouter-page » (« Ajouter à Jobmind » dans
 # la petite fenêtre, puis attendre la lecture au journal), « site:<mes|linkedin|indeed|wttj|francetravail> » (la
-# source de l'onglet Offres, choisie dans la liste « Où chercher » ; « mes » : Adzuna), « clic:cs:ou » (la
+# source de l'onglet Offres, choisie dans la liste « Où chercher » ; « mes » : mes offres gardées), « clic:cs:ou » (la
 # liste « Où chercher » ouverte), « chercher-site » (« Chercher sur le site », puis attendre la lecture en coulisse),
 # « resultat:<n> » (le résultat n ouvert), « connexion:<site> » (la carte de connexion remplie avec les identifiants
 # inventés, sans l'envoyer), « connecter:<site> » (remplie et envoyée, puis attendre la connexion), « sites:<captcha|
@@ -286,22 +283,6 @@ try {
             }
             Ordre ([ordered]@{ kit = 'accueil'; offres = 'filtres'; filtres = $f } | ConvertTo-Json -Compress)
         }
-        elseif ($v -match '^reseau:(normal|coupe|quota|refuse)$') {
-            [IO.File]::WriteAllText((Join-Path $donnees 'reseau.essai'), $Matches[1], $sansBom)
-            Ok "faux serveur : $($Matches[1])"
-            continue
-        }
-        elseif ($v -eq 'chercher') {
-            $finies = (Compter ' finie (') + (Compter 'trop longue')
-            Ordre '{"kit":"accueil","cliquer":"or:chercher"}'
-            Verifier (Attendre { ((Compter ' finie (') + (Compter 'trop longue')) -gt $finies } 30000) 'Chercher maintenant : la recherche est finie (journal)'
-        }
-        elseif ($v -match '^essayer:(adzuna)$') {
-            $s = $Matches[1]
-            $essais = Compter "Clés : essai de la clé $s "
-            Ordre ('{"kit":"accueil","cliquer":"kt:' + $s + '"}')
-            Verifier (Attendre { (Compter "Clés : essai de la clé $s ") -ge $essais + 2 } 30000) "Essayer la clé $s : réponse (journal)"
-        }
         # Étapes 5 et 5 bis : les sites, sur le faux serveur local qui imite les sites (jamais internet)
         elseif ($v -match '^voir:([a-z][a-z0-9-]{0,30})=(.+)$') {
             $nom = "voir-$($Matches[1])"
@@ -488,8 +469,7 @@ try {
         # « pdf:<chemin> ») clique le bouton de Réglages et enregistre à ce chemin du dossier d'essai à la place de la
         # boîte « Enregistrer sous » (fichier.essai, lu seulement par la construction d'essai) ; « restaurer:<chemin> »
         # choisit cette sauvegarde à la place de la boîte « Ouvrir » et attend la question ; « remettre » répond oui et
-        # attend la remise ; « rafraichir » fait partir le rafraîchissement automatique et attend sa fin (journal), puis
-        # copie la bulle demandée à Mindset (notification.demande) dans <Prefixe>-bulle.json
+        # attend la remise
         elseif ($v -eq 'bilan') { Ordre '{"kit":"accueil","bilan":true}' }
         elseif ($v -match '^(sauver|csv|pdf|restaurer):(.+)$') {
             # (« {essai} » : le dossier de cet essai)
@@ -514,15 +494,6 @@ try {
             Ordre '{"kit":"accueil","cliquer":"rs:oui"}'
             Verifier (Attendre { (Compter 'Sauvegarde : remise ;') -gt 0 } 20000) 'la sauvegarde est remise (journal)'
         }
-        elseif ($v -eq 'rafraichir') {
-            $notif = Join-Path $donnees 'notification.demande'
-            [IO.File]::WriteAllText((Join-Path $donnees 'rafraichir.demande'), '1', $sansBom)
-            Verifier (Attendre { (Compter 'rafraîchissement automatique fini') -gt 0 } 60000) 'rafraîchissement automatique fini (journal)'
-            # (Mindset n'est pas là pour lire les bulles : celles d'avant, une relance par exemple, sont lues ici à sa place)
-            if (Attendre { if ((Test-Path -LiteralPath $notif) -and -not ([IO.File]::ReadAllText($notif) -match 'offre')) { Remove-Item -LiteralPath $notif -Force }; (Test-Path -LiteralPath $notif) } 30000) {
-                Copy-Item -LiteralPath $notif -Destination (Join-Path $Resultats "$Prefixe-bulle.json") -Force
-                Ok "bulle demandée à Mindset : $([IO.File]::ReadAllText($notif))"
-            } else { Echec 'aucune bulle demandée à Mindset (notification.demande)' }
         }
         elseif ($v -eq 'mails-ranger') { Ordre '{"kit":"accueil","mails":"ranger"}' }
         elseif ($v -eq 'calendrier') { Ordre '{"kit":"accueil","calendrier":true}' }

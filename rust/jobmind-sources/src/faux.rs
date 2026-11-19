@@ -1,11 +1,11 @@
-//! Un faux serveur HTTP local (127.0.0.1, un port libre), pour les tests du client et pour la construction d'essai de
-//! l'appli (option « faux », jamais livrée) : aucune demande ne part sur internet. Il répond à chaque demande par ce
-//! que dit son répondeur, et garde les demandes reçues (les tests vérifient ce qui a été envoyé).
+//! Un faux serveur HTTP local (127.0.0.1, un port libre), pour les tests et pour la construction d'essai de l'appli
+//! (option « faux », jamais livrée) : aucune demande ne part sur internet. Il répond à chaque demande par ce que dit
+//! son répondeur, et garde les demandes reçues (les tests vérifient ce qui a été envoyé).
 //!
-//! [`imitation`] imite Adzuna (`GET /v1/api/jobs/fr/search/1`) avec des offres inventées (entreprises qui n'existent
-//! pas, villes de Moselle). Son mode change sa réponse : normale, trop de demandes (429), clé refusée.
-//! Étape 5 : il sert aussi les pages d'exemple des sites (`/site/...`) et des essais du panneau (`/essai/...`) :
-//! crate::page::exemples.
+//! [`imitation_avec_sites`] sert les pages d'exemple des sites (`/site/...`), des essais du panneau (`/essai/...`,
+//! crate::page::exemples), les quatre sites imités (crate::sites::exemples) et les formulaires de candidature
+//! imités. [`offres_inventees`] : des offres inventées (entreprises qui n'existent pas, villes de Moselle), pour les
+//! tests de l'archive et la base d'exemple de l'essai.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde_json::{Value, json};
+use serde_json::json;
 
 /// Une demande reçue.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -171,18 +171,7 @@ fn servir(c: TcpStream, repondeur: &Repondeur, recues: &Mutex<Vec<Requete>>) {
     let _ = c.flush();
 }
 
-/// Le mode de l'imitation d'Adzuna.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Mode {
-    #[default]
-    Normal,
-    /// 429 : trop de demandes aujourd'hui
-    Quota,
-    /// Clé refusée (Adzuna : 401 AUTH_FAIL)
-    CleRefusee,
-}
-
-/// Une offre inventée : (id, titre, entreprise, ville, département, latitude, longitude, contrat Adzuna, temps,
+/// Une offre inventée : (id, titre, entreprise, ville, département, latitude, longitude, contrat, temps,
 /// salaire min, salaire max, jour de novembre 2026, texte).
 type Inventee = (
     &'static str,
@@ -200,8 +189,8 @@ type Inventee = (
     &'static str,
 );
 
-/// Les offres inventées d'Adzuna (aucune entreprise réelle).
-pub const ADZUNA: [Inventee; 12] = [
+/// Les offres inventées (aucune entreprise réelle).
+pub const OFFRES: [Inventee; 12] = [
     (
         "5100000001",
         "Agent de quai H/F",
@@ -384,49 +373,58 @@ pub const ADZUNA: [Inventee; 12] = [
     ),
 ];
 
-/// La réponse d'Adzuna inventée.
-pub fn reponse_adzuna() -> String {
-    let l: Vec<Value> = ADZUNA
+/// « 24 000 » (une espace pour les milliers).
+fn milliers(n: u32) -> String {
+    let s = n.to_string();
+    let mut t = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
+            t.push(' ');
+        }
+        t.push(c);
+    }
+    t
+}
+
+/// Le salaire en mots : « 21 800 à 23 500 € par an », « 1 750 à 1 900 € par mois », « 11 à 12 € de l'heure ».
+fn salaire(min: u32, max: u32) -> String {
+    if min == 0 {
+        return String::new();
+    }
+    let unite = match max {
+        0..200 => "de l'heure",
+        200..10_000 => "par mois",
+        _ => "par an",
+    };
+    format!("{} à {} € {unite}", milliers(min), milliers(max))
+}
+
+/// Les offres inventées, telles qu'une source les donne (pour les tests de l'archive, et la base d'exemple de
+/// l'essai) : le lieu et ses zones, l'adresse de l'offre, le contrat, le salaire donné, le jour de publication.
+pub fn offres_inventees() -> Vec<crate::OffreTrouvee> {
+    OFFRES
         .iter()
-        .map(|(id, titre, ent, ville, dep, lat, lon, ct, tps, smin, smax, jour, texte)| {
-            let mut o = json!({
-                "__CLASS__": "Adzuna::API::Response::Job",
-                "id": id,
-                "title": titre,
-                "description": texte,
-                "location": { "display_name": format!("{ville}, {dep}"), "area": ["France", "Grand Est", dep, ville] },
-                "latitude": lat,
-                "longitude": lon,
-                "redirect_url": format!("https://www.adzuna.fr/land/ad/{id}?se=essai"),
-                "created": format!("2026-11-{jour:02}T08:00:00Z"),
-                "contract_type": ct,
-                "contract_time": tps,
-                "category": { "label": "Logistique et entrepôt", "tag": "logistics-warehouse-jobs" },
-            });
-            if !ent.is_empty() {
-                o["company"] = json!({ "display_name": ent });
-            }
-            if *smin > 0 {
-                o["salary_min"] = json!(smin);
-                o["salary_max"] = json!(smax);
-                o["salary_is_predicted"] = json!("0");
-            }
-            o
+        .map(|(id, titre, ent, ville, dep, lat, lon, ct, tps, smin, smax, jour, texte)| crate::OffreTrouvee {
+            id_source: (*id).into(),
+            titre: (*titre).into(),
+            entreprise: (*ent).into(),
+            lieu: format!("{ville}, {dep}"),
+            zones: ["France", "Grand Est", dep, ville].iter().map(|z| (*z).to_string()).collect(),
+            url: format!("https://candidat.francetravail.fr/offres/recherche/detail/{id}"),
+            description: (*texte).into(),
+            contrat: format!("{ct} {tps}"),
+            salaire: salaire(*smin, *smax),
+            publiee_le: format!("2026-11-{jour:02}"),
+            latitude: Some(*lat),
+            longitude: Some(*lon),
+            brut: json!({ "id": id, "title": titre, "description": texte }).to_string(),
         })
-        .collect();
-    json!({ "__CLASS__": "Adzuna::API::Response::JobSearchResults", "count": l.len(), "mean": 24000, "results": l })
-        .to_string()
+        .collect()
 }
 
-/// Le répondeur qui imite Adzuna ; `mode` se change pendant qu'il tourne.
-pub fn imitation(mode: Arc<Mutex<Mode>>) -> impl Fn(&Requete) -> RepFaux + Send + Sync + 'static {
-    imitation_avec_sites(mode, Arc::new(Mutex::new(crate::sites::exemples::ModeSites::Normal)))
-}
-
-/// Le même répondeur, avec le mode des quatre sites imités (étape 5 bis : un captcha, une page que Jobmind ne sait
-/// plus lire), qui se change pendant qu'il tourne.
+/// Le répondeur de l'essai et des tests : les pages imitées des sites ; le mode des quatre sites imités (étape 5 bis :
+/// un captcha, une page que Jobmind ne sait plus lire) se change pendant qu'il tourne.
 pub fn imitation_avec_sites(
-    mode: Arc<Mutex<Mode>>,
     sites: Arc<Mutex<crate::sites::exemples::ModeSites>>,
 ) -> impl Fn(&Requete) -> RepFaux + Send + Sync + 'static {
     move |r: &Requete| {
@@ -444,122 +442,56 @@ pub fn imitation_avec_sites(
         if r.methode == "GET" && (r.chemin.starts_with("/site/") || r.chemin.starts_with("/essai/")) {
             return crate::page::exemples::repondre(&r.chemin);
         }
-        let m = mode.lock().map(|m| *m).unwrap_or_default();
-        if r.methode != "GET" || !r.chemin.starts_with("/v1/api/jobs/fr/search/") {
-            return RepFaux::json(404, "{}");
-        }
-        match m {
-            Mode::Quota => RepFaux::json(429, "{\"exception\":\"TOO_MANY_REQUESTS\"}"),
-            Mode::CleRefusee => RepFaux::json(
-                401,
-                r#"{"exception":"AUTH_FAIL","doc":"https://api.adzuna.com/v1/doc","__CLASS__":"Adzuna::API::Response::Exception","display":"Authorisation failed"}"#,
-            ),
-            Mode::Normal => RepFaux { morceaux: true, ..RepFaux::json(200, reponse_adzuna()) },
-        }
+        RepFaux::json(404, "{}")
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adzuna::Adzuna;
-    use crate::http::HttpUreq;
-    use crate::{JobSource, Recherche};
 
-    fn recherche() -> Recherche {
-        Recherche { mots_cles: "agent de quai".into(), lieu: "Metz".into(), rayon_km: 30, nombre: 0 }
-    }
-
-    /// De bout en bout, avec le vrai client HTTP (ureq) contre le faux serveur local : la demande envoyée (la clé là
-    /// où il faut), la réponse en morceaux lue, les offres rendues.
+    /// Le faux serveur local répond, en morceaux ou d'un bloc, et garde ce qu'il a reçu ; une autre adresse : 404.
     #[test]
-    fn adzuna_par_le_vrai_client() {
-        let mode = Arc::new(Mutex::new(Mode::Normal));
-        let s = FauxServeur::demarrer(imitation(Arc::clone(&mode))).unwrap();
-        let http = HttpUreq::nouveau(false);
-        let a = Adzuna::nouvelle(
-            &http,
-            &format!("{}/v1/api/jobs/fr/search", s.adresse()),
-            "1a2b3c4d",
-            "0123456789abcdef0123456789abcdef",
-        );
-        let l = a.chercher(&recherche()).unwrap();
-        assert_eq!(l.len(), ADZUNA.len());
-        assert_eq!(l[0].titre, "Agent de quai H/F");
-        assert_eq!(l[11].entreprise, "");
-        let r = s.recues();
-        assert_eq!(r.len(), 1);
-        assert!(r[0].chemin.starts_with("/v1/api/jobs/fr/search/1?"), "{}", r[0].chemin);
-        assert!(r[0].chemin.contains("app_key=0123456789abcdef0123456789abcdef"));
-        assert!(r[0].chemin.contains("what=agent") && r[0].chemin.contains("where=Metz"), "{}", r[0].chemin);
-        // Une autre demande (un POST, une autre adresse) : rien
-        assert_eq!(imitation(Arc::clone(&mode))(&Requete { methode: "POST".into(), ..r[0].clone() }).statut, 404);
-        // Les modes : quota, clé refusée
-        *mode.lock().unwrap() = Mode::Quota;
-        assert_eq!(a.chercher(&recherche()).unwrap_err().code(), "quota");
-        *mode.lock().unwrap() = Mode::CleRefusee;
-        assert_eq!(a.chercher(&recherche()).unwrap_err().code(), "cle_refusee");
-    }
-
-    /// Le réseau coupé (un port fermé), une page de protection, une réponse abîmée : chaque fois une erreur simple, sans
-    /// la clé, et jamais de plantage.
-    #[test]
-    fn reseau_coupe_et_reponses_abimees() {
-        let http = HttpUreq::nouveau(false);
-        // (un port qui vient d'être libéré : personne n'écoute)
-        let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
-        let a = Adzuna::nouvelle(
-            &http,
-            &format!("http://127.0.0.1:{port}/v1/api/jobs/fr/search"),
-            "1a2b3c4d",
-            "0123456789abcdef0123456789abcdef",
-        );
-        let e = a.chercher(&recherche()).unwrap_err();
-        assert_eq!(e.code(), "reseau");
-        assert!(!e.to_string().contains("0123456789abcdef"), "{e}");
-        assert!(e.message().contains("connexion à internet"));
+    fn le_faux_serveur_repond() {
         let s = FauxServeur::demarrer(|r: &Requete| {
-            if r.chemin.contains("protege") {
+            if r.chemin == "/morceaux" {
                 RepFaux {
-                    type_contenu: "text/html; charset=UTF-8".into(),
-                    entetes: vec![("cf-mitigated".into(), "challenge".into())],
-                    ..RepFaux::json(403, "<!DOCTYPE html><title>Just a moment...</title>")
+                    morceaux: true,
+                    ..RepFaux::json(200, "{\"x\": \"un texte assez long pour plusieurs morceaux\"}")
                 }
             } else {
-                RepFaux::json(200, "{\"results\": [ {\"title\": \"coupé")
+                imitation_avec_sites(Arc::new(Mutex::new(crate::sites::exemples::ModeSites::Normal)))(r)
             }
         })
         .unwrap();
-        let adresse = format!("{}/v1/api/jobs/fr/search", s.adresse());
-        let cle = "0123456789abcdef0123456789abcdef";
-        assert_eq!(
-            Adzuna::nouvelle(&http, &adresse, "protege1", cle).chercher(&recherche()).unwrap_err().code(),
-            "bloquee"
-        );
-        let e = Adzuna::nouvelle(&http, &adresse, "abime123", cle).chercher(&recherche()).unwrap_err();
-        assert_eq!(e.code(), "illisible");
-        assert!(!e.to_string().contains(cle), "{e}");
-        // Le vrai Jobmind refuse le http
-        let sur = HttpUreq::nouveau(true);
-        assert_eq!(
-            Adzuna::nouvelle(&sur, &adresse, "abime123", cle).chercher(&recherche()).unwrap_err().code(),
-            "reseau"
-        );
+        let demander = |chemin: &str| {
+            let mut c = TcpStream::connect(s.adresse().trim_start_matches("http://")).unwrap();
+            c.write_all(format!("GET {chemin} HTTP/1.1\r\nHost: x\r\nCookie: a=1\r\n\r\n").as_bytes()).unwrap();
+            let mut r = String::new();
+            c.read_to_string(&mut r).unwrap();
+            r
+        };
+        let r = demander("/morceaux");
+        assert!(r.starts_with("HTTP/1.1 200") && r.contains("chunked"), "{r}");
+        assert!(demander("/rien").starts_with("HTTP/1.1 404"));
+        let recues = s.recues();
+        assert_eq!(recues.len(), 2);
+        assert_eq!((recues[0].methode.as_str(), recues[0].cookies.as_str()), ("GET", "a=1"));
     }
 
-    /// Un serveur trop lent : le délai d'attente coupe (ici réglé court pour le test : le vrai est de 25 s).
+    /// Les offres inventées : douze, chacune avec son lieu, son adresse et son texte ; le salaire seulement s'il est
+    /// donné.
     #[test]
-    fn serveur_trop_lent() {
-        let s = FauxServeur::demarrer(|_: &Requete| RepFaux {
-            attente: Duration::from_secs(4),
-            ..RepFaux::json(200, "{}")
-        })
-        .unwrap();
-        let config = ureq::Agent::config_builder().timeout_global(Some(Duration::from_millis(800))).build();
-        let agent: ureq::Agent = config.into();
-        let debut = std::time::Instant::now();
-        let r = agent.get(&format!("{}/x", s.adresse())).call();
-        assert!(matches!(r, Err(ureq::Error::Timeout(_))), "pas de délai dépassé");
-        assert!(debut.elapsed() < Duration::from_secs(3));
+    fn offres_inventees_completes() {
+        let l = offres_inventees();
+        assert_eq!(l.len(), OFFRES.len());
+        assert_eq!(l[0].titre, "Agent de quai H/F");
+        assert_eq!(l[0].lieu, "Ennery, Moselle");
+        assert_eq!(l[0].salaire, "21 800 à 23 500 € par an");
+        assert_eq!(l[3].salaire, "1 750 à 1 900 € par mois");
+        assert_eq!(l[6].salaire, "11 à 12 € de l'heure");
+        assert_eq!(l[1].salaire, "");
+        assert_eq!(l[11].entreprise, "");
+        assert!(l.iter().all(|o| o.url.starts_with("https://") && !o.description.is_empty()));
     }
 }

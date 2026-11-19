@@ -318,13 +318,6 @@ fn rubrique_style(v: &VueProfil, aujourdhui: Jour) -> Value {
 /// Ce qu'un service demande, et où trouver sa clé.
 fn service_json(s: Service, v: &VueProfil) -> Value {
     let (nom, role, texte, adresse) = match s {
-        Service::Adzuna => (
-            "Adzuna",
-            "Des offres d'emploi de toute la France. Gratuite.",
-            "Inscris-toi sur le site d'Adzuna pour les développeurs. Une fois connecté, ta page « Dashboard » montre \
-             deux codes : l'« Application ID » et l'« Application Key ». Copie-les ici.",
-            "https://developer.adzuna.com/signup",
-        ),
         Service::Claude => (
             "Claude",
             "L'IA qui prépare tes candidatures. Payante : quelques centimes par lettre.",
@@ -353,8 +346,6 @@ fn service_json(s: Service, v: &VueProfil) -> Value {
                 "apercu": apercu,
                 "illisible": illisible,
                 "indice": match c {
-                    Cle::AdzunaId => "8 lettres et chiffres",
-                    Cle::AdzunaCle => "32 lettres et chiffres",
                     Cle::Claude => "Commence par sk-ant-",
                     _ => "",
                 },
@@ -380,8 +371,6 @@ fn service_json(s: Service, v: &VueProfil) -> Value {
         "etat": etat,
         "etat_nom": etat_nom,
         "parties": parties,
-        // (étape 4 : la clé d'Adzuna s'essaie par une toute petite recherche)
-        "essai": s != Service::Claude,
         "question": format!("Effacer la clé {nom} ? Jobmind ne pourra plus s'en servir."),
     })
 }
@@ -399,11 +388,12 @@ fn services_prets(v: &VueProfil) -> usize {
 fn rubrique_cles(v: &VueProfil) -> Value {
     let n = services_prets(v);
     let total = Service::TOUS.len();
-    let sous = match n {
-        0 => "Aucune clé pour l'instant".to_string(),
-        n if n == total => format!("Les {total} clés sont là"),
-        1 => format!("1 clé sur {total}"),
-        n => format!("{n} clés sur {total}"),
+    let sous = match (n, total) {
+        (0, _) => "Aucune clé pour l'instant".to_string(),
+        (1, 1) => "Ta clé Claude est là".to_string(),
+        (n, t) if n == t => format!("Les {t} clés sont là"),
+        (1, t) => format!("1 clé sur {t}"),
+        (n, t) => format!("{n} clés sur {t}"),
     };
     json!({
         "id": "cles",
@@ -414,14 +404,13 @@ fn rubrique_cles(v: &VueProfil) -> Value {
             "vue": "cles",
             "icone": "cle",
             "titre": "Mes clés",
-            "intro": "Certains sites d'offres et l'IA demandent une clé : un code personnel, créé une seule fois sur \
-                      leur site. Jobmind la garde chiffrée sur ce PC : personne d'autre ne peut la lire.",
+            "intro": "L'IA Claude demande une clé : un code personnel, créé une seule fois sur son site. Jobmind la \
+                      garde chiffrée sur ce PC : personne d'autre ne peut la lire.",
             "services": Service::TOUS.iter().map(|s| service_json(*s, v)).collect::<Vec<_>>(),
-            "note": "« Essayer la clé » fait une toute petite recherche, pour voir si le site accepte la clé. La clé de \
-                     Claude servira plus tard, pour préparer tes candidatures.",
+            "note": "La clé de Claude sert à préparer tes candidatures et à lire les offres que Jobmind n'a pas su lire \
+                     en entier. Les sites d'offres, eux, ne demandent pas de clé.",
             "textes": textes(&[
                 ("donner", "Donner la clé"),
-                ("essayer", "Essayer la clé"),
                 ("remplacer", "Remplacer"),
                 ("effacer", "Effacer"),
                 ("enregistrer", "Enregistrer"),
@@ -501,11 +490,7 @@ pub(crate) mod tests {
             style_ouvert: Some(2),
             recherche: Some(r),
             regles: Value::Null,
-            cles: vec![
-                (Cle::AdzunaId, Some(EtatCle::Gardee("se termine par 3c4d".into()))),
-                (Cle::AdzunaCle, None),
-                (Cle::Claude, Some(EtatCle::Illisible)),
-            ],
+            cles: vec![(Cle::Claude, Some(EtatCle::Illisible))],
         }
     }
 
@@ -539,12 +524,17 @@ pub(crate) mod tests {
         assert_eq!(r[2]["dossier"]["ouvert"]["texte"], "Bonjour, je reviens vers vous.");
         let s = &r[3]["dossier"]["services"];
         let etats: Vec<&str> = s.as_array().unwrap().iter().map(|x| x["etat"].as_str().unwrap()).collect();
-        assert_eq!(etats, ["partielle", "illisible"]);
-        assert_eq!(s[0]["parties"][0]["apercu"], "se termine par 3c4d");
-        // Adzuna entière : 1 clé sur 2 (Adzuna et Claude)
+        assert_eq!(etats, ["illisible"]);
+        assert_eq!(s[0]["parties"][0]["apercu"], "");
+        assert!(s[0].get("essai").is_none());
+        // La clé Claude lisible : la seule clé de Mes clés (Adzuna retiré)
         let mut une = v.clone();
-        une.cles[1].1 = Some(EtatCle::Gardee("se termine par cdef".into()));
-        assert_eq!(rubriques(&une, j(11, 18))[3]["sous"], "1 clé sur 2");
+        une.cles[0].1 = Some(EtatCle::Gardee("se termine par AAAA".into()));
+        assert_eq!(rubriques(&une, j(11, 18))[3]["sous"], "Ta clé Claude est là");
+        assert_eq!(
+            rubriques(&une, j(11, 18))[3]["dossier"]["services"][0]["parties"][0]["apercu"],
+            "se termine par AAAA"
+        );
         // Un seul CV, collé : sa ligne dit quand
         let un = VueProfil { cvs: vec![Cv { principal: true, ..v.cvs[2].clone() }], ..VueProfil::default() };
         assert_eq!(rubriques(&un, j(11, 18))[0]["sous"], "« CV vente », collé le 3 nov.");

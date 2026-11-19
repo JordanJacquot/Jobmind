@@ -250,7 +250,10 @@ mod tests {
 
     #[test]
     fn adresses() {
-        assert_eq!(adresse(" https://www.adzuna.fr/land/ad/123?se=x "), "https://www.adzuna.fr/land/ad/123?se=x");
+        assert_eq!(
+            adresse(" https://candidat.francetravail.fr/offres/recherche/detail/123ABCD?x=1 "),
+            "https://candidat.francetravail.fr/offres/recherche/detail/123ABCD?x=1"
+        );
         assert_eq!(adresse("http://exemple-emploi.fr/desc/42"), "http://exemple-emploi.fr/desc/42");
         for faux in [
             "javascript:alert(1)",

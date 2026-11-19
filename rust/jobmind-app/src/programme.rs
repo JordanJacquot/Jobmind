@@ -45,7 +45,6 @@ use std::time::{Duration, Instant};
 
 use jobmind_core::Jour;
 use jobmind_core::cle::Service;
-use jobmind_sources::{ErreurSource, JobSource};
 use jobmind_storage::bulles::Demande;
 use jobmind_storage::cles::Cles;
 use jobmind_storage::{Base, Donnees, Journal};
@@ -59,7 +58,7 @@ use tauri::{App, AppHandle, LogicalPosition, LogicalSize, Manager, Url, Webview,
 
 use crate::coulisse::{self, Coulisse, Lecture, Ordre, Secret};
 use crate::fenetre::{EvenementSites, LABEL, TAILLE_MIN, creer_principale};
-use crate::offres::{self, Offres, Retour, RetourIa, Tache, TacheIa};
+use crate::offres::{self, Offres, RetourIa, TacheIa};
 use crate::pont::MessagePage;
 use crate::profil::{self, Contexte, Import, Profil};
 use crate::suivi::{self, Fait, Suivi};
@@ -78,8 +77,6 @@ const RELEVE: Duration = Duration::from_millis(500);
 const VERIFICATION: Duration = Duration::from_secs(30);
 /// La lecture d'un fichier de CV choisi : abandonnée après ce temps (un fichier qui ferait tourner la lecture sans fin).
 const LECTURE_MAX: Duration = Duration::from_secs(60);
-/// Une recherche d'offres : abandonnée après ce temps (chaque demande a déjà son délai de 25 s).
-const RESEAU_MAX: Duration = Duration::from_secs(90);
 /// Étape 6 : la lecture d'un lot d'offres par Claude, abandonnée après ce temps (chaque demande a son délai de 30 s).
 const IA_MAX: Duration = Duration::from_secs(360);
 /// Étape 8 : une candidature demandée à Claude, abandonnée après ce temps (la demande a son délai de 240 s).
@@ -94,11 +91,6 @@ const ENVOI_MAX: Duration = Duration::from_secs(300);
 /// nouvel essai toutes les 30 s, 10 fois au plus (5 minutes).
 const BASE_REESSAI: Duration = Duration::from_secs(30);
 const BASE_ESSAIS: u32 = 10;
-/// Étape 12 : le rafraîchissement automatique des recherches, regardé une première fois peu après le démarrage, puis
-/// toutes les minutes (il ne part que si son rythme est passé : toutes les 6 heures au départ).
-#[cfg_attr(feature = "essai", allow(dead_code))]
-const PREMIER_RAFRAICHI: Duration = Duration::from_secs(90);
-const RAFRAICHI_VERIF: Duration = Duration::from_secs(60);
 
 /// Tout ce que l'appli garde pendant qu'elle tourne, sur le fil de la fenêtre.
 struct Etat {
@@ -143,10 +135,8 @@ struct Etat {
     faux_smtp: Option<jobmind_mail::faux_smtp::FauxSmtp>,
     /// La lecture du fichier de CV choisi a commencé à ce moment
     lecture_depuis: Option<Instant>,
-    /// L'onglet Offres : l'offre ouverte, les filtres, la recherche en cours
+    /// L'onglet Offres : l'offre ouverte, les filtres, la recherche choisie
     offres: Offres,
-    /// La recherche d'offres en cours a commencé à ce moment
-    reseau_depuis: Option<Instant>,
     /// Étape 6 : la lecture par Claude en cours a commencé à ce moment
     ia_depuis: Option<Instant>,
     /// Étape 8 : la candidature préparée par Claude (la demande en cours, la version montrée), et depuis quand elle
@@ -182,9 +172,9 @@ struct Etat {
     place_sites: Option<(f64, f64, f64, f64)>,
     /// Le dossier de données de Jobmind (la session des sites y est gardée)
     donnees_appli: PathBuf,
-    /// Construction d'essai : le faux serveur local qui imite Adzuna et les quatre sites, et ses modes
+    /// Construction d'essai : le faux serveur local qui imite les quatre sites, et leur mode
     #[cfg(feature = "essai")]
-    faux: Option<(jobmind_sources::faux::FauxServeur, FauxMode, ModeSites)>,
+    faux: Option<(jobmind_sources::faux::FauxServeur, ModeSites)>,
     /// Construction d'essai : les connexions déjà vues (pour vérifier une fois ce que le faux serveur a reçu)
     #[cfg(feature = "essai")]
     connexions_vues: [Option<bool>; 4],
@@ -199,9 +189,8 @@ struct Etat {
     /// Le dossier de données (construction d'essai : la demande de capture)
     #[cfg(feature = "essai")]
     dossier: PathBuf,
-    /// Étape 12 : le tableau de bord, les exports, la sauvegarde ; la prochaine vérification du rafraîchissement
+    /// Étape 12 : le tableau de bord, les exports, la sauvegarde
     bord: crate::bord::Bord,
-    prochain_rafraichi: Instant,
 }
 
 thread_local! {
@@ -213,9 +202,6 @@ thread_local! {
     static CREATION: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Construction d'essai : le mode du faux serveur (normal, trop de demandes, clé refusée).
-#[cfg(feature = "essai")]
-type FauxMode = std::sync::Arc<std::sync::Mutex<jobmind_sources::faux::Mode>>;
 /// Construction d'essai (étape 5 bis) : ce que fera la prochaine liste des sites imités (un captcha, une page cassée).
 #[cfg(feature = "essai")]
 type ModeSites = Arc<Mutex<jobmind_sources::sites::exemples::ModeSites>>;
@@ -407,15 +393,14 @@ pub fn lancer() -> ! {
         journal.ecrire(&format!("Thème : {r}"));
     }
     // Les clés (data\cles.json), chiffrées par DPAPI pour cet utilisateur Windows
-    #[cfg_attr(not(feature = "essai"), allow(unused_mut))]
-    let (mut cles, raison) = Cles::ouvrir(&l.dossier_donnees, Box::new(Dpapi));
+    let (cles, raison) = Cles::ouvrir(&l.dossier_donnees, Box::new(Dpapi));
     if let Some(r) = raison {
         journal.ecrire(&r);
     }
-    // (construction d'essai : des candidatures et un profil inventés pour les captures, seulement dans le dossier
-    // d'essai)
+    // (construction d'essai : des candidatures, des offres et un profil inventés pour les captures, seulement dans
+    // le dossier d'essai)
     #[cfg(feature = "essai")]
-    crate::essai::exemples_demandes(&l.dossier_donnees, d.base.as_ref(), &mut cles, heure::maintenant(), &journal);
+    crate::essai::exemples_demandes(&l.dossier_donnees, d.base.as_ref(), heure::maintenant(), &journal);
     if let Some(b) = d.base.as_ref() {
         base_ouverte(b, &l.dossier_donnees, &journal);
     }
@@ -440,14 +425,13 @@ pub fn lancer() -> ! {
         },
     };
     // L'état de départ : le suivi et le profil d'après la base
-    // (construction d'essai : le faux serveur local d'Adzuna ; aucune demande de l'essai ne sort du PC)
+    // (construction d'essai : le faux serveur local des sites et de Claude ; aucune demande de l'essai ne sort du PC)
     #[cfg(feature = "essai")]
     let faux_claude: Arc<Mutex<jobmind_llm::faux::ModeFaux>> = Arc::new(Mutex::new(Default::default()));
     #[cfg(feature = "essai")]
     let faux = {
-        let mode: FauxMode = std::sync::Arc::new(std::sync::Mutex::new(jobmind_sources::faux::Mode::Normal));
         let sites: ModeSites = Arc::new(Mutex::new(jobmind_sources::sites::exemples::ModeSites::Normal));
-        let imitation = jobmind_sources::faux::imitation_avec_sites(mode.clone(), Arc::clone(&sites));
+        let imitation = jobmind_sources::faux::imitation_avec_sites(Arc::clone(&sites));
         // (étape 8 : le même serveur imite aussi Claude, pour la candidature ; jamais la vraie API)
         let pour_claude = Arc::clone(&faux_claude);
         let repondeur = move |r: &jobmind_sources::faux::Requete| {
@@ -463,8 +447,8 @@ pub fn lancer() -> ! {
         };
         match jobmind_sources::faux::FauxServeur::demarrer(repondeur) {
             Ok(s) => {
-                journal.ecrire("Essai : faux serveur d'Adzuna et des quatre sites prêt (127.0.0.1)");
-                Some((s, mode, sites))
+                journal.ecrire("Essai : faux serveur des quatre sites prêt (127.0.0.1)");
+                Some((s, sites))
             }
             Err(e) => {
                 journal.ecrire(&format!("Essai : faux serveur non lancé ({e})"));
@@ -490,7 +474,7 @@ pub fn lancer() -> ! {
     }
     // (étape 5 bis : les sites, dès le premier état de la page)
     if let Some(perso) = depart.pointer_mut("/accueil/perso").and_then(Value::as_object_mut) {
-        perso.insert("coulisse".into(), Coulisse::default().vue(jour));
+        perso.insert("coulisse".into(), Coulisse::avec_gardes([false; 4]).vue(jour));
     }
     *donnees.borrow_mut() = Some(d);
 
@@ -542,7 +526,6 @@ pub fn lancer() -> ! {
             faux_smtp: crate::essai::faux_smtp(&journal),
             lecture_depuis: None,
             offres,
-            reseau_depuis: None,
             ia_depuis: None,
             preparation: crate::preparation::Preparation::default(),
             prep_depuis: None,
@@ -572,11 +555,6 @@ pub fn lancer() -> ! {
             #[cfg(feature = "essai")]
             dossier: l.dossier_donnees.clone(),
             bord: crate::bord::Bord::default(),
-            // (construction d'essai : seulement sur demande, rafraichir.demande ; jamais au milieu d'un autre essai)
-            #[cfg(not(feature = "essai"))]
-            prochain_rafraichi: Instant::now() + PREMIER_RAFRAICHI,
-            #[cfg(feature = "essai")]
-            prochain_rafraichi: Instant::now() + Duration::from_secs(365 * 86_400),
         })
     });
 
@@ -694,14 +672,12 @@ fn tour(app: &AppHandle) {
             etat.nouveau_jour(app);
             etat.bulles(app);
             etat.lecture_trop_longue(app);
-            etat.reseau_trop_long(app);
             etat.ia_trop_longue(app);
             etat.releve_due(app);
             etat.mail_trop_long(app);
             etat.envoi_trop_long(app);
             etat.copie_si_due();
             etat.base_a_rouvrir(app);
-            etat.rafraichir_du(app);
             etat.evenements_des_sites(app);
             etat.minuteries_des_sites(app);
         }
@@ -716,7 +692,6 @@ fn tour(app: &AppHandle) {
             boite_demande(etat, app);
             cle_claude_demande(etat, app);
             offres_site_demande(etat, app);
-            rafraichir_demande(etat);
         }
         etat.fin = fin;
         fin
@@ -1453,26 +1428,6 @@ fn fil_import(app: AppHandle, h: usize, jeton: u64, chemin: Option<PathBuf>) {
     rapporter(&app, RetourImport::Fini(Box::new(lu)));
 }
 
-/// Rapporte le résultat du fil des recherches au fil de la fenêtre (occupé : réessayé juste après).
-fn rapporter_reseau(app: &AppHandle, r: Retour) {
-    let a = app.clone();
-    let _ = app.run_on_main_thread(move || {
-        let pour_etat = a.clone();
-        let reste = ETAT.with(move |e| match e.try_borrow_mut() {
-            Ok(mut e) => {
-                if let Some(etat) = e.as_mut() {
-                    etat.retour_reseau(&pour_etat, r);
-                }
-                None
-            }
-            Err(_) => Some(r),
-        });
-        if let Some(r) = reste {
-            rapporter_reseau(&a, r);
-        }
-    });
-}
-
 /// Rapporte la lecture par Claude au fil de la fenêtre (occupé : réessayé juste après).
 fn rapporter_ia(app: &AppHandle, r: RetourIa) {
     let a = app.clone();
@@ -1658,10 +1613,7 @@ impl Etat {
                         .and_then(|r| r.get_mut("dossier"))
                         .and_then(Value::as_object_mut)
                 {
-                    r.insert(
-                        "bord".into(),
-                        crate::bord::vue_reglages(&self.bord, d.base.as_ref(), d.dossier(), heure::maintenant()),
-                    );
+                    r.insert("bord".into(), crate::bord::vue_reglages(&self.bord, d.dossier(), heure::maintenant()));
                 }
             }
         }
@@ -1717,9 +1669,6 @@ impl Etat {
         }
         if let Some(k) = fait.candidature {
             self.suivi.ouverte = Some(k);
-        }
-        if let Some(t) = fait.reseau {
-            self.lancer_reseau(app, t);
         }
         if let Some(t) = fait.ia {
             self.lancer_ia(app, t);
@@ -1882,105 +1831,6 @@ impl Etat {
         }
     }
 
-    /// Lance le fil des recherches d'offres : les clés lues ici, au dernier moment, et données seulement à ce fil (jamais
-    /// au journal ni à la page). Une clé qui ne se lit plus : cette source répond « clé manquante » sans rien demander.
-    fn lancer_reseau(&mut self, app: &AppHandle, t: Tache) {
-        let (jeton, recherche, services) = match t {
-            Tache::Chercher { jeton, recherche, services, .. } => (jeton, recherche, services),
-            Tache::Essayer { jeton, service } => (
-                jeton,
-                jobmind_sources::Recherche { mots_cles: "emploi".into(), lieu: String::new(), rayon_km: 0, nombre: 1 },
-                vec![service],
-            ),
-        };
-        let (adzuna, https) = self.adresses();
-        let demandes: Vec<(Service, Option<Vec<String>>)> =
-            services.iter().map(|s| (*s, offres::cles_claires(&self.cles, *s))).collect();
-        let a = app.clone();
-        let r = std::thread::Builder::new().name("offres-reseau".into()).spawn(move || {
-            let http = jobmind_sources::http::HttpUreq::nouveau(https);
-            let mut resultats = Vec::new();
-            for (s, cles) in demandes {
-                let r = match (s, cles.as_deref()) {
-                    (Service::Adzuna, Some([id, cle])) => {
-                        jobmind_sources::adzuna::Adzuna::nouvelle(&http, &adzuna, id, cle).chercher(&recherche)
-                    }
-                    _ => Err(ErreurSource::CleManquante(offres::nom_source(s.code()).into())),
-                };
-                resultats.push((s, r));
-            }
-            rapporter_reseau(&a, Retour { jeton, resultats });
-        });
-        match r {
-            Ok(_) => self.reseau_depuis = Some(Instant::now()),
-            Err(e) => {
-                // (appelé pendant un geste : l'état est renvoyé à la page juste après)
-                self.journal.ecrire(&format!("Offres : fil des recherches non lancé ({e})"));
-                let _ = self.offres.trop_long();
-            }
-        }
-    }
-
-    /// L'adresse d'Adzuna, et « https seulement » : la vraie.
-    #[cfg(not(feature = "essai"))]
-    fn adresses(&self) -> (String, bool) {
-        (jobmind_sources::adzuna::ADRESSE.into(), true)
-    }
-
-    /// Construction d'essai : le faux serveur local, jamais internet. `reseau.essai` dans le dossier de données change
-    /// sa réponse : « coupe » (personne n'écoute : le réseau coupé), « quota », « refuse » (clé refusée), autre chose :
-    /// normale.
-    #[cfg(feature = "essai")]
-    fn adresses(&self) -> (String, bool) {
-        use jobmind_sources::faux::Mode;
-        let voulu = std::fs::read_to_string(self.dossier.join(crate::essai::RESEAU)).unwrap_or_default();
-        let voulu = voulu.trim_start_matches('\u{feff}').trim().to_string();
-        let base = match &self.faux {
-            Some((s, mode, _)) => {
-                if let Ok(mut m) = mode.lock() {
-                    *m = match voulu.as_str() {
-                        "quota" => Mode::Quota,
-                        "refuse" => Mode::CleRefusee,
-                        _ => Mode::Normal,
-                    };
-                }
-                s.adresse()
-            }
-            None => "http://127.0.0.1:9".into(),
-        };
-        // (le port 9 de la machine : personne n'y écoute)
-        let base = if voulu == "coupe" { "http://127.0.0.1:9".to_string() } else { base };
-        self.journal.ecrire(&format!(
-            "Essai : recherche envoyée au faux serveur ({})",
-            if voulu.is_empty() { "normal" } else { &voulu }
-        ));
-        (format!("{base}/v1/api/jobs/fr/search"), false)
-    }
-
-    /// Le résultat du fil des recherches.
-    fn retour_reseau(&mut self, app: &AppHandle, r: Retour) {
-        if self.offres.jeton_en_cours() == Some(r.jeton) {
-            self.reseau_depuis = None;
-        }
-        self.faire(app, |etat, d| {
-            let maintenant = heure::maintenant();
-            // (étape 12 : une recherche refaite toute seule ne donne rien à Claude : aucune dépense sans Jordan)
-            let auto = etat.offres.auto_en_cours() && etat.offres.jeton_en_cours() == Some(r.jeton);
-            let mut f = etat.offres.fini(d.base.as_ref(), r, maintenant);
-            if auto {
-                return f;
-            }
-            // (étape 6 : les nouvelles offres floues données à Claude, s'il a sa clé ; sinon rien)
-            let ctx = offres::Contexte { base: d.base.as_ref(), cles: Some(&etat.cles) };
-            let ia = etat.offres.lire_floues(&ctx, None, true, maintenant);
-            if ia.ia.is_some() {
-                f.ia = ia.ia;
-                f.journal = Some(format!("{} ; {}", f.journal.unwrap_or_default(), ia.journal.unwrap_or_default()));
-            }
-            f
-        });
-    }
-
     /// Étape 6 : lance la lecture d'un lot d'offres floues par Claude, sur un fil à part. La clé est lue ici, au
     /// dernier moment, et donnée seulement à ce fil (jamais au journal ni à la page).
     fn lancer_ia(&mut self, app: &AppHandle, t: TacheIa) {
@@ -2082,7 +1932,7 @@ impl Etat {
             if voulu.is_empty() { "normal" } else { &voulu }
         ));
         match &self.faux {
-            Some((s, _, _)) if voulu != "coupe" => (format!("{}/v1/messages", s.adresse()), false),
+            Some((s, _)) if voulu != "coupe" => (format!("{}/v1/messages", s.adresse()), false),
             _ => ("http://127.0.0.1:9/v1/messages".into(), false),
         }
     }
@@ -2299,14 +2149,6 @@ impl Etat {
         }
     }
 
-    /// Une recherche qui dure trop longtemps : abandonnée (un résultat qui arriverait ensuite est laissé).
-    fn reseau_trop_long(&mut self, app: &AppHandle) {
-        if self.reseau_depuis.is_some_and(|t| t.elapsed() > RESEAU_MAX) {
-            self.reseau_depuis = None;
-            self.faire(app, |etat, _| etat.offres.trop_long());
-        }
-    }
-
     /// Étape 7 : lance le fil de la boîte Gmail (essayer, relever). L'adresse et le mot de passe d'application sont lus
     /// ici, au dernier moment, et donnés seulement à ce fil (jamais au journal ni à la page) ; le mot de passe est
     /// effacé de la mémoire avec l'accès, à la fin du fil.
@@ -2502,7 +2344,7 @@ impl Etat {
             "casse" => M::Casse,
             _ => M::Normal,
         };
-        if let Some((_, _, sites)) = &self.faux
+        if let Some((_, sites)) = &self.faux
             && let Ok(mut x) = sites.lock()
         {
             *x = m;
@@ -2671,7 +2513,7 @@ impl Etat {
     /// Construction d'essai : seulement le faux serveur local qui imite les sites (jamais internet), et la page vide.
     #[cfg(feature = "essai")]
     fn permise(&self) -> crate::fenetre::Permise {
-        let base = self.faux.as_ref().map(|(s, _, _)| s.adresse()).unwrap_or_default();
+        let base = self.faux.as_ref().map(|(s, _)| s.adresse()).unwrap_or_default();
         Arc::new(move |u: &Url| crate::essai::adresse_essai_permise(&base, u))
     }
 
@@ -2683,7 +2525,7 @@ impl Etat {
 
     #[cfg(feature = "essai")]
     fn vers_local(&self) -> Box<dyn Fn(&str) -> String> {
-        let base = self.faux.as_ref().map(|(s, _, _)| s.adresse()).unwrap_or_default();
+        let base = self.faux.as_ref().map(|(s, _)| s.adresse()).unwrap_or_default();
         Box::new(move |u: &str| crate::essai::vers_local(&base, u))
     }
 
@@ -2695,7 +2537,7 @@ impl Etat {
 
     #[cfg(feature = "essai")]
     fn vers_site(&self) -> Box<dyn Fn(&str) -> String + Send> {
-        let base = self.faux.as_ref().map(|(s, _, _)| s.adresse()).unwrap_or_default();
+        let base = self.faux.as_ref().map(|(s, _)| s.adresse()).unwrap_or_default();
         Box::new(move |u: &str| crate::essai::vers_site(&base, u))
     }
 
@@ -2803,15 +2645,13 @@ impl Etat {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Étape 12 : le tableau de bord, les exports, la sauvegarde, le rafraîchissement automatique
+// Étape 12 : le tableau de bord, les exports, la sauvegarde
 // ---------------------------------------------------------------------------------------------------------------
 
 impl Etat {
     /// Ce qui tourne encore et empêche de remettre une sauvegarde (en mots simples), ou rien.
     fn occupee(&self) -> Option<&'static str> {
-        if self.offres.en_cours.is_some() || self.reseau_depuis.is_some() {
-            Some("la recherche d'offres")
-        } else if self.ia_depuis.is_some() || self.mail_ia_depuis.is_some() {
+        if self.ia_depuis.is_some() || self.mail_ia_depuis.is_some() {
             Some("la lecture par Claude")
         } else if self.prep_depuis.is_some() || self.style_depuis.is_some() {
             Some("la préparation de ta candidature")
@@ -2851,33 +2691,6 @@ impl Etat {
         let Some(b) = d.base.as_ref() else { return };
         if jobmind_storage::rafraichir::vues(b.connexion()).unwrap_or(false) {
             d.ecrire_etat();
-        }
-    }
-
-    /// Le rafraîchissement automatique, regardé toutes les minutes : il part seulement si son rythme est passé, que rien
-    /// d'autre ne cherche, et que la clé Adzuna est prête. Jamais un site.
-    fn rafraichir_du(&mut self, app: &AppHandle) {
-        let ici = Instant::now();
-        if ici < self.prochain_rafraichi {
-            return;
-        }
-        self.prochain_rafraichi = ici + RAFRAICHI_VERIF;
-        if self.offres.en_cours.is_some() || self.offres.tour_en_cours() || self.reseau_depuis.is_some() {
-            return;
-        }
-        let maintenant = heure::maintenant();
-        let du = {
-            let Ok(d) = self.donnees.try_borrow() else { return };
-            let Some(b) = d.as_ref().and_then(|d| d.base.as_ref()) else { return };
-            let c = b.connexion();
-            let r = jobmind_storage::rafraichir::rythme(c).unwrap_or(0);
-            jobmind_storage::rafraichir::est_du(r, jobmind_storage::rafraichir::dernier(c).ok().flatten(), maintenant)
-        };
-        if du {
-            self.faire(app, |etat, d| match d.base.as_ref() {
-                Some(b) => etat.offres.rafraichir(b, Some(&etat.cles), maintenant),
-                None => Fait::default(),
-            });
         }
     }
 
@@ -3082,24 +2895,6 @@ fn import_demande(etat: &mut Etat, app: &AppHandle) {
     });
 }
 
-/// Construction d'essai (étape 12) : un fichier `rafraichir.demande` fait partir tout de suite le rafraîchissement
-/// automatique (la dernière fois oubliée), contre le faux serveur local d'Adzuna.
-#[cfg(feature = "essai")]
-fn rafraichir_demande(etat: &mut Etat) {
-    let demande = etat.dossier.join(crate::essai::RAFRAICHIR_DEMANDE);
-    if !demande.is_file() {
-        return;
-    }
-    let _ = std::fs::remove_file(&demande);
-    if let Ok(d) = etat.donnees.try_borrow()
-        && let Some(b) = d.as_ref().and_then(|d| d.base.as_ref())
-    {
-        let _ = b.connexion().execute("DELETE FROM parametres WHERE cle = 'rafraichi_le'", []);
-    }
-    etat.prochain_rafraichi = Instant::now();
-    etat.journal.ecrire("Essai : rafraîchissement automatique demandé");
-}
-
 /// Construction d'essai (étapes 5 et 5 bis) : un fichier `voir.demande` (une adresse) ouvre la petite fenêtre du site
 /// sur cette page, comme « Voir sur le site » ; le faux serveur local la sert (jamais un vrai site).
 #[cfg(feature = "essai")]
@@ -3215,7 +3010,7 @@ fn connexion_recue(etat: &mut Etat) {
         if c != Some(true) {
             continue;
         }
-        let recues = etat.faux.as_ref().map(|(f, _, _)| f.recues()).unwrap_or_default();
+        let recues = etat.faux.as_ref().map(|(f, _)| f.recues()).unwrap_or_default();
         let vu = recues.iter().filter(|r| r.methode == "POST").any(|r| {
             let mut t = decoder(&r.corps);
             let ok = t.contains(MDP_ESSAI);
