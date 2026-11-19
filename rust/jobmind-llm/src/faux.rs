@@ -3,7 +3,9 @@
 //! clé. Sa réponse se construit à partir de la demande reçue : il reprend des lignes du CV envoyé (des passages qui y
 //! sont vraiment) et ajoute exprès une phrase inventée (« encadré une équipe de six personnes ») que Jobmind doit
 //! surligner « à vérifier ». Ses modes imitent les ennuis : un refus, trop de demandes, une clé refusée, une
-//! surcharge, une réponse abîmée, un serveur lent.
+//! surcharge, une réponse abîmée, un serveur lent. Étape 9 : une demande de réécriture (`<lettre_a_reecrire>`) reçoit
+//! la lettre retouchée phrase par phrase ([`rendu_style`]), avec exprès un nombre ajouté ([`AJOUT_INVENTE`]) que Jobmind
+//! doit refuser.
 //!
 //! [`ServeurClaude`] : un petit serveur HTTP local (127.0.0.1, un port libre) qui répond ainsi, pour les tests.
 
@@ -181,6 +183,68 @@ pub fn rendu(envoye: &str) -> Value {
     })
 }
 
+/// Étape 9 : ce que le faux Claude ajoute exprès en réécrivant (un nombre absent du CV : Jobmind doit refuser la phrase
+/// et remettre celle de départ).
+pub const AJOUT_INVENTE: &str = " pendant quatre ans";
+
+/// Le plus long passage (3 à 12 mots) de la phrase qui est mot pour mot dans le CV.
+fn extrait_du_cv(phrase: &str, cv: &str) -> Option<String> {
+    let m: Vec<&str> = phrase.trim_end_matches('.').split_whitespace().collect();
+    for n in (3..=12.min(m.len())).rev() {
+        for w in m.windows(n) {
+            let x = w.join(" ");
+            if jobmind_core::lecture::citation_presente(cv, &x) {
+                return Some(x);
+            }
+        }
+    }
+    None
+}
+
+/// Étape 9 : le JSON qu'aurait rendu Claude pour une réécriture (la lettre numérotée de `<lettre_a_reecrire>`). Il
+/// reprend chaque phrase en la retouchant un peu, cite le CV pour celles qui parlent de Jordan, et ajoute exprès un
+/// nombre ([`AJOUT_INVENTE`]) à la première d'entre elles.
+pub fn rendu_style(envoye: &str) -> Value {
+    let lettre = section(envoye, "lettre_a_reecrire");
+    let cv = section(envoye, "cv");
+    let forte = envoye.contains("<intensite>forte</intensite>");
+    let mut ajoute = false;
+    let paragraphes: Vec<Value> = lettre
+        .split("\n\n")
+        .map(|p| {
+            let l: Vec<Value> = p
+                .lines()
+                .filter_map(|ligne| {
+                    let (n, t) = ligne.trim().strip_prefix('[')?.split_once("] ")?;
+                    let n: u64 = n.parse().ok()?;
+                    let mut t = t
+                        .replace("a retenu toute mon attention", "m'intéresse beaucoup")
+                        .replace("de vous présenter mon parcours", "d'en parler avec vous")
+                        .replace("une équipe de six personnes", "six personnes");
+                    if forte {
+                        t = t.replace("J'ai travaillé comme", "J'ai été");
+                    }
+                    let extrait = extrait_du_cv(&t, cv);
+                    let sur_moi = extrait.is_some() || t.starts_with("J'ai");
+                    if extrait.is_some() && !ajoute && t.ends_with('.') {
+                        ajoute = true;
+                        t = format!("{}{AJOUT_INVENTE}.", t.trim_end_matches('.'));
+                    }
+                    let extraits: Vec<String> = match extrait {
+                        Some(e) => vec![e],
+                        None if sur_moi => vec!["chef d'équipe de six personnes".to_string()],
+                        None => Vec::new(),
+                    };
+                    Some(json!({ "texte": t, "depuis": [n], "sur_moi": sur_moi, "extraits": extraits }))
+                })
+                .collect();
+            Value::Array(l)
+        })
+        .filter(|p| p.as_array().is_some_and(|a| !a.is_empty()))
+        .collect();
+    json!({ "paragraphes": paragraphes })
+}
+
 /// La réponse de l'API à ce corps de demande, dans ce mode : (statut, corps, attente).
 pub fn repondre(corps: &str, mode: ModeFaux) -> (u16, String, Duration) {
     let erreur = |t: &str| json!({ "type": "error", "error": { "type": t, "message": "faux Claude" } }).to_string();
@@ -214,7 +278,11 @@ pub fn repondre(corps: &str, mode: ModeFaux) -> (u16, String, Duration) {
             Duration::ZERO,
         ),
         ModeFaux::Normal | ModeFaux::Lent => {
-            let texte = rendu(&envoye).to_string();
+            let texte = if envoye.contains("<lettre_a_reecrire>") {
+                rendu_style(&envoye).to_string()
+            } else {
+                rendu(&envoye).to_string()
+            };
             let attente = if mode == ModeFaux::Lent { Duration::from_secs(6) } else { Duration::ZERO };
             (
                 200,

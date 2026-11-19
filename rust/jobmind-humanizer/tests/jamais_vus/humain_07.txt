@@ -1,0 +1,15 @@
+Madame, Monsieur,
+
+Je vous envoie ma candidature pour le poste de développeuse back-end junior publié sur votre site.
+
+Je suis sortie en septembre de l'IUT de Valrose avec un BUT informatique. Mon stage de dernière année, je l'ai fait chez un petit éditeur de logiciels pour les mairies (six personnes, dont deux développeurs). On m'a confié le module d'export des listes électorales, en Python avec Django. Au début je pensais en avoir pour deux semaines, ça m'a pris presque tout le stage, parce que chaque mairie avait ses fichiers à sa façon et qu'il y avait des accents partout dans les noms de rues. J'ai appris beaucoup plus sur les tests que pendant les cours.
+
+À côté je maintiens un petit site pour le club de handball de mon frère (inscriptions, planning des matchs), qui tourne sur un serveur à 4 euros par mois. Ce n'est pas grand-chose mais il sert vraiment, et quand il plante le samedi matin c'est moi qu'on appelle.
+
+Votre offre parle de PostgreSQL et de Docker, que j'ai utilisés en stage, et de Go, que je ne connais pas encore. J'ai commencé à le regarder depuis que j'ai vu l'annonce.
+
+Je serais heureuse d'en discuter avec vous.
+
+Cordialement,
+
+Amélie Charbonnel

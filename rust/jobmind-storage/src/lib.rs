@@ -17,7 +17,9 @@
 //!   favoris, « plus tard » et « Pas pour moi », les recherches gardées, les demandes du jour à chaque source ;
 //! - [`mails`] (étape 7) : les mails lus dans Gmail (alertes, réponses rangées ou à ranger, statut proposé), la relève ;
 //! - [`preparations`] (étape 8) : les candidatures préparées par Claude (chaque version, la réponse brute, la lettre de
-//!   Jordan, les phrases à vérifier) et les demandes du jour ;
+//!   Jordan, les phrases à vérifier) et les demandes du jour ; étape 9 : la version dans le style de Jordan et la
+//!   lettre qu'il garde ;
+//! - [`style`] (étape 9) : ce que Jordan change aux règles du style, la longueur des phrases, l'intensité ;
 //! - [`dossier`] : le dossier de données et suite.json (copie gérée ou non, dossier de travail) ;
 //! - [`donnees`] : tout réuni ;
 //! - [`valeurs`] : les règles de PowerShell suivies (champs sans majuscules, vrai ou faux).
@@ -41,6 +43,7 @@ pub mod offres;
 pub mod preparations;
 pub mod profil;
 pub mod reglages;
+pub mod style;
 pub mod valeurs;
 
 pub use base::{Base, ErreurBase};

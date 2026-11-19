@@ -23,7 +23,11 @@
 //! - [`mails`] (étape 7) : l'adresse Gmail et le mot de passe d'application vérifiés, le rattachement d'un mail reçu à
 //!   une candidature et le statut proposé d'après ce qu'il dit ;
 //! - [`preparation`] (étape 8) : la candidature préparée par Claude vérifiée (chaque phrase sur Jordan appuyée sur son
-//!   CV, sinon « à vérifier » ; les nombres, les questions et les conseils pour le CV), la lettre modifiée à la main.
+//!   CV, sinon « à vérifier » ; les nombres, les questions et les conseils pour le CV), la lettre modifiée à la main ;
+//!   étape 9 : une phrase réécrite dans le style de Jordan vérifiée de la même façon (aucun nombre, nom ou fait
+//!   nouveau) ;
+//! - [`style`] (étape 9) : l'intensité de la réécriture, la longueur des phrases et les expressions à éviter de Jordan,
+//!   vérifiées.
 
 pub mod candidature;
 pub mod cle;
@@ -38,6 +42,7 @@ pub mod profil;
 pub mod recherche;
 pub mod recherches;
 pub mod statut;
+pub mod style;
 pub mod suivi;
 
 pub use candidature::{Candidature, Entretien, Evenement, Moyen};

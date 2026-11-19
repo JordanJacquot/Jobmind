@@ -252,8 +252,145 @@ fn les_textes_sont_simples() {
         [ErreurLlm::CleManquante, ErreurLlm::Refus("x".into()), ErreurLlm::Illisible("x".into()), ErreurLlm::Limite]
     {
         l.push(message_erreur(&e));
+        l.push(message_erreur_style(&e));
     }
     for t in l {
         assert!(!t.contains(['\u{2013}', '\u{2014}']), "{t}");
     }
+}
+
+// ---------------------------------------------------------------- Étape 9 : le style de Jordan
+
+/// Une version préparée par le faux Claude ; rend la base, l'offre, la version, les clés (avec celle de Claude).
+fn version_preparee(nom: &str) -> (Base, i64, i64, Cles, ServeurClaude) {
+    let d = dossier(nom);
+    let (b, id) = base(true);
+    let texte = "Bonjour, je vous écris pour le poste. J'aime le travail bien fait.";
+    profil::ajouter_style(b.connexion(), "Lettre", texte, m(9, 0)).unwrap();
+    let (mut cles, _) = Cles::ouvrir(&d, Box::new(Faux));
+    cles.garder(Cle::Claude, CLE).unwrap();
+    let s = ServeurClaude::demarrer(ModeFaux::Normal).unwrap();
+    let mut p = Preparation::default();
+    let ctx = Contexte { base: Some(&b), cles: Some(&cles) };
+    let t = p.geste(&ctx, PREPARER, &json!({ "id": id }), m(10, 0)).preparation.unwrap();
+    p.fini(Some(&b), tourner(&s, &t), m(10, 1));
+    let v = base_prep::lister(b.connexion(), id).unwrap()[0].id;
+    (b, id, v, cles, s)
+}
+
+fn tourner_style(s: &ServeurClaude, t: &TacheStyle) -> RetourStyle {
+    travailler_style(&Claude::nouveau(&s.adresse(), CLE, false, Duration::from_secs(10)), t)
+}
+
+#[test]
+fn style_les_regles_seules_marchent_sans_cle() {
+    let (b, id, v, _, _) = version_preparee("style-sans");
+    let d = dossier("style-sans-cles");
+    let (sans, _) = Cles::ouvrir(&d, Box::new(Faux));
+    let ctx = Contexte { base: Some(&b), cles: Some(&sans) };
+    let mut p = Preparation::default();
+    // Avec Claude mais sans clé : la phrase qui propose « Mes règles seulement », rien ne part
+    let f = p.geste(&ctx, STYLER, &json!({ "id": v, "intensite": "moyenne" }), m(11, 0));
+    assert!(f.style.is_none());
+    assert!(f.message.unwrap().contains("Mes règles seulement"));
+    // Les règles seules : la version dans mon style est faite ici, notée, sans demande à Claude
+    let f = p.geste(&ctx, STYLER, &json!({ "id": v, "intensite": "aucune" }), m(11, 1));
+    assert!(f.style.is_none() && f.bravo, "{f:?}");
+    assert!(f.message.unwrap().contains("Score naturel"));
+    let (vue, _) = p.vue(Some(&b), Some(&sans), Some(id), m(11, 1).jour());
+    let st = &vue["version"]["lettres"]["style"];
+    assert!(st["meta"].as_str().unwrap().contains("tes règles seulement"), "{st}");
+    assert!(st["score"]["note"].as_u64().unwrap() <= 100);
+    // La phrase inventée de l'étape 8 reste à vérifier dans la version dans mon style
+    assert_eq!(st["a_verifier"].as_array().unwrap().len(), 1, "{st}");
+    // Le score et le surlignage marchent aussi sans clé sur la lettre de Claude (« a retenu toute mon attention »)
+    let br = &vue["version"]["lettres"]["brute"];
+    assert!(br["morceaux"].as_array().unwrap().iter().any(|x| x["g"] == "ia"), "{br}");
+    assert!(br["marques"].as_array().unwrap().iter().any(|x| x["texte"] == "a retenu toute mon attention"));
+    // Rien de compté (seulement la préparation)
+    assert_eq!(base_prep::appels_du_jour(b.connexion(), m(11, 0).jour()).unwrap().0, 1);
+}
+
+#[test]
+fn style_reecriture_par_claude_rien_d_invente() {
+    let (b, id, v, cles, s) = version_preparee("style-claude");
+    let ctx = Contexte { base: Some(&b), cles: Some(&cles) };
+    let mut p = Preparation::default();
+    let f = p.geste(&ctx, STYLER, &json!({ "id": v, "intensite": "forte" }), m(11, 0));
+    let t = f.style.unwrap();
+    assert!(!format!("{t:?}").contains("sk-ant"));
+    assert!(t.entree.lettre.starts_with("[1] "));
+    assert_eq!(t.entree.textes.len(), 1);
+    // Une seule demande à la fois
+    assert!(p.geste(&ctx, PREPARER, &json!({ "id": id }), m(11, 0)).message.unwrap().contains("déjà"));
+    let (vue, _) = p.vue(Some(&b), Some(&cles), Some(id), m(11, 0).jour());
+    assert!(vue["en_cours"].as_str().unwrap().contains("réécrit"));
+    let f = p.fini_style(Some(&b), tourner_style(&s, &t), m(11, 1));
+    assert!(f.bravo, "{f:?}");
+    assert!(f.message.as_deref().unwrap().contains("remise comme avant"), "{f:?}");
+    let g = base_prep::lire(b.connexion(), v).unwrap().unwrap();
+    let st = g.lettre_style.clone().unwrap();
+    // Le nombre ajouté par le faux Claude est refusé ; la phrase de départ est remise ; la note le dit
+    assert!(!st.contains("quatre"), "{st}");
+    assert!(g.style_notes.iter().any(|n| n.contains("« quatre »")), "{:?}", g.style_notes);
+    // La retouche de style est gardée, la phrase à vérifier de départ le reste
+    assert!(st.contains("m'intéresse beaucoup"), "{st}");
+    assert!(g.style_a_verifier.iter().any(|a| a.texte.contains("six personnes")), "{:?}", g.style_a_verifier);
+    assert!(st.starts_with("Madame, Monsieur,") && st.contains("salutations distinguées"));
+    // Les trois lettres gardées : celle de Claude et celle de Jordan n'ont pas changé
+    assert!(g.lettre_brute.contains("a retenu toute mon attention") && g.lettre == g.lettre_brute);
+    assert_eq!(g.style_intensite.as_deref(), Some("forte"));
+    assert!(g.style_score.is_some());
+    // Jordan choisit celle qu'il garde
+    assert_eq!(g.choix(), Choix::Moi);
+    p.geste(&ctx, CHOISIR, &json!({ "id": v, "quelle": "style" }), m(11, 2));
+    let g = base_prep::lire(b.connexion(), v).unwrap().unwrap();
+    assert_eq!(g.lettre_gardee(), st);
+    let (vue, _) = p.vue(Some(&b), Some(&cles), Some(id), m(11, 2).jour());
+    assert_eq!(vue["version"]["gardee"], "style");
+    // « Retirer » la phrase à vérifier dans la version dans mon style
+    let n = vue["version"]["lettres"]["style"]["a_verifier"][0]["n"].as_u64().unwrap();
+    p.geste(&ctx, S_RETIRER, &json!({ "id": v, "n": n }), m(11, 3));
+    let g = base_prep::lire(b.connexion(), v).unwrap().unwrap();
+    assert!(!g.lettre_style.unwrap().contains("six personnes"));
+    // Modifier à la main : la lettre de Jordan devient celle gardée
+    let l = "Madame, Monsieur,\n\nMa lettre à moi.\n\nCordialement,";
+    p.geste(&ctx, LETTRE, &json!({ "id": v, "lettre": l }), m(11, 4));
+    assert_eq!(base_prep::lire(b.connexion(), v).unwrap().unwrap().choix(), Choix::Moi);
+}
+
+#[test]
+fn style_les_erreurs_ne_perdent_rien() {
+    let (b, id, v, cles, s) = version_preparee("style-erreurs");
+    let ctx = Contexte { base: Some(&b), cles: Some(&cles) };
+    let mut p = Preparation::default();
+    for (mode, mot) in [
+        (ModeFaux::Refus, "pas voulu"),
+        (ModeFaux::Quota, "trop de demandes"),
+        (ModeFaux::CleRefusee, "refuse ta clé"),
+        (ModeFaux::Abime, "abîmée"),
+    ] {
+        *s.mode.lock().unwrap() = mode;
+        let t = p.geste(&ctx, STYLER, &json!({ "id": v, "intensite": "legere" }), m(12, 0)).style.unwrap();
+        let f = p.fini_style(Some(&b), tourner_style(&s, &t), m(12, 1));
+        assert!(f.message.as_deref().unwrap().contains(mot), "{mode:?} : {f:?}");
+        assert!(!format!("{f:?}").contains("sk-ant"));
+        let g = base_prep::lire(b.connexion(), v).unwrap().unwrap();
+        assert!(g.lettre_style.is_none(), "{mode:?}");
+        let (vue, _) = p.vue(Some(&b), Some(&cles), Some(id), m(12, 1).jour());
+        assert_eq!(vue["annonce"]["genre"], "erreur");
+    }
+    // Une réécriture trop longue : abandonnée ; un résultat arrivé ensuite est laissé
+    *s.mode.lock().unwrap() = ModeFaux::Normal;
+    let t = p.geste(&ctx, STYLER, &json!({ "id": v, "intensite": "legere" }), m(13, 0)).style.unwrap();
+    assert!(p.style_trop_long().message.unwrap().contains("trop de temps"));
+    assert!(p.fini_style(Some(&b), tourner_style(&s, &t), m(13, 1)).journal.unwrap().contains("abandonnée"));
+    // Une intensité inconnue ne fait rien ; une lettre sans phrase n'est pas réécrite
+    assert!(p.geste(&ctx, STYLER, &json!({ "id": v, "intensite": "folle" }), m(13, 2)).style.is_none());
+    p.geste(&ctx, LETTRE, &json!({ "id": v, "lettre": "Madame, Monsieur,\n\nCordialement," }), m(13, 3));
+    let f = p.geste(&ctx, STYLER, &json!({ "id": v, "intensite": "forte" }), m(13, 4));
+    assert!(f.style.is_none() && f.message.unwrap().contains("aucune phrase"));
+    // Choisir une version dans mon style qui n'existe pas : rien ne change
+    p.geste(&ctx, CHOISIR, &json!({ "id": v, "quelle": "style" }), m(13, 5));
+    assert_eq!(base_prep::lire(b.connexion(), v).unwrap().unwrap().choix(), Choix::Moi);
 }

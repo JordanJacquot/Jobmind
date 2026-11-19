@@ -353,6 +353,14 @@ try {
             Ordre ('{"kit":"accueil","cliquer":"' + $k + '"}')
             Verifier (Attendre { (& $fins) -gt $finsAvant } 30000) "« $v » : Claude a répondu (journal)"
         }
+        # Étape 9 : « styler » clique « Réécrire dans mon style » (ou « Appliquer mes règles ») et attend la fin au
+        # journal ; l'intensité se choisit avant par « clic:pr:i-forte » (legere, moyenne, aucune)
+        elseif ($v -eq 'styler') {
+            $finsStyle = { (Compter 'Style : version ') - (Compter 'Style : version * donnée à Claude') }
+            $finsStyleAvant = & $finsStyle
+            Ordre '{"kit":"accueil","cliquer":"pr:styler"}'
+            Verifier (Attendre { (& $finsStyle) -gt $finsStyleAvant } 30000) '« styler » : la lettre dans mon style est faite (journal)'
+        }
         elseif ($v -match '^consigne:([\w ,''éèàêç-]{0,60})$') { Ordre ([ordered]@{ kit = 'accueil'; prep_consigne = $Matches[1] } | ConvertTo-Json -Compress) }
         elseif ($v -eq 'prep:voir') { Ordre '{"kit":"accueil","preparation":"voir"}' }        elseif ($v -match '^mail:(\d{1,6})$') { Ordre ('{"kit":"accueil","mail":' + $Matches[1] + '}') }
         elseif ($v -eq 'mails-ranger') { Ordre '{"kit":"accueil","mails":"ranger"}' }

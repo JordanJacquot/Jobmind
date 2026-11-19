@@ -24,6 +24,8 @@ pub struct VueProfil {
     pub style: Vec<TexteStyle>,
     pub style_ouvert: Option<i64>,
     pub recherche: Option<Recherche>,
+    /// Étape 9 : « Mes règles » de la rubrique Mon style (crate::style, `vue`)
+    pub regles: Value,
     /// Chaque partie de clé, et ce que l'écran en sait (rien : pas encore donnée)
     pub cles: Vec<(Cle, Option<EtatCle>)>,
 }
@@ -36,6 +38,7 @@ pub static VIDE: VueProfil = VueProfil {
     style: Vec::new(),
     style_ouvert: None,
     recherche: None,
+    regles: Value::Null,
     cles: Vec::new(),
 };
 
@@ -276,7 +279,7 @@ fn rubrique_style(v: &VueProfil, aujourdhui: Jour) -> Value {
                       apprendra ta façon d'écrire, tes mots et la longueur de tes phrases. Tes candidatures resteront \
                       toujours professionnelles.",
             "conseil": "Trois à cinq textes de quelques lignes suffisent.",
-            "note": "Jobmind ne les lit pas encore : il s'en servira quand il préparera tes candidatures.",
+            "note": "Claude s'en sert pour réécrire tes lettres dans ton style (Ma candidature, « Dans mon style »). Il y prend ta façon d'écrire, jamais des faits.",
             "liste": v.style.iter().map(|t| json!({
                 "id": t.id,
                 "titre": t.titre,
@@ -284,6 +287,7 @@ fn rubrique_style(v: &VueProfil, aujourdhui: Jour) -> Value {
                 "extrait": debut(&t.texte, 150),
             })).collect::<Vec<_>>(),
             "ouvert": ouvert,
+            "regles": v.regles,
             "plein": n >= STYLE_NOMBRE_MAX,
             "longueur": STYLE_TEXTE_MAX,
             "vide": {
@@ -502,6 +506,7 @@ pub(crate) mod tests {
             ],
             style_ouvert: Some(2),
             recherche: Some(r),
+            regles: Value::Null,
             cles: vec![
                 (Cle::AdzunaId, Some(EtatCle::Gardee("se termine par 3c4d".into()))),
                 (Cle::AdzunaCle, None),

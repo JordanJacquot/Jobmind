@@ -1,0 +1,15 @@
+Madame, Monsieur,
+
+Développeur web passionné, je souhaite aujourd'hui mettre mes compétences au service de Nexalis Solutions en rejoignant votre équipe en tant que développeur full stack. Votre ambition de simplifier la gestion des collectivités grâce au numérique résonne particulièrement avec ma vision du développement : créer des outils utiles, accessibles et durables.
+
+Diplômé d'une licence professionnelle en développement d'applications, j'ai travaillé pendant trois ans au sein d'une agence digitale où j'ai participé à la conception et à la maintenance de plusieurs applications web. Côté front, je maîtrise React et TypeScript, et j'accorde une attention particulière à l'accessibilité et à l'expérience utilisateur. Côté back, j'ai développé des API REST avec Node.js et Python, et je suis à l'aise avec les bases de données PostgreSQL. J'ai également pu me familiariser avec les bonnes pratiques de l'intégration continue, des tests automatisés et de la revue de code.
+
+Au-delà de la technique, je suis convaincu qu'un bon développeur est avant tout un bon communicant. J'aime comprendre les besoins métier, échanger avec les équipes produit et proposer des solutions pragmatiques. Curieux de nature, je consacre une partie de mon temps libre à la veille technologique et à des projets personnels, ce qui me permet de rester à jour dans un domaine en constante évolution.
+
+Rejoindre Nexalis Solutions serait pour moi l'opportunité de contribuer à des projets à fort impact, au sein d'une équipe qui partage des valeurs de qualité et de collaboration. Je suis convaincu que ma rigueur, mon autonomie et mon envie d'apprendre feraient de moi un atout pour votre équipe.
+
+Je serais ravi d'échanger avec vous lors d'un entretien afin de vous présenter plus en détail mon parcours et mes motivations.
+
+Je vous prie d'agréer, Madame, Monsieur, l'expression de mes salutations distinguées.
+
+Julien Castagnet

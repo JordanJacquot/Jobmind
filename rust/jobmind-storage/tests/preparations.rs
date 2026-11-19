@@ -57,9 +57,42 @@ fn nouvelle(offre_id: i64, lettre: &str) -> NouvellePreparation {
 fn migration_8_sur_une_base_de_l_etape_7() {
     let mut b = Base::en_memoire_jusqua(7, m(9)).unwrap();
     offres::ajouter_trouvees(b.connexion(), "adzuna", &[trouvee("1", "Cariste")], None, m(9)).unwrap();
-    assert_eq!(b.migrer_tout(m(10)).unwrap(), vec![8]);
+    assert_eq!(b.migrer_tout(m(10)).unwrap(), vec![8, 9]);
     let id = offres::lister(b.connexion()).unwrap()[0].id;
     assert!(preparations::lister(b.connexion(), id).unwrap().is_empty());
+}
+
+#[test]
+fn migration_9_garde_les_versions_de_l_etape_8() {
+    let mut b = Base::en_memoire_jusqua(8, m(9)).unwrap();
+    offres::ajouter_trouvees(b.connexion(), "adzuna", &[trouvee("1", "Cariste")], None, m(9)).unwrap();
+    let o = offres::lister(b.connexion()).unwrap()[0].id;
+    let id = preparations::ajouter(b.connexion(), &nouvelle(o, "Lettre 1"), m(10)).unwrap();
+    assert_eq!(b.migrer_tout(m(11)).unwrap(), vec![9]);
+    let p = preparations::lire(b.connexion(), id).unwrap().unwrap();
+    assert!(p.lettre_style.is_none() && p.style_a_verifier.is_empty() && p.style_notes.is_empty());
+    assert_eq!(p.choix(), preparations::Choix::Moi);
+    assert_eq!(p.lettre_gardee(), "Lettre 1");
+    // La version dans le style de Jordan, puis le choix
+    assert!(!preparations::choisir(b.connexion(), id, preparations::Choix::Style).unwrap());
+    let g = preparations::StyleGarde {
+        lettre: "Lettre stylée".into(),
+        notes: vec!["Une note".into()],
+        intensite: "forte".into(),
+        score: 88,
+        cout_millioniemes: 30_000,
+        ..preparations::StyleGarde::default()
+    };
+    assert!(preparations::garder_style(b.connexion(), id, &g, m(12)).unwrap());
+    assert!(preparations::choisir(b.connexion(), id, preparations::Choix::Style).unwrap());
+    let p = preparations::lire(b.connexion(), id).unwrap().unwrap();
+    assert_eq!(p.lettre_gardee(), "Lettre stylée");
+    assert_eq!((p.style_score, p.style_notes.len(), p.style_cout_millioniemes), (Some(88), 1, 30_000));
+    assert!(preparations::choisir(b.connexion(), id, preparations::Choix::Brute).unwrap());
+    assert_eq!(preparations::lire(b.connexion(), id).unwrap().unwrap().lettre_gardee(), "Lettre 1");
+    // Une intensité inconnue est refusée par la base
+    let mauvaise = preparations::StyleGarde { intensite: "folle".into(), ..g };
+    assert!(preparations::garder_style(b.connexion(), id, &mauvaise, m(12)).is_err());
 }
 
 #[test]

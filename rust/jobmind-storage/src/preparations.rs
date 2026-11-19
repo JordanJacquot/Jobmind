@@ -59,8 +59,75 @@ pub struct Preparation {
     pub questions: Value,
     pub conseils: Value,
     pub cout_millioniemes: u64,
-    /// Étape 9 : la lettre réécrite dans le style de Jordan (rien encore)
+    /// Étape 9 : la lettre dans le style de Jordan (rien : pas encore faite), ses phrases à vérifier, ce que Jordan doit
+    /// savoir de la réécriture, l'intensité, quand, le score au moment de la réécriture, le coût
     pub lettre_style: Option<String>,
+    pub style_a_verifier: Vec<PhraseAVerifier>,
+    pub style_notes: Vec<String>,
+    pub style_intensite: Option<String>,
+    pub style_le: Option<Moment>,
+    pub style_score: Option<u8>,
+    pub style_cout_millioniemes: u64,
+    /// La lettre que Jordan garde : « brute », « style » ou « moi » (rien : la sienne)
+    pub lettre_choisie: Option<String>,
+}
+
+/// La lettre que Jordan garde (étape 9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Choix {
+    /// Celle de Claude, telle quelle
+    Brute,
+    /// Celle dans son style
+    Style,
+    /// La sienne (au départ la lettre de Claude, puis modifiée à la main)
+    Moi,
+}
+
+impl Choix {
+    pub fn code(self) -> &'static str {
+        match self {
+            Choix::Brute => "brute",
+            Choix::Style => "style",
+            Choix::Moi => "moi",
+        }
+    }
+
+    pub fn depuis_code(c: &str) -> Option<Choix> {
+        [Choix::Brute, Choix::Style, Choix::Moi].into_iter().find(|x| x.code() == c)
+    }
+}
+
+impl Preparation {
+    /// La lettre que Jordan garde (celle dans son style seulement si elle existe).
+    pub fn choix(&self) -> Choix {
+        match self.lettre_choisie.as_deref().and_then(Choix::depuis_code) {
+            Some(Choix::Style) if self.lettre_style.is_none() => Choix::Moi,
+            Some(c) => c,
+            None => Choix::Moi,
+        }
+    }
+
+    /// Le texte de la lettre que Jordan garde.
+    pub fn lettre_gardee(&self) -> &str {
+        match self.choix() {
+            Choix::Brute => &self.lettre_brute,
+            Choix::Style => self.lettre_style.as_deref().unwrap_or(&self.lettre),
+            Choix::Moi => &self.lettre,
+        }
+    }
+}
+
+/// La version dans le style de Jordan, à garder.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct StyleGarde {
+    pub lettre: String,
+    pub a_verifier: Vec<PhraseAVerifier>,
+    pub notes: Vec<String>,
+    pub intensite: String,
+    pub score: u8,
+    /// La réponse de Claude telle quelle (rien : les règles seules)
+    pub reponse: Option<String>,
+    pub cout_millioniemes: u64,
 }
 
 fn json_a_verifier(l: &[PhraseAVerifier]) -> String {
@@ -126,7 +193,9 @@ pub fn ajouter(c: &Connection, n: &NouvellePreparation, maintenant: Moment) -> r
 }
 
 const COLONNES: &str = "id, offre_id, candidature_id, numero, cree_le, modele, consigne, reponse_brute, lettre_brute, \
-                        lettre, lettre_modifiee_le, objet, a_verifier, questions, conseils, cout_millioniemes, lettre_style";
+                        lettre, lettre_modifiee_le, objet, a_verifier, questions, conseils, cout_millioniemes, lettre_style, \
+                        style_a_verifier, style_notes, style_intensite, style_le, style_score, \
+                        style_cout_millioniemes, lettre_choisie";
 
 fn lire_ligne(r: &rusqlite::Row) -> rusqlite::Result<Option<Preparation>> {
     let Some(cree_le) = Moment::lire_iso(&r.get::<_, String>(4)?) else { return Ok(None) };
@@ -151,6 +220,13 @@ fn lire_ligne(r: &rusqlite::Row) -> rusqlite::Result<Option<Preparation>> {
         conseils: json(14)?,
         cout_millioniemes: r.get::<_, i64>(15)?.max(0) as u64,
         lettre_style: r.get(16)?,
+        style_a_verifier: lire_a_verifier(&r.get::<_, String>(17)?),
+        style_notes: serde_json::from_str::<Vec<String>>(&r.get::<_, String>(18)?).unwrap_or_default(),
+        style_intensite: r.get(19)?,
+        style_le: r.get::<_, Option<String>>(20)?.as_deref().and_then(Moment::lire_iso),
+        style_score: r.get::<_, Option<i64>>(21)?.map(|n| n.clamp(0, 100) as u8),
+        style_cout_millioniemes: r.get::<_, i64>(22)?.max(0) as u64,
+        lettre_choisie: r.get(23)?,
     }))
 }
 
@@ -185,8 +261,47 @@ pub fn nombre(c: &Connection, offre_id: i64) -> rusqlite::Result<usize> {
 /// La lettre modifiée par Jordan (déjà vérifiée). Faux : la version n'existe plus.
 pub fn modifier_lettre(c: &Connection, id: i64, lettre: &str, maintenant: Moment) -> rusqlite::Result<bool> {
     Ok(c.execute(
-        "UPDATE preparations SET lettre = ?2, lettre_modifiee_le = ?3 WHERE id = ?1",
+        "UPDATE preparations SET lettre = ?2, lettre_modifiee_le = ?3, lettre_choisie = 'moi' WHERE id = ?1",
         params![id, lettre, maintenant.iso()],
+    )? == 1)
+}
+
+/// Étape 9 : garde la version dans le style de Jordan (elle remplace la précédente ; la lettre de Claude et celle de
+/// Jordan ne changent pas). Faux : la version n'existe plus.
+pub fn garder_style(c: &Connection, id: i64, s: &StyleGarde, maintenant: Moment) -> rusqlite::Result<bool> {
+    let notes = serde_json::to_string(&s.notes).unwrap_or_else(|_| "[]".into());
+    Ok(c.execute(
+        "UPDATE preparations SET lettre_style = ?2, style_a_verifier = ?3, style_notes = ?4, style_intensite = ?5, \
+         style_le = ?6, style_score = ?7, style_reponse = ?8, style_cout_millioniemes = style_cout_millioniemes + ?9 \
+         WHERE id = ?1",
+        params![
+            id,
+            s.lettre,
+            json_a_verifier(&s.a_verifier),
+            notes,
+            s.intensite,
+            maintenant.iso(),
+            s.score.min(100),
+            s.reponse.as_ref().map(|r| r.chars().take(40_000).collect::<String>()),
+            i64::try_from(s.cout_millioniemes).unwrap_or(i64::MAX),
+        ],
+    )? == 1)
+}
+
+/// Étape 9 : la lettre que Jordan garde. Faux : la version n'existe plus, ou elle n'a pas de version dans son style.
+pub fn choisir(c: &Connection, id: i64, choix: Choix) -> rusqlite::Result<bool> {
+    let condition = if choix == Choix::Style { " AND lettre_style IS NOT NULL" } else { "" };
+    Ok(c.execute(
+        &format!("UPDATE preparations SET lettre_choisie = ?2 WHERE id = ?1{condition}"),
+        params![id, choix.code()],
+    )? == 1)
+}
+
+/// Étape 9 : la version dans son style changée (« Retirer » une phrase à vérifier) et ses phrases à vérifier.
+pub fn changer_style(c: &Connection, id: i64, lettre: &str, a_verifier: &[PhraseAVerifier]) -> rusqlite::Result<bool> {
+    Ok(c.execute(
+        "UPDATE preparations SET lettre_style = ?2, style_a_verifier = ?3 WHERE id = ?1 AND lettre_style IS NOT NULL",
+        params![id, lettre, json_a_verifier(a_verifier)],
     )? == 1)
 }
 

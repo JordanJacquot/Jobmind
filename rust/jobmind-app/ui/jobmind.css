@@ -648,3 +648,61 @@ mark.jm-verif { background: color-mix(in srgb, var(--jm) 13%, transparent); colo
 @media (max-width: 1100px) {
   .jm-pr { grid-template-columns: minmax(0, 1fr); gap: 8px; }
 }
+/* Étape 9 : le style de Jordan. Mon style, Mes règles : le plancher, la longueur des phrases, l'intensité, les règles */
+.jm-st-pil { margin: 0 0 18px; }
+.jm-vide .jm-st-pil { margin: 0 auto 18px; }
+.jm-plancher { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-width: 720px; }
+.jm-plancher li { display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px; border-radius: 11px; background: rgba(255, 255, 255, 0.03); font-size: 14px; line-height: 1.45; color: var(--doux); }
+.jm-plancher svg { width: 15px; height: 15px; flex: none; margin-top: 2px; color: var(--jm); }
+.jm-st-long { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.jm-st-long > span { font-size: 14.5px; color: var(--doux); }
+.jm-st-long b { font-size: 20px; color: var(--jm); margin-right: 2px; }
+.jm-segments { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: 14px; background: rgba(255, 255, 255, 0.045); }
+.jm-seg { padding: 8px 14px; border-radius: 10px; font-size: 14px; font-weight: 600; color: var(--doux); transition: background 180ms ease, color 180ms ease; }
+.jm-seg:hover, .jm-seg:focus { color: var(--texte); }
+.jm-seg.actif { background: color-mix(in srgb, var(--jm) 16%, transparent); color: var(--jm); }
+.jm-seg.f:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--jm) 55%, transparent); }
+.jm-st-ajout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 12px; align-items: end; max-width: 720px; }
+.jm-st-ajout .jm-champ { margin: 0; }
+.jm-regles { display: flex; flex-direction: column; gap: 6px; max-width: 720px; margin-top: 8px; }
+.jm-regle { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; border-radius: 12px; background: var(--carte); border: 1px solid color-mix(in srgb, var(--ligne) 70%, transparent); }
+.jm-regle.coupee { opacity: 0.6; }
+.jm-regle-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.jm-regle-t b { font-size: 14.5px; font-weight: 600; overflow-wrap: anywhere; }
+.jm-regle-t span { font-size: 12.5px; color: var(--pale); }
+.jm-regle .jm-bt.discret { height: 32px; padding: 0 10px; font-size: 12.5px; }
+.jm-inter { display: inline-flex; align-items: center; gap: 8px; flex: none; padding: 6px 10px; border-radius: 99px; font-size: 12.5px; font-weight: 650; color: var(--pale); }
+.jm-inter i { position: relative; width: 30px; height: 17px; border-radius: 99px; background: rgba(255, 255, 255, 0.12); transition: background 180ms ease; }
+.jm-inter i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--doux); transition: transform 180ms ease, background 180ms ease; }
+.jm-inter.oui { color: var(--jm); }
+.jm-inter.oui i { background: color-mix(in srgb, var(--jm) 40%, transparent); }
+.jm-inter.oui i::after { transform: translateX(13px); background: var(--jm); }
+.jm-inter:hover, .jm-inter:focus { background: rgba(255, 255, 255, 0.05); }
+.jm-inter.f:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--jm) 55%, transparent); }
+.jm-h2 small { margin-left: 6px; font-weight: 600; color: var(--pale); }
+/* Ma candidature : les trois lettres, le score naturel, les passages qui sonnent comme une IA */
+.jm-pr-pil { margin: 10px 0 12px; }
+.jm-score { display: flex; align-items: center; gap: 16px; max-width: 720px; margin-bottom: 12px; padding: 12px 16px; border-radius: 16px; background: rgba(255, 255, 255, 0.035); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent); --c: var(--orange); }
+.jm-score.bon { --c: var(--vert); }
+.jm-score.moyen { --c: var(--jm); }
+.jm-score-n { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: none; width: 64px; height: 64px; border-radius: 50%; border: 3px solid var(--c); }
+.jm-score-n b { font-size: 22px; line-height: 1; color: var(--c); }
+.jm-score-n small { font-size: 10.5px; color: var(--pale); }
+.jm-score-t { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.jm-score-t b { font-size: 15px; color: var(--texte); }
+.jm-score-t span { font-size: 13px; line-height: 1.4; color: var(--doux); }
+.jm-sonne { text-decoration: underline wavy color-mix(in srgb, var(--orange) 85%, transparent); text-decoration-thickness: 1.5px; text-underline-offset: 4px; cursor: help; }
+.jm-sonne.g-pompeux, .jm-sonne.g-trois { text-decoration-color: color-mix(in srgb, var(--S) 80%, transparent); }
+.jm-sonne.g-longue { text-decoration: none; background: rgba(255, 255, 255, 0.045); border-radius: 3px; }
+.jm-sonne.g-plancher { text-decoration-color: var(--rouge); }
+.jm-ia-l { display: flex; flex-direction: column; gap: 6px; max-width: 720px; }
+.jm-ia-l > div { padding: 9px 13px; border-radius: 11px; background: rgba(255, 255, 255, 0.03); border-left: 3px solid color-mix(in srgb, var(--orange) 70%, transparent); }
+.jm-ia-l q { display: block; font-size: 14px; line-height: 1.45; color: var(--texte); quotes: "« " " »"; }
+.jm-ia-l small { display: block; margin-top: 2px; font-size: 12.5px; color: var(--pale); }
+.jm-pr-notes { display: flex; flex-direction: column; gap: 3px; max-width: 720px; margin-top: 12px; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--vert) 7%, transparent); font-size: 13.5px; line-height: 1.45; color: var(--doux); }
+.jm-pr-notes b { font-size: 12.5px; color: var(--vert); }
+.jm-pr-plancher { max-width: 720px; margin: 6px 0 0; padding: 9px 13px; border-radius: 11px; background: color-mix(in srgb, var(--rouge) 8%, transparent); font-size: 14px; color: var(--texte); }
+@media (max-width: 1100px) {
+  .jm-st-ajout { grid-template-columns: minmax(0, 1fr); }
+}
+.jm-score-t small { font-size: 11.5px; font-weight: 650; letter-spacing: 0.3px; color: var(--pale); }

@@ -159,6 +159,7 @@ impl Profil {
                 v.style = style;
                 v.style_ouvert = self.style_ouvert;
                 v.recherche = recherche;
+                v.regles = crate::style::vue(Some(b));
                 (v, None)
             }
             Err(e) => (v, Some(format!("Profil : base illisible ({e})"))),

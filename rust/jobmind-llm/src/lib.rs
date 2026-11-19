@@ -12,6 +12,8 @@
 //!   du mail qui le dit, vérifiée de la même façon ;
 //! - [`candidature`] (étape 8) : la candidature préparée par le modèle fort (la lettre, les réponses aux questions de
 //!   l'offre, les conseils pour le CV), chaque phrase sur Jordan vérifiée dans son CV ;
+//! - [`style`] (étape 9) : la réécriture d'une lettre dans le style de Jordan par le modèle fort, vérifiée ensuite
+//!   par jobmind-humanizer (aucun fait, nombre ou nom nouveau) ;
 //! - `faux` (option « faux » et tests) : un faux Claude local, jamais la vraie API.
 
 pub mod candidature;
@@ -20,6 +22,7 @@ pub mod claude;
 pub mod faux;
 pub mod lecture;
 pub mod reponse;
+pub mod style;
 
 /// Le modèle à prendre pour une demande.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

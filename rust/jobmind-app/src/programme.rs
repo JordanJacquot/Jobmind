@@ -132,6 +132,8 @@ struct Etat {
     /// est demandée
     preparation: crate::preparation::Preparation,
     prep_depuis: Option<Instant>,
+    /// Étape 9 : depuis quand la réécriture dans le style de Jordan est demandée
+    style_depuis: Option<Instant>,
     /// Construction d'essai (étape 8) : ce que fait le faux Claude du faux serveur local
     #[cfg(feature = "essai")]
     faux_claude: Arc<Mutex<jobmind_llm::faux::ModeFaux>>,
@@ -431,6 +433,7 @@ pub fn lancer() -> ! {
             ia_depuis: None,
             preparation: crate::preparation::Preparation::default(),
             prep_depuis: None,
+            style_depuis: None,
             #[cfg(feature = "essai")]
             faux_claude,
             coulisse: Coulisse::default(),
@@ -1210,7 +1213,8 @@ impl Etat {
                     || offres::est_geste(id)
                     || coulisse::est_geste(id)
                     || crate::mail::est_geste(id)
-                    || crate::preparation::est_geste(id) =>
+                    || crate::preparation::est_geste(id)
+                    || crate::style::est_geste(id) =>
             {
                 self.geste(id, valeur);
                 return;
@@ -1306,6 +1310,9 @@ impl Etat {
         if let Some(t) = fait.mail_ia {
             self.lancer_mail_ia(app, t);
         }
+        if let Some(t) = fait.style {
+            self.lancer_style(app, t);
+        }
         if let Some(t) = fait.preparation {
             self.lancer_preparation(app, t);
         }
@@ -1350,6 +1357,9 @@ impl Etat {
             if crate::preparation::est_geste(id) {
                 let ctx = crate::preparation::Contexte { base: d.base.as_ref(), cles: Some(&etat.cles) };
                 return etat.preparation.geste(&ctx, id, valeur, maintenant);
+            }
+            if crate::style::est_geste(id) {
+                return crate::style::geste(d.base.as_ref(), id, valeur);
             }
             if crate::mail::est_geste(id) {
                 return etat.boite.geste(d.base.as_ref(), Some(&mut etat.cles), id, valeur, maintenant);
@@ -1621,12 +1631,55 @@ impl Etat {
         self.faire(app, |etat, d| etat.preparation.fini(d.base.as_ref(), r, heure::maintenant()));
     }
 
+    /// Étape 9 : lance la réécriture d'une lettre dans le style de Jordan, sur un fil à part. La clé est lue ici, au
+    /// dernier moment, et donnée seulement à ce fil (jamais au journal ni à la page).
+    fn lancer_style(&mut self, app: &AppHandle, t: crate::preparation::TacheStyle) {
+        let cle = offres::cles_claires(&self.cles, Service::Claude).and_then(|v| v.into_iter().next());
+        let (adresse, https) = self.adresse_claude_fort();
+        let a = app.clone();
+        let r = std::thread::Builder::new().name("style-ia".into()).spawn(move || {
+            let r = match cle {
+                Some(cle) => {
+                    let claude =
+                        jobmind_llm::claude::Claude::nouveau(&adresse, &cle, https, jobmind_llm::claude::DELAI_FORT);
+                    crate::preparation::travailler_style(&claude, &t)
+                }
+                None => crate::preparation::RetourStyle {
+                    jeton: t.jeton,
+                    reponse: None,
+                    stylee: Err(jobmind_llm::ErreurLlm::CleManquante),
+                },
+            };
+            rapporter_vers(&a, r, Etat::retour_style);
+        });
+        match r {
+            Ok(_) => self.style_depuis = Some(Instant::now()),
+            Err(e) => {
+                self.journal.ecrire(&format!("Style : fil de Claude non lancé ({e})"));
+                let _ = self.preparation.style_trop_long();
+            }
+        }
+    }
+
+    /// Étape 9 : ce que Claude a rendu pour la réécriture.
+    fn retour_style(&mut self, app: &AppHandle, r: crate::preparation::RetourStyle) {
+        if self.preparation.jeton_style_en_cours() == Some(r.jeton) {
+            self.style_depuis = None;
+        }
+        self.faire(app, |etat, d| etat.preparation.fini_style(d.base.as_ref(), r, heure::maintenant()));
+    }
+
     /// Une lecture par Claude qui dure trop longtemps : abandonnée (un résultat arrivé ensuite est laissé).
     fn ia_trop_longue(&mut self, app: &AppHandle) {
         // (étape 8 : une candidature demandée depuis trop longtemps aussi)
         if self.prep_depuis.is_some_and(|t| t.elapsed() > PREP_MAX) {
             self.prep_depuis = None;
             self.faire(app, |etat, _| etat.preparation.trop_longue());
+        }
+        // (étape 9 : une réécriture aussi)
+        if self.style_depuis.is_some_and(|t| t.elapsed() > PREP_MAX) {
+            self.style_depuis = None;
+            self.faire(app, |etat, _| etat.preparation.style_trop_long());
         }
         if self.ia_depuis.is_some_and(|t| t.elapsed() > IA_MAX) {
             self.ia_depuis = None;

@@ -50,6 +50,7 @@ pub mod preparation;
 pub mod profil;
 #[cfg(windows)]
 pub mod programme;
+pub mod style;
 pub mod suivi;
 pub mod vue_offres;
 pub mod vue_profil;

@@ -52,6 +52,8 @@ jobmind-lecture = { path = "../jobmind-lecture" }
 jobmind-sources = { path = "../jobmind-sources" }
 # Étape 6 : le petit modèle de Claude, pour les offres que les règles n'ont pas su lire (sur un fil à part)
 jobmind-llm = { path = "../jobmind-llm" }
+# Étape 9 : le style de Jordan (règles, plancher, score naturel, surlignage, réécriture vérifiée)
+jobmind-humanizer = { path = "../jobmind-humanizer" }
 # Étape 7 : la boîte Gmail de Jordan (IMAP en lecture seule), lue sur un fil à part
 jobmind-mail = { path = "../jobmind-mail" }
 

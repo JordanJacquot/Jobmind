@@ -1214,6 +1214,7 @@
 
   // Le CV montré (pour l'enregistrer, le supprimer...)
   const cvDossier = () => objet(rubriquesDe(ongletDe('profil')).find((r) => r.id === 'cv')?.dossier);
+  const styleDossier = () => objet(rubriquesDe(ongletDe('profil')).find((r) => r.id === 'style')?.dossier);
 
   function cvEnregistrer() {
     const d = cvDossier(), err = hote.querySelector('.jm-err');
@@ -1308,9 +1309,57 @@
   }
 
   // -------------------------------------------- Mon style
+  // Deux pilules (étape 9) : « Mes textes » (étape 3) et « Mes règles » : le plancher professionnel (montré, il ne se
+  // coupe pas), la longueur des phrases, l'intensité par défaut, ses expressions à éviter, les formules toutes faites
+  // et les mots trop recherchés (coupés ou remis), « Tout remettre comme au départ ». Rust vérifie tout (src\style.rs).
+  let stPil = 'textes';                         // la pilule de Mon style : 'textes' ou 'regles'
+  let stAjout = { motif: '', remplacement: '' }; // l'expression en train d'être ajoutée
+  let stZero = false;                           // « Tout remettre comme au départ ? »
+
+  function pilulesStyleHTML(d) {
+    const { esc } = O, r = objet(d.regles), t = (k) => texteSur(objet(r.textes)[k]);
+    if (!Object.keys(r).length) return '';
+    return `<div class="jm-pilules jm-st-pil" role="tablist">${[['textes', t('p_textes')], ['regles', t('p_regles')]].map(([id, nom]) => `<button type="button" role="tab" aria-selected="${stPil === id}" class="jm-pil f${stPil === id ? ' actif' : ''}" data-perso="sty-pil" data-id="${id}" data-k="sp:${id}">${esc(nom)}</button>`).join('')}</div>`;
+  }
+
+  function reglesHTML(d) {
+    const { esc } = O, r = objet(d.regles), t = (k) => texteSur(objet(r.textes)[k]);
+    const max = Number.isInteger(r.phrase_max) ? r.phrase_max : 25;
+    let h = `<div class="jm-p${anime()}">${pilulesStyleHTML(d)}<h1>${esc(t('titre'))}</h1><p class="jm-intro">${esc(t('intro'))}</p>`;
+    h += `<h2 class="jm-h2">${esc(t('plancher_t'))}</h2><p class="jm-petit">${esc(t('plancher_s'))}</p><ul class="jm-plancher">${liste(r.plancher).map((x) => `<li>${icone('cadenas')}<span>${esc(texteSur(x))}</span></li>`).join('')}</ul>`;
+    h += `<h2 class="jm-h2">${esc(t('longueur_t'))}</h2><div class="jm-st-long">${bouton('sty-moins', 'sr:moins', t('moins'), 'gauche', 'second', max <= r.phrase_min ? ' disabled' : '')}<span><b>${max}</b> ${esc(t('longueur'))}</span>${bouton('sty-plus', 'sr:plus', t('plus'), 'droite', 'second', max >= r.phrase_plus ? ' disabled' : '')}</div>`;
+    const ints = liste(r.intensites).filter((x) => codeSur(x?.code));
+    const ic = ints.find((x) => x.code === r.intensite);
+    h += `<h2 class="jm-h2">${esc(t('intensite_t'))}</h2><div class="jm-segments" role="radiogroup">${ints.map((x) => `<button type="button" role="radio" aria-checked="${x.code === r.intensite}" class="jm-seg f${x.code === r.intensite ? ' actif' : ''}" data-perso="sty-int" data-id="${x.code}" data-k="sr:i-${x.code}">${esc(texteSur(x.nom))}</button>`).join('')}</div>${ic ? `<p class="jm-petit">${esc(texteSur(ic.texte))}</p>` : ''}`;
+    for (const g of liste(r.groupes)) {
+      const l = liste(g?.liste);
+      const actives = l.filter((x) => x?.active === true).length;
+      h += `<h2 class="jm-h2">${esc(texteSur(g?.titre))}${l.length ? ` <small>${actives} / ${l.length}</small>` : ''}</h2>`;
+      if (g?.id === 'perso') {
+        h += `<div class="jm-st-ajout"><label class="jm-champ"><span>${esc(t('motif'))}</span><input class="f" ${pChamp('sr', 'motif', 'sr:motif', stAjout.motif, ` maxlength="60" autocomplete="off" spellcheck="false" placeholder="${esc(t('i_motif'))}"`)}></label>
+          <label class="jm-champ"><span>${esc(t('remplacement'))} <small>${esc(t('facultatif'))}</small></span><input class="f" ${pChamp('sr', 'remplacement', 'sr:rempl', stAjout.remplacement, ` maxlength="60" autocomplete="off" spellcheck="false" placeholder="${esc(t('i_remplacement'))}"`)}></label>
+          ${bouton('sty-ajouter', 'sr:ajouter', t('ajouter'), 'plus', 'principal')}</div><p class="jm-err" role="alert"></p>`;
+        if (!l.length) h += `<p class="jm-petit">${esc(t('aucune_perso'))}</p>`;
+      }
+      h += `<div class="jm-regles">${l.map((x) => {
+        const perso = numSur(x?.id);
+        const cle = perso ? `data-id="${x.id}"` : `data-code="${esc(texteSur(x?.code))}"`;
+        const k = perso ? `sr:p-${x.id}` : `sr:${esc(texteSur(x?.code))}`;
+        const sous = texteSur(x?.sous);
+        const supprimer = perso ? bouton('sty-supprimer', `sr:s-${x.id}`, t('supprimer'), 'poubelle', 'discret danger', ` data-id="${x.id}"`) : '';
+        return `<div class="jm-regle${x?.active === true ? '' : ' coupee'}"><div class="jm-regle-t"><b>${esc(texteSur(x?.motif))}</b><span>${esc(sous)}</span></div>${supprimer}<button type="button" role="switch" aria-checked="${x?.active === true}" class="jm-inter f${x?.active === true ? ' oui' : ''}" data-perso="sty-regle" ${cle} data-k="${k}"><i></i><span>${esc(x?.active === true ? t('active') : t('coupee'))}</span></button></div>`;
+      }).join('')}</div>`;
+    }
+    h += stZero
+      ? `<div class="jm-suppr"><p>${esc(t('zero_q'))}</p><div class="jm-btns">${bouton('sty-zero-oui', 'sr:oui', t('oui'), 'recharger', 'danger')}${bouton('sty-zero-non', 'sr:non', t('non'), '', 'second')}</div></div>`
+      : `<div class="jm-d-bas">${bouton('sty-zero', 'sr:zero', t('zero'), 'recharger', 'discret')}</div>`;
+    return `${h}</div>`;
+  }
+
   function styleHTML(d) {
     const { esc } = O, t = tx(d), v = objet(d.vide);
     const l = liste(d.liste).filter((x) => numSur(x?.id)), ouvert = objet(d.ouvert), plein = d.plein === true;
+    if (stPil === 'regles' && !styleForm && Object.keys(objet(d.regles)).length) return reglesHTML(d);
     if (styleForm) {
       return `<form class="jm-p${anime()}" novalidate><h1>${esc(t('nouveau'))}</h1><p class="jm-intro">${esc(texteSur(d.intro))}</p>
         <div class="jm-grille un">
@@ -1320,10 +1369,10 @@
         <div class="jm-btns">${bouton('st-enregistrer', 'st:enreg', t('enregistrer'), 'coche', 'principal')}${bouton('st-annuler', 'st:annuler', t('annuler'), '', 'second')}</div></form>`;
     }
     if (!l.length) {
-      return `<div class="jm-vide${anime()}"><div class="jm-v-ic plasma-bord">${icone('plume')}</div><h1>${esc(texteSur(v.titre))}</h1>
+      return `<div class="jm-vide${anime()}">${pilulesStyleHTML(d)}<div class="jm-v-ic plasma-bord">${icone('plume')}</div><h1>${esc(texteSur(v.titre))}</h1>
         <p>${esc(texteSur(d.intro))}</p>${bouton('st-ajouter', 'st:ajouter', t('ajouter'), 'plus', 'principal grand')}<p class="jm-note">${esc(texteSur(d.conseil))} ${esc(texteSur(d.note))}</p></div>`;
     }
-    let h = `<div class="jm-p${anime()}"><h1>${esc(texteSur(d.titre))}</h1><p class="jm-intro">${esc(texteSur(d.intro))}</p>
+    let h = `<div class="jm-p${anime()}">${pilulesStyleHTML(d)}<h1>${esc(texteSur(d.titre))}</h1><p class="jm-intro">${esc(texteSur(d.intro))}</p>
       <div class="jm-outils">${bouton('st-ajouter', 'st:ajouter', t('ajouter'), 'plus', '', plein ? ' disabled' : '')}<span>${esc(plein ? t('plein') : texteSur(d.conseil))}</span></div><div class="jm-textes">`;
     for (const x of l) {
       const oui = x.id === ouvert.id;
@@ -1533,6 +1582,38 @@
       case 'st-supprimer': { const id = Number(d.id); if (numSur(id)) { O.son?.ok?.(); styleConfirme = id; dessinerTout('st:non'); } return true; }
       case 'st-suppr-non': { const id = styleConfirme; O.son?.retour?.(); styleConfirme = null; dessinerTout(id ? `sts:${id}` : undefined); return true; }
       case 'st-suppr-oui': if (numSur(styleConfirme)) { const id = styleConfirme; styleConfirme = null; el.disabled = true; O.action('style-supprimer', { id }); } return true;
+      // Mon style, Mes règles (étape 9)
+      case 'sty-pil': if (['textes', 'regles'].includes(d.id) && stPil !== d.id) { stPil = d.id; styleForm = null; stZero = false; O.son?.tic?.(); O.anime = !reduit(); dessinerTout(`sp:${d.id}`); } return true;
+      case 'sty-regle': {
+        const actif = el.getAttribute('aria-checked') === 'true';
+        O.son?.bascule?.();
+        if (numSur(Number(d.id))) O.action('sty-regle', { id: Number(d.id), active: !actif });
+        else if (typeof d.code === 'string' && /^[a-z0-9-]{1,40}$/.test(d.code)) O.action('sty-regle', { code: d.code, active: !actif });
+        return true;
+      }
+      case 'sty-moins': case 'sty-plus': {
+        const r = objet(styleDossier().regles), n = Number(r.phrase_max);
+        if (Number.isInteger(n) && !el.disabled) { O.son?.tic?.(); O.action('sty-phrase', { max: n + (d.perso === 'sty-plus' ? 1 : -1) }); }
+        return true;
+      }
+      case 'sty-int': if (codeSurP(d.id)) { O.son?.bascule?.(); O.action('sty-intensite', { code: d.id }); } return true;
+      case 'sty-ajouter': {
+        const err = hote.querySelector('.jm-st-ajout + .jm-err');
+        if (!String(stAjout.motif || '').trim()) {
+          if (err) err.textContent = texteSur(objet(objet(styleDossier().regles).textes).i_motif);
+          hote.querySelector('[data-k="sr:motif"]')?.focus({ preventScroll: false });
+          O.son?.retour?.();
+          return true;
+        }
+        if (Date.now() < envoiJusqua) return true;
+        envoiJusqua = Date.now() + 800; O.son?.ok?.();
+        O.action('sty-ajouter', { motif: String(stAjout.motif).slice(0, 60), remplacement: String(stAjout.remplacement || '').slice(0, 60) });
+        return true;
+      }
+      case 'sty-supprimer': { const id = Number(d.id); if (numSur(id)) { O.son?.ok?.(); O.action('sty-supprimer', { id }); } return true; }
+      case 'sty-zero': O.son?.ok?.(); stZero = true; dessinerTout('sr:non'); hote.querySelector('.jm-suppr')?.scrollIntoView({ block: 'nearest' }); return true;
+      case 'sty-zero-non': O.son?.retour?.(); stZero = false; dessinerTout('sr:zero'); return true;
+      case 'sty-zero-oui': if (stZero) { stZero = false; el.disabled = true; O.action('sty-zero'); } return true;
       // Mes clés
       case 'k-donner': if (idSur(d.id)) { O.son?.ok?.(); cleForm = d.id; cleSaisie = {}; cleConfirme = null; dessinerTout(); hote.querySelector('#jm [data-zone="cle"]')?.focus({ preventScroll: false }); } return true;
       case 'k-annuler': O.son?.retour?.(); cleFermer(); return true;
@@ -1576,6 +1657,7 @@
     }
     if (d.zone === 'rc' && rch && ['postes', 'ville', 'salaire', 'departement', 'region'].includes(d.champ)) { rch[d.champ] = v; return; }
     if (d.zone === 'st' && styleForm && (d.champ === 'titre' || d.champ === 'texte')) { styleForm[d.champ] = v; return; }
+    if (d.zone === 'sr' && (d.champ === 'motif' || d.champ === 'remplacement')) { stAjout[d.champ] = v; return; }
     if (d.zone === 'cle' && cleForm && codeSurP(d.champ)) cleSaisie[d.champ] = v;
     if (d.zone === 'gm' && (d.champ === 'adresse' || d.champ === 'mdp')) boiteSaisie[d.champ] = v;
   }
@@ -1587,6 +1669,7 @@
     if (cvMode === 'coller') { cvMode = 'voir'; dessinerTout('cv:coller'); return true; }
     if (styleConfirme) { const id = styleConfirme; styleConfirme = null; dessinerTout(`sts:${id}`); return true; }
     if (styleForm) { styleForm = null; dessinerTout('st:ajouter'); return true; }
+    if (stZero) { stZero = false; dessinerTout('sr:zero'); return true; }
     if (cleConfirme) { const id = cleConfirme; cleConfirme = null; dessinerTout(`ke:${id}`); return true; }
     if (cleForm) { cleFermer(); return true; }
     if (boiteConfirme) { boiteConfirme = false; dessinerTout('gm:decon'); return true; }
@@ -1603,6 +1686,9 @@
     if (numSur(o.cv_supprime)) { delete cvEdits[o.cv_supprime]; cvConfirme = false; if (rubriqueOuverte('cv')) dessinerTout(); return true; }
     if (o.recherche === 'enregistree') { rch = null; if (rubriqueOuverte('recherche')) dessinerTout('rc:enreg'); return true; }
     if (numSur(o.style)) { styleForm = null; if (rubriqueOuverte('style')) dessinerTout('st:ajouter'); return true; }
+    if (numSur(o.style_regle)) { stAjout = { motif: '', remplacement: '' }; if (rubriqueOuverte('style')) dessinerTout('sr:motif'); return true; }
+    if (o.style_zero === true) { stZero = false; stAjout = { motif: '', remplacement: '' }; if (rubriqueOuverte('style')) dessinerTout('sr:zero'); return true; }
+    if (o.style_pil === 'regles' || o.style_pil === 'textes') { stPil = o.style_pil; if (rubriqueOuverte('style')) dessinerTout(`sp:${o.style_pil}`); return true; }
     if (idSur(o.cle)) { cleForm = null; cleSaisie = {}; cleConfirme = null; if (rubriqueOuverte('cles')) dessinerTout(`k:${o.cle}`); return true; }
     // (étape 7 : la boîte branchée ou débranchée ; construction d'essai : la boîte remplie comme Jordan)
     if (o.boite === 'branchee' || o.boite === 'debranchee') {
@@ -1656,7 +1742,7 @@
       ofVue1 = id;
       if (prVoulu === null || prVoulu !== id) ofPil = 'offre';
       if (prVoulu === id) { ofPil = 'cand'; prVoulu = null; }
-      prEdition = null; prBrute = false; prConsigne = '';
+      prEdition = null; prBrute = false; prVoir = null; prInt = null; prConsigne = '';
     }
   }
 
@@ -1675,7 +1761,30 @@
   const prVersion = (p) => { const v = objet(p?.version); return numSur(v.id) ? v : null; };
   // (« Ma candidature » ouverte : le dossier descend jusqu'aux pilules, la lettre se voit)
   const voirPil = () => { const d = hote.querySelector('.jm-dossier'), p = hote.querySelector('.jm-o-pil'); if (d && p) d.scrollTop += p.getBoundingClientRect().top - d.getBoundingClientRect().top - 12; };
-  const morceauxHTML = (l) => liste(l).map((m) => (Number.isInteger(m?.n) ? `<mark class="jm-verif">${O.esc(texteSur(m.t))}</mark>` : O.esc(texteSur(m?.t)))).join('');
+  // (un morceau : à vérifier, `n` ; qui sonne comme une IA, `g` son genre et `r` sa raison, montrée au survol)
+  const GENRES_IA = ['plancher', 'ia', 'perso', 'pompeux', 'trois', 'longue'];
+  const morceauxHTML = (l) => liste(l).map((m) => {
+    let x = O.esc(texteSur(m?.t));
+    if (GENRES_IA.includes(m?.g)) x = `<span class="jm-sonne g-${m.g}" title="${O.esc(texteSur(m.r))}">${x}</span>`;
+    return Number.isInteger(m?.n) ? `<mark class="jm-verif">${x}</mark>` : x;
+  }).join('');
+  // Étape 9 : la lettre montrée (« brute » : celle de Claude ; « style » : dans mon style ; « moi » : celle de Jordan),
+  // l'intensité choisie pour la réécriture
+  let prVoir = null;
+  let prInt = null;
+  const prChoix = (v) => (v.gardee === 'moi' && v.modifiee !== true ? 'brute' : (['brute', 'style', 'moi'].includes(v.gardee) ? v.gardee : 'brute'));
+  const prQuelle = (v) => {
+    const q = prVoir || prChoix(v);
+    return q === 'moi' && v.modifiee !== true ? 'brute' : q;
+  };
+  const prLettre = (v, q) => objet(objet(v.lettres)[q]);
+  function scoreHTML(s, t) {
+    const x = objet(s), n = Number(x.note);
+    if (!Number.isInteger(n)) return '';
+    const g = n >= 80 ? 'bon' : n >= 60 ? 'moyen' : 'faible';
+    const rs = liste(x.raisons).filter((r) => texteSur(r));
+    return `<div class="jm-score ${g}" role="status"><div class="jm-score-n"><b>${n}</b><small>${O.esc(t('sur_100'))}</small></div><div class="jm-score-t"><small>${O.esc(t('score_t'))}</small><b>${O.esc(texteSur(x.mot))}</b>${rs.map((r) => `<span>${O.esc(r)}</span>`).join('')}</div></div>`;
+  }
 
   function pilulesOffreHTML(f, p) {
     const { esc } = O, t = tO(p);
@@ -1710,20 +1819,49 @@
       return `${h}<div class="jm-action jm-pr-a"><span class="jm-a-ic">${icone(sans ? 'cle' : 'plume')}</span><div class="jm-a-txt"><b>${esc(t('pas_t'))}</b><span>${esc(sans ? t('sans_cle') : t('preparer_s'))}</span></div><div class="jm-a-bts">${sans ? bouton('of-cles', 'pr:cle', t('ouvrir_cles'), 'cle', 'principal') : bouton('pr-preparer', 'pr:preparer', t('preparer'), 'plume', 'principal', p.occupe === true ? ' disabled' : '')}</div></div>`;
     }
     const occupe = p.occupe === true ? ' disabled' : '';
-    h += `<div class="jm-pr"><div class="jm-pr-g"><div class="jm-meta"><span>${esc(texteSur(v.meta))}</span></div>`;
+    const voir = prQuelle(v), L = prLettre(v, voir), choix = prChoix(v);
+    h += `<div class="jm-pr"><div class="jm-pr-g"><div class="jm-meta"><span>${esc(texteSur(voir === 'style' ? L.meta : v.meta))}</span></div>`;
+    // (étape 9 : les trois lettres ; celle que Jordan garde porte « Gardée »)
+    const tabs = [['brute', t('v_brute')], ['style', t('v_style')]];
+    if (v.modifiee === true) tabs.push(['moi', t('v_moi')]);
+    h += `<div class="jm-pilules jm-pr-pil" role="tablist">${tabs.map(([id, nom]) => `<button type="button" role="tab" aria-selected="${voir === id}" class="jm-pil f${voir === id ? ' actif' : ''}" data-perso="pr-voir-l" data-id="${id}" data-k="pr:l-${id}">${esc(nom)}${choix === id ? ` <small>${esc(t('gardee'))}</small>` : ''}</button>`).join('')}</div>`;
     if (prEdition && prEdition.id === v.id) {
       h += `<textarea class="jm-pr-zone f" data-perso="pr-zone" data-k="pr:zone" maxlength="8000" spellcheck="true" aria-label="${esc(t('lettre_t'))}">${esc(prEdition.texte)}</textarea>
         <div class="jm-btns serre">${bouton('pr-garder', 'pr:garder', t('garder'), 'coche', 'principal')}${bouton('pr-annuler', 'pr:annuler', t('annuler'), '', 'second')}</div>`;
+    } else if (voir === 'style' && !Object.keys(L).length) {
+      h += `<div class="jm-annonce attention jm-pr-ann" role="status">${icone('plume')}<div><span>${esc(t('pas_style'))}</span></div></div>`;
     } else {
-      if (prBrute) h += `<p class="jm-petit jm-pr-brute-t">${esc(t('brute_t'))}</p><div class="jm-lettre jm-pr-lettre brute" data-brut>${esc(texteSur(v.brute))}</div>`;
-      else h += `<div class="jm-lettre jm-pr-lettre" data-brut>${morceauxHTML(v.morceaux)}</div>`;
-      h += `<div class="jm-btns serre jm-pr-bts">${bouton('pr-copier', 'pr:copier', t('copier'), 'copie', 'principal')}${prBrute ? '' : bouton('pr-modifier', 'pr:modifier', t('modifier'), 'crayon', '')}${bouton('pr-brute', 'pr:brute', prBrute ? t('finale') : t('brute'), 'oeil', 'discret')}</div>`;
+      h += scoreHTML(L.score, t);
+      h += `<div class="jm-lettre jm-pr-lettre" data-brut>${morceauxHTML(L.morceaux)}</div>`;
+      h += `<div class="jm-btns serre jm-pr-bts">${choix === voir ? '' : bouton('pr-choisir', 'pr:garder-l', t('garder_celle'), 'coche', 'principal', ` data-id="${voir}"`)}${bouton('pr-copier', 'pr:copier', t('copier'), 'copie', choix === voir ? 'principal' : '')}${bouton('pr-modifier', 'pr:modifier', t('modifier'), 'crayon', '')}</div>`;
+      const notes = liste(L.notes).filter((x) => texteSur(x));
+      if (notes.length) h += `<div class="jm-pr-notes"><b>${esc(t('notes_t'))}</b>${notes.map((x) => `<span>${esc(x)}</span>`).join('')}</div>`;
+      const pl = liste(L.plancher).filter((x) => texteSur(x));
+      if (pl.length) h += `<h2 class="jm-h2 jm-pr-avt">${icone('attention')}${esc(t('plancher_t'))}</h2>${pl.map((x) => `<p class="jm-pr-plancher">${esc(x)}</p>`).join('')}`;
+      const ms = liste(L.marques);
+      h += `<h2 class="jm-h2">${esc(t('ia_t'))}</h2>`;
+      if (ms.length) {
+        h += `<p class="jm-petit jm-pr-avs">${esc(t('ia_s'))}</p><div class="jm-ia-l">${ms.map((m) => `<div><q>${esc(texteSur(m?.texte))}</q><small>${esc(texteSur(m?.raison))}</small></div>`).join('')}</div>`;
+        if (Number(L.marques_n) > ms.length) h += `<p class="jm-petit">+ ${Number(L.marques_n) - ms.length} ${esc(t('autres'))}</p>`;
+      } else h += `<p class="jm-petit">${esc(t('ia_aucun'))}</p>`;
     }
-    const av = liste(v.a_verifier).filter((a) => Number.isInteger(a?.n));
-    if (av.length && !prBrute) {
+    // Les phrases à vérifier : celles de la version dans mon style, ou celles de la lettre de Jordan
+    const style = voir === 'style';
+    const av = liste(style ? L.a_verifier : v.a_verifier).filter((a) => Number.isInteger(a?.n));
+    if (av.length && !(prEdition && prEdition.id === v.id)) {
+      const [j, r] = style ? ['pr-s-juste', 'pr-s-retirer'] : ['pr-juste', 'pr-retirer'];
       h += `<h2 class="jm-h2 jm-pr-avt">${icone('attention')}${esc(t('a_verifier_t'))}</h2><p class="jm-petit jm-pr-avs">${esc(t('a_verifier_s'))}</p>`;
-      h += av.map((a) => `<div class="jm-pr-av"><q>${esc(texteSur(a.texte))}</q><small>${esc(texteSur(a.raison))}</small><div class="jm-btns serre">${bouton('pr-juste', `pr:j-${a.n}`, t('juste'), 'coche', '', ` data-n="${a.n}"`)}${bouton('pr-retirer', `pr:r-${a.n}`, t('retirer'), 'poubelle', 'discret danger', ` data-n="${a.n}"`)}</div></div>`).join('');
+      h += av.map((a) => `<div class="jm-pr-av"><q>${esc(texteSur(a.texte))}</q><small>${esc(texteSur(a.raison))}</small><div class="jm-btns serre">${bouton(j, `pr:j-${a.n}`, t('juste'), 'coche', '', ` data-n="${a.n}"`)}${bouton(r, `pr:r-${a.n}`, t('retirer'), 'poubelle', 'discret danger', ` data-n="${a.n}"`)}</div></div>`).join('');
     }
+    // Dans mon style : l'intensité, puis réécrire (ou mes règles seules, sans clé)
+    const ints = liste(p.intensites).filter((x) => codeSur(x?.code));
+    const ic = prInt && ints.some((x) => x.code === prInt) ? prInt : (codeSur(p.intensite) ? p.intensite : 'moyenne');
+    const ix = ints.find((x) => x.code === ic) || {};
+    const bloque = ix.claude === true && p.claude !== true;
+    h += `<h2 class="jm-h2">${esc(t('style_t'))}</h2><p class="jm-petit">${esc(t('style_s'))}</p>`;
+    h += `<div class="jm-segments" role="radiogroup" aria-label="${esc(t('intensite_t'))}">${ints.map((x) => `<button type="button" role="radio" aria-checked="${x.code === ic}" class="jm-seg f${x.code === ic ? ' actif' : ''}" data-perso="pr-int" data-id="${x.code}" data-k="pr:i-${x.code}">${esc(texteSur(x.nom))}</button>`).join('')}</div>`;
+    h += `<p class="jm-petit">${esc(bloque ? t('sans_cle_style') : texteSur(ix.texte))}</p>`;
+    h += `<div class="jm-btns serre">${bouton('pr-styler', 'pr:styler', ix.claude === true ? t('styler') : t('appliquer'), 'plume', 'principal', p.occupe === true || bloque ? ' disabled' : '')}${bouton('pr-regles', 'pr:regles', t('mes_regles'), 'reglages', 'discret')}</div>`;
     h += `<h2 class="jm-h2">${esc(t('refaire_t'))}</h2><div class="jm-pr-refaire"><input class="f" data-perso="pr-consigne" data-k="pr:consigne" maxlength="120" autocomplete="off" spellcheck="false" placeholder="${esc(t('i_consigne'))}" aria-label="${esc(t('refaire_t'))}" value="${esc(prConsigne)}">${bouton('pr-refaire', 'pr:refaire', t('refaire'), 'recharger', '', occupe)}</div>`;
     h += `<p class="jm-petit">${esc(texteSur(v.cout))}</p></div><div class="jm-pr-cote">`;
     const qs = liste(v.questions);
@@ -1745,15 +1883,22 @@
       case 'pr-preparer': if (f && numSur(f.id) && !el.disabled) { el.disabled = true; O.son?.ok?.(); ofPil = 'cand'; O.action('pr-preparer', { id: f.id }); dessinerTout('op:cand'); voirPil(); } return true;
       case 'pr-consigne': // (Entrée : refaire)
       case 'pr-refaire': if (f && v && !(p?.occupe === true)) { O.son?.ok?.(); O.action('pr-preparer', { id: f.id, consigne: String(prConsigne || '').slice(0, 120), depuis: v.id }); } return true;
-      case 'pr-copier': if (v) copierBrut(prBrute ? texteSur(v.brute) : texteSur(v.lettre), el, () => O.action('pr-copie', { quoi: 'lettre' })); return true;
+      case 'pr-copier': if (v) copierBrut(texteSur(prLettre(v, prQuelle(v)).texte) || texteSur(v.lettre), el, () => O.action('pr-copie', { quoi: 'lettre' })); return true;
+      // Étape 9 : la lettre montrée, celle gardée, l'intensité, réécrire, les phrases à vérifier dans mon style
+      case 'pr-voir-l': if (v && ['brute', 'style', 'moi'].includes(d.id)) { O.son?.tic?.(); prVoir = d.id; prEdition = null; dessinerTout(`pr:l-${d.id}`); } return true;
+      case 'pr-choisir': if (v && ['brute', 'style', 'moi'].includes(d.id)) { O.son?.ok?.(); O.action('pr-choisir', { id: v.id, quelle: d.id }); } return true;
+      case 'pr-int': if (codeSur(d.id)) { O.son?.bascule?.(); prInt = d.id; dessinerTout(`pr:i-${d.id}`); } return true;
+      case 'pr-styler': if (v && !el.disabled && !(p?.occupe === true)) { el.disabled = true; O.son?.ok?.(); O.action('pr-styler', { id: v.id, intensite: prInt || (codeSur(p?.intensite) ? p.intensite : 'moyenne') }); } return true;
+      case 'pr-s-juste': case 'pr-s-retirer': { const n = Number(d.n); if (v && Number.isInteger(n) && !el.disabled) { el.disabled = true; O.son?.ok?.(); O.action(d.perso, { id: v.id, n }); } return true; }
+      case 'pr-regles': O.son?.ok?.(); stPil = 'regles'; montrer('profil', 'r:style'); ouvrirRubrique('style'); return true;
       case 'pr-copier-q': { const q = liste(v?.questions)[Number(d.i)]; if (q) copierBrut(texteSur(q.reponse), el, () => O.action('pr-copie', { quoi: 'question' })); return true; }
-      case 'pr-modifier': if (v) { O.son?.ok?.(); prEdition = { id: v.id, texte: texteSur(v.lettre) }; prBrute = false; dessinerTout('pr:zone'); } return true;
+      case 'pr-modifier': if (v) { O.son?.ok?.(); prEdition = { id: v.id, texte: texteSur(prLettre(v, prQuelle(v)).texte) || texteSur(v.lettre) }; prBrute = false; dessinerTout('pr:zone'); } return true;
       case 'pr-zone': return true;
       case 'pr-garder': if (prEdition && Date.now() >= envoiJusqua) { envoiJusqua = Date.now() + 800; O.son?.ok?.(); O.action('pr-lettre', { id: prEdition.id, lettre: String(prEdition.texte).slice(0, 8000) }); } return true;
       case 'pr-annuler': O.son?.retour?.(); prEdition = null; dessinerTout('pr:modifier'); return true;
       case 'pr-brute': O.son?.tic?.(); prBrute = !prBrute; dessinerTout('pr:brute'); return true;
       case 'pr-juste': case 'pr-retirer': { const n = Number(d.n); if (v && Number.isInteger(n) && !el.disabled) { el.disabled = true; O.son?.ok?.(); O.action(d.perso, { id: v.id, n }); } return true; }
-      case 'pr-version': { const id = Number(d.id); if (numSur(id)) { O.son?.tic?.(); prEdition = null; prBrute = false; O.action('pr-version', { id }); } return true; }
+      case 'pr-version': { const id = Number(d.id); if (numSur(id)) { O.son?.tic?.(); prEdition = null; prBrute = false; prVoir = null; O.action('pr-version', { id }); } return true; }
       case 'pr-cv': O.son?.ok?.(); montrer('profil', 'r:cv'); ouvrirRubrique('cv'); return true;
       // (depuis le dossier d'une candidature liée à une offre)
       case 'pr-dossier': {
@@ -2133,8 +2278,9 @@
       return true;
     }
     // (étape 8 : la lettre gardée, une nouvelle version prête ; pour les captures, « Ma candidature » montrée)
-    if (o.preparation === 'gardee') { prEdition = null; if (onglet === 'offres') dessinerTout('pr:modifier'); return true; }
-    if (o.preparation === 'prete') { prEdition = null; prBrute = false; prConsigne = ''; if (onglet === 'offres' && ofPil === 'cand') { dessinerTout('pr:copier'); voirPil(); } return true; }
+    if (o.preparation === 'gardee') { prEdition = null; prVoir = 'moi'; if (onglet === 'offres') dessinerTout('pr:modifier'); return true; }
+    if (o.preparation === 'stylee') { prEdition = null; prVoir = 'style'; if (onglet === 'offres' && ofPil === 'cand') dessinerTout('pr:l-style'); return true; }
+    if (o.preparation === 'prete') { prEdition = null; prBrute = false; prVoir = null; prInt = null; prConsigne = ''; if (onglet === 'offres' && ofPil === 'cand') { dessinerTout('pr:copier'); voirPil(); } return true; }
     if (typeof o.prep_consigne === 'string') { prConsigne = o.prep_consigne.slice(0, 120); if (onglet === 'offres') dessinerTout('pr:consigne'); return true; }
     if (o.preparation === 'voir') { if (onglet !== 'offres') montrer('offres'); ofVue = 'offre'; ofPil = 'cand'; dessinerTout('op:cand'); voirPil(); return true; }
     if (numSur(o.recherche_supprimee)) { ofConfirme = null; if (onglet === 'offres') dessinerTout('og:nouvelle'); return true; }

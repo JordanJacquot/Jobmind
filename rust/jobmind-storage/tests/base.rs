@@ -60,9 +60,9 @@ fn tables(b: &Base) -> Vec<String> {
 fn creation_avec_toutes_les_tables() {
     let e = Essai::nouveau("creation");
     let (b, appliquees) = Base::ouvrir(&e.0, moment()).unwrap();
-    assert_eq!(appliquees, vec![1, 2, 3, 4, 5, 6, 7, 8]);
-    assert_eq!(b.version().unwrap(), 8);
-    assert_eq!(version_connue(), 8);
+    assert_eq!(appliquees, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    assert_eq!(b.version().unwrap(), 9);
+    assert_eq!(version_connue(), 9);
     // data\jobmind.db dans le dossier de données
     assert_eq!(b.chemin().unwrap(), e.0.join(DOSSIER).join(FICHIER));
     assert!(e.0.join("data").join("jobmind.db").is_file());
@@ -84,13 +84,13 @@ fn creation_avec_toutes_les_tables() {
         .unwrap();
     assert_eq!((v, nom.as_str(), quand.as_str()), (1, "les tables du plan", "2026-11-18T14:05:00"));
     let u: u32 = b.connexion().query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(u, 8);
+    assert_eq!(u, 9);
     // Les liens entre tables sont vérifiés
     let fk: i64 = b.connexion().query_row("PRAGMA foreign_keys", [], |r| r.get(0)).unwrap();
     assert_eq!(fk, 1);
     assert_eq!(
         b.ligne_journal(&appliquees),
-        r"Base : data\jobmind.db prête (version 8, migrations 1, 2, 3, 4, 5, 6, 7, 8 appliquées)"
+        r"Base : data\jobmind.db prête (version 9, migrations 1, 2, 3, 4, 5, 6, 7, 8, 9 appliquées)"
     );
 }
 
@@ -105,15 +105,15 @@ fn migrations_rejouees_sans_erreur() {
     for _ in 0..3 {
         let (b, appliquees) = Base::ouvrir(&e.0, moment()).unwrap();
         assert!(appliquees.is_empty());
-        assert_eq!(b.version().unwrap(), 8);
+        assert_eq!(b.version().unwrap(), 9);
         let n: i64 = b.connexion().query_row("SELECT COUNT(*) FROM migrations", [], |r| r.get(0)).unwrap();
-        assert_eq!(n, 8);
+        assert_eq!(n, 9);
         let v: String = b
             .connexion()
             .query_row("SELECT valeur FROM parametres WHERE cle = 'alerte_jours'", [], |r| r.get(0))
             .unwrap();
         assert_eq!(v, "14");
-        assert_eq!(b.ligne_journal(&appliquees), r"Base : data\jobmind.db prête (version 8)");
+        assert_eq!(b.ligne_journal(&appliquees), r"Base : data\jobmind.db prête (version 9)");
     }
 }
 
@@ -123,14 +123,14 @@ fn base_d_une_version_future_jamais_touchee() {
     {
         let (b, _) = Base::ouvrir(&e.0, moment()).unwrap();
         b.connexion()
-            .execute("INSERT INTO migrations (version, nom, appliquee_le) VALUES (9, 'plus tard', 'x')", [])
+            .execute("INSERT INTO migrations (version, nom, appliquee_le) VALUES (10, 'plus tard', 'x')", [])
             .unwrap();
     }
     let avant = std::fs::read(e.0.join("data").join("jobmind.db")).unwrap();
     match Base::ouvrir(&e.0, moment()) {
-        Err(ErreurBase::Future { trouvee: 9, connue: 8 }) => {}
+        Err(ErreurBase::Future { trouvee: 10, connue: 9 }) => {}
         Err(autre) => panic!("erreur inattendue : {autre}"),
-        Ok(_) => panic!("une base de version 9 a été ouverte"),
+        Ok(_) => panic!("une base de version 10 a été ouverte"),
     }
     assert_eq!(std::fs::read(e.0.join("data").join("jobmind.db")).unwrap(), avant);
 }
@@ -201,15 +201,15 @@ fn les_donnees_ouvrent_la_base_et_le_notent() {
     let e = Essai::nouveau("donnees");
     let h = horloge_figee(moment());
     let d = Donnees::ouvrir(&e.0, h.clone(), false);
-    assert_eq!(d.base.as_ref().unwrap().version().unwrap(), 8);
+    assert_eq!(d.base.as_ref().unwrap().version().unwrap(), 9);
     drop(d);
     let d = Donnees::ouvrir(&e.0, h, false);
     assert!(d.base.is_some());
     let j = std::fs::read_to_string(e.0.join("journal.txt")).unwrap();
     assert_eq!(
         j,
-        "2026-11-18T14:05:00 Base : data\\jobmind.db prête (version 8, migrations 1, 2, 3, 4, 5, 6, 7, 8 appliquées)\r\n\
-         2026-11-18T14:05:00 Base : data\\jobmind.db prête (version 8)\r\n"
+        "2026-11-18T14:05:00 Base : data\\jobmind.db prête (version 9, migrations 1, 2, 3, 4, 5, 6, 7, 8, 9 appliquées)\r\n\
+         2026-11-18T14:05:00 Base : data\\jobmind.db prête (version 9)\r\n"
     );
 }
 
@@ -239,8 +239,8 @@ fn une_base_de_l_etape_1_est_migree_sans_rien_perdre() {
             [],
         )
         .unwrap();
-    assert_eq!(b.migrer_tout(moment()).unwrap(), vec![2, 3, 4, 5, 6, 7, 8]);
-    assert_eq!(b.version().unwrap(), 8);
+    assert_eq!(b.migrer_tout(moment()).unwrap(), vec![2, 3, 4, 5, 6, 7, 8, 9]);
+    assert_eq!(b.version().unwrap(), 9);
     let (l, illisibles) = jobmind_storage::candidatures::lister(b.connexion()).unwrap();
     assert_eq!(illisibles, 0);
     assert_eq!(l.len(), 1);

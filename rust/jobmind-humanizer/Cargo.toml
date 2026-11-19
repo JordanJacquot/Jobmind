@@ -7,6 +7,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+# La forme normalisée des mots, et la vérification d'une phrase réécrite (rien d'inventé, étape 8)
+jobmind-core = { path = "../jobmind-core" }
 
 [lints]
 workspace = true

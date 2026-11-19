@@ -1760,6 +1760,7 @@ name = "jobmind-app"
 version = "0.1.0"
 dependencies = [
  "jobmind-core",
+ "jobmind-humanizer",
  "jobmind-lecture",
  "jobmind-llm",
  "jobmind-mail",
@@ -1781,6 +1782,9 @@ version = "0.1.0"
 [[package]]
 name = "jobmind-humanizer"
 version = "0.1.0"
+dependencies = [
+ "jobmind-core",
+]
 
 [[package]]
 name = "jobmind-lecture"
@@ -1797,6 +1801,7 @@ name = "jobmind-llm"
 version = "0.1.0"
 dependencies = [
  "jobmind-core",
+ "jobmind-humanizer",
  "serde_json",
  "thiserror 2.0.21",
  "ureq",
@@ -1831,6 +1836,7 @@ name = "jobmind-storage"
 version = "0.1.0"
 dependencies = [
  "jobmind-core",
+ "jobmind-humanizer",
  "jobmind-sources",
  "rusqlite",
  "serde_json",

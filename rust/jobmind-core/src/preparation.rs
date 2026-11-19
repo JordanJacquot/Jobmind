@@ -49,6 +49,9 @@ pub enum Raison {
     FaitNonDeclare,
     /// Elle parle de Jordan avec ce mot, qui n'est ni dans son CV, ni dans son profil, ni dans l'offre
     MotAbsent(String),
+    /// Étape 9 : la réécriture ajoute ce nom (une entreprise, un logiciel, un lieu), absent du CV, de l'offre et de la
+    /// lettre de départ
+    NomAbsent(String),
 }
 
 impl Raison {
@@ -60,6 +63,19 @@ impl Raison {
             Raison::NombreAbsent(_) => "nombre_absent",
             Raison::FaitNonDeclare => "fait_non_declare",
             Raison::MotAbsent(_) => "mot_absent",
+            Raison::NomAbsent(_) => "nom_absent",
+        }
+    }
+
+    /// Ce que la phrase ajoute, en quelques mots (« le nombre « quatre » », « « Excel » »), pour dire pourquoi une
+    /// phrase réécrite est remise comme avant.
+    pub fn ajout(&self) -> String {
+        match self {
+            Raison::NombreAbsent(n) => format!("le nombre « {n} »"),
+            Raison::MotAbsent(m) | Raison::NomAbsent(m) => format!("« {m} »"),
+            Raison::SansExtrait | Raison::ExtraitAbsent | Raison::FaitNonDeclare => {
+                "un fait que ton CV ne dit pas".into()
+            }
         }
     }
 
@@ -71,6 +87,7 @@ impl Raison {
             Raison::NombreAbsent(n) => format!("Le nombre « {n} » n'est ni dans ton CV ni dans l'offre."),
             Raison::FaitNonDeclare => "Cette phrase parle de toi sans s'appuyer sur ton CV.".into(),
             Raison::MotAbsent(m) => format!("Cette phrase parle de toi avec « {m} », que ton CV ne dit pas."),
+            Raison::NomAbsent(m) => format!("« {m} » n'est ni dans ton CV, ni dans l'offre, ni dans ta lettre."),
         }
     }
 }
@@ -423,6 +440,115 @@ pub fn verifier_phrase(p: &PhraseRendue, s: Sources) -> Option<Phrase> {
 /// Vérifie une suite de phrases (les vides sont laissées).
 pub fn verifier_phrases(l: &[PhraseRendue], s: Sources) -> Vec<Phrase> {
     l.iter().filter_map(|p| verifier_phrase(p, s)).collect()
+}
+
+/// Étape 9 : les sources d'une phrase réécrite dans le style de Jordan. La réécriture ne fait que reformuler : tout ce
+/// qu'elle dit doit déjà être dans le CV et le profil (`profil`), l'offre, ou la lettre de départ (`depart`) ; les
+/// textes de Jordan (`vocabulaire`) ne donnent que des mots, jamais des faits.
+#[derive(Debug, Clone, Copy)]
+pub struct SourcesReecriture<'a> {
+    pub profil: &'a str,
+    pub offre: &'a str,
+    pub depart: &'a str,
+    pub vocabulaire: &'a str,
+}
+
+/// Les mots qu'une réécriture emploie souvent pour dire autrement la fin d'une lettre ou l'intérêt pour le poste, sans
+/// rien dire de nouveau sur Jordan (en plus de ceux de toute lettre).
+const MOTS_DE_REECRITURE: [&str; 26] = [
+    "parler",
+    "echanger",
+    "discuter",
+    "disponible",
+    "disponibilite",
+    "disposition",
+    "attente",
+    "rencontre",
+    "interesse",
+    "plait",
+    "attire",
+    "motive",
+    "envoie",
+    "adresse",
+    "joindre",
+    "contacter",
+    "rappeler",
+    "postuler",
+    "voudrais",
+    "souhaiterais",
+    "pourrais",
+    "convenir",
+    "volontiers",
+    "ravi",
+    "content",
+    "pense",
+];
+
+/// Le premier nom propre de la phrase (un mot qui commence par une majuscule, ailleurs qu'en tête de phrase) qui n'est
+/// dans aucun de ces textes : une entreprise, un logiciel, un lieu ajoutés.
+fn nom_absent(texte: &str, connus: &str) -> Option<String> {
+    let connus: std::collections::HashSet<String> = normaliser(connus).split_whitespace().map(str::to_string).collect();
+    let mut debut = true;
+    for brut in texte.split_whitespace() {
+        let fin_de_phrase = brut.ends_with(['.', '!', '?', ':']);
+        let mot = brut.rsplit(['\'', '\u{2019}']).next().unwrap_or(brut);
+        let mot: String = mot.trim_matches(|c: char| !c.is_alphanumeric()).to_string();
+        let majuscule = mot.chars().next().is_some_and(char::is_uppercase);
+        if !debut && majuscule && mot.chars().count() >= 2 {
+            let n = normaliser(&mot);
+            let n = espaces(&n);
+            if !n.is_empty()
+                && !["madame", "monsieur", "je"].contains(&n.as_str())
+                && !n.split(' ').all(|x| connus.contains(x))
+            {
+                return Some(mot);
+            }
+        }
+        debut = fin_de_phrase;
+    }
+    None
+}
+
+/// Étape 9 : vérifie une phrase réécrite. Comme [`verifier_phrase`] (les passages cités cherchés dans le CV et le
+/// profil, une phrase sur Jordan sans appui), mais : un nombre doit être dans le CV, le profil, l'offre ou la lettre de
+/// départ ; un nom propre aussi ; et une phrase sur Jordan n'emploie que des mots de son CV, de son profil, de la lettre
+/// de départ, de ses propres textes ou d'une lettre. Rien : la phrase est vide.
+pub fn verifier_reecrite(p: &PhraseRendue, s: SourcesReecriture) -> Option<Phrase> {
+    let texte = propre(&p.texte, PHRASE_MAX);
+    if texte.is_empty() {
+        return None;
+    }
+    let cites: Vec<String> =
+        p.extraits.iter().take(EXTRAITS_MAX).map(|e| propre(e, PHRASE_MAX)).filter(|e| !e.is_empty()).collect();
+    let appuis: Vec<String> = cites.iter().filter(|e| citation_presente(s.profil, e)).cloned().collect();
+    let sur_moi = p.sur_moi || parle_de_moi(&texte);
+    let mut a_verifier = match (sur_moi, appuis.is_empty(), cites.is_empty()) {
+        (false, _, _) | (true, false, _) => None,
+        (true, true, true) if p.sur_moi => Some(Raison::SansExtrait),
+        (true, true, true) => Some(Raison::FaitNonDeclare),
+        (true, true, false) => Some(Raison::ExtraitAbsent),
+    };
+    let tout = format!("{}\n{}\n{}", s.profil, s.offre, s.depart);
+    if a_verifier.is_none()
+        && let Some(n) = nombre_absent(&texte, Sources { profil: &tout, offre: "" })
+    {
+        a_verifier = Some(Raison::NombreAbsent(n));
+    }
+    if a_verifier.is_none()
+        && let Some(n) = nom_absent(&texte, &tout)
+    {
+        a_verifier = Some(Raison::NomAbsent(n));
+    }
+    // (une phrase à la première personne aussi : « J'ai dirigé un entrepôt » n'a pas besoin d'être déclarée)
+    let n = format!(" {} ", espaces(&normaliser(&texte)));
+    let premiere_personne = [" je ", " j ", " mon ", " ma ", " mes "].iter().any(|m| n.contains(m));
+    if a_verifier.is_none() && (sur_moi || premiere_personne) {
+        let connus = format!("{}\n{}\n{}\n{}", s.profil, s.depart, s.vocabulaire, MOTS_DE_REECRITURE.join(" "));
+        if let Some(m) = mot_absent(&texte, Sources { profil: &connus, offre: "" }) {
+            a_verifier = Some(Raison::MotAbsent(m));
+        }
+    }
+    Some(Phrase { texte, appuis, a_verifier })
 }
 
 /// Une question de l'offre et sa réponse, telles que Claude les rend.

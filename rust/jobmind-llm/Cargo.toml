@@ -17,6 +17,8 @@ serde_json = { version = "=1.0.154", features = ["preserve_order"] }
 ureq = { version = "=3.1.4", default-features = false, features = ["native-tls"] }
 # Les codes du diplôme et de l'expérience, et la vérification des citations (rien d'inventé)
 jobmind-core = { path = "../jobmind-core" }
+# Étape 9 : la réécriture dans le style de Jordan (les phrases rendues, vérifiées par le style)
+jobmind-humanizer = { path = "../jobmind-humanizer" }
 
 [features]
 # Étape 8 : un faux Claude local (127.0.0.1) pour la construction d'essai de l'appli ; jamais livré

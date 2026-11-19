@@ -21,6 +21,8 @@ rusqlite = { version = "=0.43.0", features = ["bundled"] }
 thiserror = "=2.0.21"
 # Les statuts d'une candidature (la base n'accepte que ceux-là)
 jobmind-core = { path = "../jobmind-core" }
+# Étape 9 : les règles du style de Jordan, construites d'après ce qu'il a changé
+jobmind-humanizer = { path = "../jobmind-humanizer" }
 # Les offres telles que les sources les donnent (étape 4), archivées ici
 jobmind-sources = { path = "../jobmind-sources" }
 
