@@ -285,6 +285,13 @@ fn horaire_probable(t: &str) -> bool {
         || (mots(t) <= 15 && !plages_de(t).is_empty())
 }
 
+/// Une phrase courte du texte libre qui dit le diplôme ou l'expérience demandés (« Aucun diplôme demandé, formation
+/// assurée », « Débutants acceptés ») : elle va dans « Ce qu'ils demandent ».
+fn demande_probable(t: &str) -> bool {
+    let n = normaliser(t);
+    mots(t) <= 15 && n.split(' ').any(|m| matches!(m, "diplome" | "diplomes" | "debutant" | "debutants"))
+}
+
 /// « Horaires : 6h-13h30 » : la valeur.
 fn valeur_horaires(l: &str) -> Option<&str> {
     if puce(l).0 {
@@ -370,6 +377,12 @@ fn texte_libre(f: &mut Fiche, lignes: &[&str]) {
             Zone::Intro | Zone::Reste => {
                 if !marque && horaire_probable(t) {
                     f.horaires.push(propre(t));
+                    continue;
+                }
+                // (0.1.5 : « Aucun diplôme demandé, formation assurée » dans le texte libre : c'est ce qu'ils
+                // demandent, pas le poste)
+                if !marque && demande_probable(t) {
+                    ajouter(&mut f.demande_texte, t, nouveau);
                     continue;
                 }
                 let dest = if zone == Zone::Intro { &mut f.intro } else { &mut f.poste_texte };

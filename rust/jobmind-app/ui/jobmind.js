@@ -1033,16 +1033,16 @@
     }
     h += `<div class="jm-infos">${liste(f.infos).map((i) => `<div><span>${esc(texteSur(i?.nom))}</span><b>${esc(texteSur(i?.valeur))}</b></div>`).join('')}</div>`;
     h += brefHTML(f.bref);   // (0.1.5 : les cases « En bref », en haut de la fiche)
+    // (0.1.5 : les onglets juste sous les cases, puis les boutons ; l'offre reconnue par son site et son adresse)
+    const texte = texteSur(f.texte);
+    const texteH = texte ? `<div class="jm-o-texte" data-brut>${esc(texte)}</div>` : `<p class="jm-panneau-vide">${esc(t('texte_vide'))}</p>`;
+    h += ongletsFicheHTML(f, `s:${s.id}:${texteSur(f.url) || `${texteSur(f.titre)}|${texteSur(f.sous)}|${texteSur(f.source)}`}`, tO(offresDe()), texteH);
     const voir = bouton('cs-voir', 'cs:voir', t('voir'), 'ext', '', ` data-id="${s.id}"`);
     if (numSur(f.ajoutee)) {
       h += `<div class="jm-action calme-o"><span class="jm-a-ic">${icone('coche')}</span><div class="jm-a-txt"><b>${esc(t('ajoutee'))}</b></div><div class="jm-a-bts">${bouton('cs-offre', 'cs:offre', t('voir_offre'), 'dossier', '', ` data-id="${f.ajoutee}"`)}</div></div><div class="jm-btns">${voir}</div>`;
     } else {
       h += `<div class="jm-btns jm-o-bts">${bouton('cs-ajouter', 'cs:ajouter', t('ajouter'), 'plus', 'principal')}${voir}</div>`;
     }
-    // (0.1.4 : l'offre en onglets, « Texte complet » en dernier ; l'offre reconnue par son site et son adresse)
-    const texte = texteSur(f.texte);
-    const texteH = texte ? `<div class="jm-o-texte" data-brut>${esc(texte)}</div>` : `<p class="jm-panneau-vide">${esc(t('texte_vide'))}</p>`;
-    h += ongletsFicheHTML(f, `s:${s.id}:${texteSur(f.url) || `${texteSur(f.titre)}|${texteSur(f.sous)}|${texteSur(f.source)}`}`, tO(offresDe()), texteH);
     return `${h}</div>`;
   }
 
@@ -3094,6 +3094,11 @@
     }
     h += `<div class="jm-infos">${liste(f.infos).map((i) => `<div><span>${esc(texteSur(i?.nom))}</span><b>${esc(texteSur(i?.valeur))}</b></div>`).join('')}</div>`;
     h += brefHTML(f.bref);   // (0.1.5 : les cases « En bref », en haut de la fiche)
+    // (0.1.5 : les onglets juste sous les cases, comme la maquette choisie par Jordan : ils restent visibles sans
+    // descendre ; « Texte complet » en dernier ; la candidature et les boutons viennent après)
+    const texte = texteSur(f.texte);
+    const texteH = texte ? `<div class="jm-o-texte" data-brut>${esc(texte)}</div><p class="jm-petit">${esc(texteSur(f.note))}</p>` : `<p class="jm-panneau-vide">${esc(texteSur(f.texte_vide))}</p>`;
+    h += ongletsFicheHTML(f, `o:${numSur(f.id) ? f.id : ''}`, t, texteH);
     if (f.ia === 'lire') h += `<div class="jm-ia">${icone('loupe')}<div><span>${esc(t('lire_ia_t'))}</span>${bouton('of-lire-ia', 'ov:ia', t('lire_ia'), 'droite', 'discret', ` data-id="${f.id}"`)}</div></div>`;
     else if (f.ia === 'cle') h += `<div class="jm-ia">${icone('cle')}<div><span>${esc(t('cle_ia_t'))}</span>${bouton('of-cles', 'ov:ia-cle', t('ouvrir_cles'), 'cle', 'discret')}</div></div>`;
     if (p) h += annoncePrepHTML(p) + actionPrepHTML(p);
@@ -3105,10 +3110,6 @@
     } else {
       h += `<div class="jm-btns jm-o-bts">${voir}${bouton('of-postule', 'ov:postule', t('postule'), 'envoi', '')}</div>`;
     }
-    // (0.1.4 : l'offre en onglets, « Texte complet » en dernier)
-    const texte = texteSur(f.texte);
-    const texteH = texte ? `<div class="jm-o-texte" data-brut>${esc(texte)}</div><p class="jm-petit">${esc(texteSur(f.note))}</p>` : `<p class="jm-panneau-vide">${esc(texteSur(f.texte_vide))}</p>`;
-    h += ongletsFicheHTML(f, `o:${numSur(f.id) ? f.id : ''}`, t, texteH);
     h += `<p class="jm-petit">${esc(texteSur(f.gardee))}</p>`;
     // (0.1.4 : « Cacher » devient « Retirer de ma liste », « Décacher » devient « Remettre dans ma liste » ; même geste)
     h += `<div class="jm-d-bas">${f.cachee === true ? bouton('of-cacher', 'ov:cacher', t('remettre_liste') || 'Remettre dans ma liste', 'oeil', 'discret') : bouton('of-cacher', 'ov:cacher', t('retirer_liste') || 'Retirer de ma liste', 'croix', 'discret')}</div>`;

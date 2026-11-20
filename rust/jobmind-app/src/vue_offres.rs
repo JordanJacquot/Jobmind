@@ -192,9 +192,10 @@ fn couper_avant(t: &str, marque: &str) -> (String, String) {
     }
 }
 
-/// La case des horaires : le premier horaire en court (« Travail en journée » : « En journée »), les suivants dessous
-/// (coupés vers 40 caractères). Quand des heures sont lues (les plages), la ligne qui les écrit (« Horaires : 7h-12h
-/// ... ») ne revient pas en texte : la première plage (« 7 h à 12 h ») sert de valeur ou de dessous.
+/// La case des horaires. Quand des heures sont lues (les plages), toujours elles : la première en valeur (« 7 h à
+/// 12 h »), les suivantes dessous (« et 13 h à 16 h »), sinon le premier horaire écrit sans heure (« en journée »).
+/// Sans heure : le premier horaire en court (« Travail en journée » : « En journée »), les suivants dessous ; le
+/// dessous est coupé vers 40 caractères.
 fn horaires_bref(f: &Fiche) -> Option<(String, String)> {
     fn court(h: &str) -> String {
         let mut h = h.trim();
@@ -212,16 +213,22 @@ fn horaires_bref(f: &Fiche) -> Option<(String, String)> {
     fn heure(m: u16) -> String {
         if m.is_multiple_of(60) { format!("{} h", m / 60) } else { format!("{} h {:02}", m / 60, m % 60) }
     }
-    let plage = f.plages.first().map(|p| format!("{} à {}", heure(p.debut), heure(p.fin)));
-    let lignes: Vec<String> =
-        f.horaires.iter().filter(|h| plage.is_none() || !a_des_heures(h)).map(|h| court(h)).collect();
-    let Some((premier, reste)) = lignes.split_first() else { return plage.map(|p| (p, String::new())) };
-    let sous: Vec<String> = reste.iter().map(|h| h.to_lowercase()).collect();
-    let mut sous = if sous.is_empty() { plage.unwrap_or_default() } else { sous.join(", ") };
-    if sous.chars().count() > 40 {
-        sous = format!("{}…", sous.chars().take(39).collect::<String>().trim_end());
+    let coupe = |s: String| {
+        if s.chars().count() > 40 { format!("{}…", s.chars().take(39).collect::<String>().trim_end()) } else { s }
+    };
+    let plages: Vec<String> = f.plages.iter().map(|p| format!("{} à {}", heure(p.debut), heure(p.fin))).collect();
+    if let Some((premiere, autres)) = plages.split_first() {
+        let sous = if autres.is_empty() {
+            f.horaires.iter().find(|h| !a_des_heures(h)).map(|h| court(h).to_lowercase()).unwrap_or_default()
+        } else {
+            format!("et {}", autres.join(", "))
+        };
+        return Some((premiere.clone(), coupe(sous)));
     }
-    Some((premier.clone(), sous))
+    let lignes: Vec<String> = f.horaires.iter().map(|h| court(h)).collect();
+    let (premier, reste) = lignes.split_first()?;
+    let sous: Vec<String> = reste.iter().map(|h| h.to_lowercase()).collect();
+    Some((premier.clone(), coupe(sous.join(", "))))
 }
 
 /// L'offre ouverte (`annuaire` : ce que l'annuaire officiel dit de son entreprise).
@@ -886,12 +893,17 @@ mod tests {
         };
         assert_eq!(
             fiche_b_vue(&f, "", None, None).0[0],
-            json!({ "nom": "Horaires", "valeur": "En journée", "sous": "7 h à 12 h" })
+            json!({ "nom": "Horaires", "valeur": "7 h à 12 h", "sous": "et 13 h à 16 h" })
         );
-        let f = Fiche { horaires: vec!["Horaires : 6 h - 9 h".into()], plages: f.plages, ..Fiche::default() };
+        // (une seule plage : dessous, l'horaire écrit sans heure, jamais « le samedi » à la place des heures)
+        let f = Fiche {
+            horaires: vec!["Horaires : 6h-9h".into(), "Travail en journée".into()],
+            plages: vec![rangement::Plage { debut: 360, fin: 540 }],
+            ..Fiche::default()
+        };
         assert_eq!(
             fiche_b_vue(&f, "", None, None).0[0],
-            json!({ "nom": "Horaires", "valeur": "7 h à 12 h", "sous": "" })
+            json!({ "nom": "Horaires", "valeur": "6 h à 9 h", "sous": "en journée" })
         );
         // (rien dans le texte : le salaire et le contrat de l'offre ; une plage d'heures sans horaire écrit)
         let f = Fiche { plages: vec![rangement::Plage { debut: 360, fin: 810 }], ..Fiche::default() };

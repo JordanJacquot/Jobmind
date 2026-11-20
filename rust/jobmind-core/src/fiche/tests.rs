@@ -487,3 +487,17 @@ fn texte_vide_et_sans_rubrique() {
     assert_eq!(f.intro, SANS_RUBRIQUE);
     assert_eq!(Fiche { intro: String::new(), ..f }, Fiche::default());
 }
+
+/// 0.1.5 : une phrase du texte libre sur le diplôme ou les débutants va dans « Ce qu'ils demandent », pas dans
+/// « Le poste ».
+#[test]
+fn diplome_dans_le_texte_libre() {
+    let t = "Offre n° 1\n\nCariste\n\nMetz (57)Localiser avec Mappy\n\nNous cherchons un cariste pour notre dépôt.\n\n\
+             Vos missions :\n- Charger les camions\n- Ranger les palettes\n\n\
+             Aucun diplôme demandé, formation assurée sur place par un tuteur.\n\n\
+             Critères de l’offre\n\nContrat CDI - Contrat travail\n";
+    let f = ranger("Cariste", t);
+    assert!(f.demande_texte.contains("Aucun diplôme demandé"), "{f:?}");
+    assert!(!f.intro.contains("diplôme") && !f.poste_texte.contains("diplôme"), "{f:?}");
+    assert_eq!(f.missions, v(&["Charger les camions", "Ranger les palettes"]));
+}
