@@ -107,8 +107,9 @@ pub fn carte(nom: &str, lieu: &str, site: &str, connu: Option<&Connu>) -> Option
     let (mut fiche, mut attente) = (None, false);
     let mut note = match (&demande, connu) {
         _ if nom.is_empty() => "L'annonce ne donne pas le nom de l'entreprise.".to_string(),
-        (None, _) => "Le nom vient de l'annonce. Sans le nom exact ou la ville, Jobmind ne peut pas la chercher dans \
-                      l'annuaire officiel des entreprises."
+        (None, _) => "Le nom vient de l'annonce. Le lieu de l'annonce n'est pas assez précis (plusieurs communes \
+                      portent ce nom, ou pas de ville) : pour ne pas se tromper d'entreprise, Jobmind ne la cherche \
+                      pas dans l'annuaire officiel des entreprises."
             .to_string(),
         (Some(_), None | Some(Connu::Attente)) => {
             attente = true;

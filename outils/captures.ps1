@@ -494,7 +494,6 @@ try {
             Ordre '{"kit":"accueil","cliquer":"rs:oui"}'
             Verifier (Attendre { (Compter 'Sauvegarde : remise ;') -gt 0 } 20000) 'la sauvegarde est remise (journal)'
         }
-        }
         elseif ($v -eq 'mails-ranger') { Ordre '{"kit":"accueil","mails":"ranger"}' }
         elseif ($v -eq 'calendrier') { Ordre '{"kit":"accueil","calendrier":true}' }
         elseif ($v -match '^jour:(\d{1,2})$') { Ordre ('{"kit":"accueil","cliquer":"cal:' + (Get-Date -Day ([int]$Matches[1]) -Format 'yyyy-MM-dd') + '"}') }

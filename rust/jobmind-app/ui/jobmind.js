@@ -2444,7 +2444,7 @@
     const ongs = [];
     for (const o of liste(f.onglets)) {
       if (!FO_IDS.includes(o?.id) || ongs.some((x) => x.id === o.id)) continue;
-      const rangs = liste(o.rangs).filter((r) => texteSur(r?.nom) && (texteSur(r?.valeur) || liste(r?.puces).some((p) => texteSur(p))));
+      const rangs = liste(o.rangs).filter((r) => (texteSur(r?.valeur) || liste(r?.puces).some((p) => texteSur(p))));
       // (0.1.4 : l'onglet de l'entreprise existe aussi pour sa carte seule)
       const carte = o.id === 'entreprise' ? carteSur(o.entreprise) : null;
       if (!rangs.length && !(o.id === 'demande' && lu.length) && !carte) continue;
