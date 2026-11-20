@@ -949,16 +949,16 @@
       if (ofPil === 'cand') return `${h}${candidatureHTML(p)}</div>`;
     }
     h += `<div class="jm-infos">${liste(f.infos).map((i) => `<div><span>${esc(texteSur(i?.nom))}</span><b>${esc(texteSur(i?.valeur))}</b></div>`).join('')}</div>`;
-    h += luHTML(f.lecture, tO(offresDe()));
     const voir = bouton('cs-voir', 'cs:voir', t('voir'), 'ext', '', ` data-id="${s.id}"`);
     if (numSur(f.ajoutee)) {
       h += `<div class="jm-action calme-o"><span class="jm-a-ic">${icone('coche')}</span><div class="jm-a-txt"><b>${esc(t('ajoutee'))}</b></div><div class="jm-a-bts">${bouton('cs-offre', 'cs:offre', t('voir_offre'), 'dossier', '', ` data-id="${f.ajoutee}"`)}</div></div><div class="jm-btns">${voir}</div>`;
     } else {
       h += `<div class="jm-btns jm-o-bts">${bouton('cs-ajouter', 'cs:ajouter', t('ajouter'), 'plus', 'principal')}${voir}</div>`;
     }
+    // (0.1.4 : l'offre en onglets, « Texte complet » en dernier ; l'offre reconnue par son site et son adresse)
     const texte = texteSur(f.texte);
-    h += `<h2 class="jm-h2">${esc(t('texte_t'))}</h2>`;
-    h += texte ? `<div class="jm-o-texte" data-brut>${esc(texte)}</div>` : `<p class="jm-panneau-vide">${esc(t('texte_vide'))}</p>`;
+    const texteH = texte ? `<div class="jm-o-texte" data-brut>${esc(texte)}</div>` : `<p class="jm-panneau-vide">${esc(t('texte_vide'))}</p>`;
+    h += ongletsFicheHTML(f, `s:${s.id}:${texteSur(f.url) || `${texteSur(f.titre)}|${texteSur(f.sous)}|${texteSur(f.source)}`}`, tO(offresDe()), texteH);
     return `${h}</div>`;
   }
 
@@ -2222,6 +2222,7 @@
       ofVue1 = id;
       if (prVoulu === null || prVoulu !== id) ofPil = 'offre';
       if (prVoulu === id) { ofPil = 'cand'; prVoulu = null; }
+      foVue = null;   // (0.1.4 : l'offre rouverte revient à son premier onglet)
       prEdition = null; prBrute = false; prVoir = null; prInt = null; prConsigne = '';
     }
   }
@@ -2270,6 +2271,71 @@
     const { esc } = O, t = tO(p);
     const pret = liste(p.versions).length > 0;
     return `<div class="jm-pilules jm-o-pil" role="tablist">${[['offre', esc(t('p_offre'))], ['cand', `${esc(t('p_cand'))}${pret ? ` <small>${esc(t('prete'))}</small>` : ''}`]].map(([id, nom]) => `<button type="button" role="tab" aria-selected="${ofPil === id}" class="jm-pil f${ofPil === id ? ' actif' : ''}" data-perso="pr-pil" data-id="${id}" data-k="op:${id}">${nom}</button>`).join('')}</div>`;
+  }
+
+  // ---------------------------------------------------------------- L'offre en onglets (0.1.4)
+  // Sous les boutons de l'offre ouverte (gardée ou lue sur un site) : « Le poste », « Ce qu'ils demandent » (le diplôme
+  // et l'expérience lus avec leur phrase, puis ce que Rust a rangé), « Horaires et salaire », « L'entreprise » et
+  // toujours « Texte complet ». Changer d'onglet est un choix d'affichage : rien ne part vers Rust. L'onglet choisi est
+  // retenu tant que la même offre reste ouverte ; une autre offre revient au premier.
+  const FO_IDS = ['poste', 'demande', 'conditions', 'entreprise'];
+  const FO_NOMS = { poste: 'Le poste', demande: "Ce qu'ils demandent", conditions: 'Horaires et salaire', entreprise: "L'entreprise", texte: 'Texte complet', exige: 'Exigé', souhaite: 'Souhaité' };
+  let foVue = null;       // l'offre dont l'onglet est retenu ('o:12' gardée, 's:site:...' lue sur un site)
+  let foOng = null;       // son onglet choisi (rien : le premier)
+  let foAnime = false;    // le panneau vient de changer (il entre en douceur)
+  // (un mot : celui de la table de Rust s'il existe, sinon celui envoyé, sinon le nôtre)
+  const foMot = (t, k, nom) => t(`og_${k}`) || texteSur(nom) || FO_NOMS[k] || '';
+
+  // Les rangs d'un onglet : le nom à gauche, la valeur à droite (avec « Exigé » ou « Souhaité »), puis ses puces
+  function rangsFicheHTML(rangs, t) {
+    const { esc } = O;
+    if (!rangs.length) return '';
+    return `<div class="jm-rangs">${rangs.map((r) => {
+      const v = texteSur(r.valeur), pu = liste(r.puces).map((p) => texteSur(p)).filter(Boolean);
+      const ex = ['exige', 'souhaite'].includes(r.exigence) ? `<i class="jm-exig ${r.exigence}">${esc(foMot(t, r.exigence))}</i>` : '';
+      const nom = texteSur(r.nom), court = v.length <= 60 && !v.includes('\n');
+      let h = nom ? `<div class="jm-rang"><span class="jm-rang-n">${esc(nom)}</span><div class="jm-rang-v">` : `<div class="jm-rang plein"><div class="jm-rang-v">`;
+      if (v || ex) h += court ? `<b>${esc(v)}${ex}</b>` : `<p class="jm-rang-t">${esc(v)}${ex}</p>`;
+      if (pu.length) h += `<div class="jm-puces">${pu.map((p) => `<span>${esc(p)}</span>`).join('')}</div>`;
+      return `${h}</div></div>`;
+    }).join('')}</div>`;
+  }
+
+  // La barre d'onglets et le panneau choisi ; `cle` dit quelle offre, `texteH` le panneau « Texte complet » déjà dessiné
+  function ongletsFicheHTML(f, cle, t, texteH) {
+    const { esc } = O;
+    if (cle !== foVue) { foVue = cle; foOng = null; foAnime = false; }
+    const lu = liste(f.lecture).filter((i) => texteSur(i?.nom));
+    const ongs = [];
+    for (const o of liste(f.onglets)) {
+      if (!FO_IDS.includes(o?.id) || ongs.some((x) => x.id === o.id)) continue;
+      const rangs = liste(o.rangs).filter((r) => texteSur(r?.nom) && (texteSur(r?.valeur) || liste(r?.puces).some((p) => texteSur(p))));
+      if (!rangs.length && !(o.id === 'demande' && lu.length)) continue;
+      ongs.push({ id: o.id, nom: foMot(t, o.id, o.nom), rangs });
+    }
+    // (une lecture sans onglet « demande » : il est créé quand même, juste après « Le poste »)
+    if (lu.length && !ongs.some((x) => x.id === 'demande')) ongs.splice(ongs.findIndex((x) => x.id === 'poste') + 1, 0, { id: 'demande', nom: foMot(t, 'demande'), rangs: [] });
+    ongs.push({ id: 'texte', nom: foMot(t, 'texte'), rangs: [] });
+    const choisi = ongs.find((x) => x.id === foOng) || ongs[0];
+    const tabs = ongs.map((o) => {
+      const oui = o === choisi;
+      const n = o.id === 'demande' ? o.rangs.length + lu.filter((i) => i.dit === true).length : 0;
+      return `<button type="button" role="tab" id="jm-fo-t-${o.id}" aria-controls="jm-fo-p" aria-selected="${oui}" class="jm-fo-o f${oui ? ' actif' : ''}" data-perso="fo-onglet" data-id="${o.id}" data-k="fo:${o.id}">${esc(o.nom)}${n ? `<span class="nb">${n}</span>` : ''}</button>`;
+    }).join('');
+    let p;
+    if (choisi.id === 'texte') p = texteH;
+    else if (choisi.id === 'demande') p = luHTML(f.lecture, t, true) + rangsFicheHTML(choisi.rangs, t);
+    else p = rangsFicheHTML(choisi.rangs, t);
+    const entre = foAnime; foAnime = false;
+    return `<div class="jm-fo-ong" role="tablist">${tabs}</div><div class="jm-fo-p${entre ? ' entre' : ''}" id="jm-fo-p" role="tabpanel" aria-labelledby="jm-fo-t-${choisi.id}">${p}</div>`;
+  }
+
+  // Un onglet de l'offre choisi (clic, A ou Entrée) : dessiné ici, sans passer par Rust
+  function choisirOngletFiche(el, id) {
+    if (id !== 'texte' && !FO_IDS.includes(id)) return;
+    if (el.getAttribute('aria-selected') === 'true') return;
+    foOng = id; foAnime = !reduit(); O.son?.tic?.();
+    dessinerTout(`fo:${id}`);
   }
 
   // Dans « L'offre » : préparer, ou la candidature déjà prête
@@ -2445,10 +2511,11 @@
   const pastilleNote = (n) => (codeSurP(n?.code) ? `<i class="jm-pert ${n.code}">${O.esc(texteSur(n.nom))}</i>` : '');
 
   // Ce que demande l'offre : la valeur, la preuve (le bout de phrase de l'offre) et qui l'a lu
-  function luHTML(l, t) {
+  // (`sansTitre` : dans l'onglet « Ce qu'ils demandent », le nom de l'onglet sert de titre)
+  function luHTML(l, t, sansTitre) {
     const { esc } = O, items = liste(l).filter((i) => texteSur(i?.nom));
     if (!items.length) return '';
-    return `<h2 class="jm-h2">${esc(t('lu_t'))}</h2><div class="jm-lu">${items.map((i) => {
+    return `${sansTitre ? '' : `<h2 class="jm-h2">${esc(t('lu_t'))}</h2>`}<div class="jm-lu">${items.map((i) => {
       const preuve = texteSur(i.preuve);
       return `<div class="jm-lu-l${i.dit === true ? '' : ' pas'}"><span class="jm-lu-n">${esc(texteSur(i.nom))}</span><b>${esc(texteSur(i.valeur))}</b>${preuve ? `<q title="${esc(preuve)}">${esc(preuve)}</q>` : ''}${texteSur(i.par) ? `<small>${esc(texteSur(i.par))}</small>` : ''}</div>`;
     }).join('')}</div>`;
@@ -2796,7 +2863,6 @@
       if (ofPil === 'cand') return `${h}${candidatureHTML(p)}</div>`;
     }
     h += `<div class="jm-infos">${liste(f.infos).map((i) => `<div><span>${esc(texteSur(i?.nom))}</span><b>${esc(texteSur(i?.valeur))}</b></div>`).join('')}</div>`;
-    h += luHTML(f.lecture, t);
     if (f.ia === 'lire') h += `<div class="jm-ia">${icone('loupe')}<div><span>${esc(t('lire_ia_t'))}</span>${bouton('of-lire-ia', 'ov:ia', t('lire_ia'), 'droite', 'discret', ` data-id="${f.id}"`)}</div></div>`;
     else if (f.ia === 'cle') h += `<div class="jm-ia">${icone('cle')}<div><span>${esc(t('cle_ia_t'))}</span>${bouton('of-cles', 'ov:ia-cle', t('ouvrir_cles'), 'cle', 'discret')}</div></div>`;
     if (p) h += annoncePrepHTML(p) + actionPrepHTML(p);
@@ -2808,9 +2874,10 @@
     } else {
       h += `<div class="jm-btns jm-o-bts">${voir}${bouton('of-postule', 'ov:postule', t('postule'), 'envoi', '')}</div>`;
     }
+    // (0.1.4 : l'offre en onglets, « Texte complet » en dernier)
     const texte = texteSur(f.texte);
-    h += `<h2 class="jm-h2">${esc(t('texte_t'))}</h2>`;
-    h += texte ? `<div class="jm-o-texte" data-brut>${esc(texte)}</div><p class="jm-petit">${esc(texteSur(f.note))}</p>` : `<p class="jm-panneau-vide">${esc(texteSur(f.texte_vide))}</p>`;
+    const texteH = texte ? `<div class="jm-o-texte" data-brut>${esc(texte)}</div><p class="jm-petit">${esc(texteSur(f.note))}</p>` : `<p class="jm-panneau-vide">${esc(texteSur(f.texte_vide))}</p>`;
+    h += ongletsFicheHTML(f, `o:${numSur(f.id) ? f.id : ''}`, t, texteH);
     h += `<p class="jm-petit">${esc(texteSur(f.gardee))}</p>`;
     h += `<div class="jm-d-bas">${f.cachee === true ? bouton('of-cacher', 'ov:cacher', t('decacher'), 'oeil', 'discret') : bouton('of-cacher', 'ov:cacher', t('cacher'), 'cacher', 'discret')}</div>`;
     return `${h}</div>`;
@@ -3002,6 +3069,9 @@
     if (prEdition) { prEdition = null; dessinerTout('pr:modifier'); return true; }
     if (prBrute) { prBrute = false; dessinerTout('pr:brute'); return true; }
     if (ofPil === 'cand') { ofPil = 'offre'; dessinerTout('op:offre'); return true; }
+    // (0.1.4 : un autre onglet de l'offre que le premier est montré : on revient au premier)
+    const t1 = hote.querySelector('.jm-fo-ong [role="tab"]');
+    if (t1 && t1.getAttribute('aria-selected') !== 'true') { foOng = t1.dataset.id; foAnime = !reduit(); O.son?.retour?.(); dessinerTout(`fo:${t1.dataset.id}`); return true; }
     return false;
   }
 
@@ -3065,6 +3135,8 @@
       // (une liste déroulante : son bouton l'ouvre ou la ferme, un de ses choix est pris)
       if (d.perso === 'menu') { basculerMenu(el); return; }
       if (d.perso === 'menu-choix') { choisirMenu(el); return; }
+      // (0.1.4 : un onglet de l'offre ouverte, choisi ici sans passer par Rust)
+      if (d.perso === 'fo-onglet') { choisirOngletFiche(el, d.id); return; }
       if (validerSites(el, d)) return;
       if (typeof d.perso === 'string' && d.perso.startsWith('po-')) { validerPo(el, d); return; }
       if (d.perso === 'onglet' && idSur(d.id)) { if (d.id !== onglet) O.son?.tic?.(); montrer(d.id); return; }

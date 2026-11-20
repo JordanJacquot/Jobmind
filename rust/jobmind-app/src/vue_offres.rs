@@ -18,6 +18,7 @@ use jobmind_core::lecture::{Confiance, LuPar};
 use jobmind_core::offre::{Offre, TeleOffre, noms_sources};
 use jobmind_core::recherche::{Contrat, GenreLieu, Lieu, RAYONS, Teletravail};
 use jobmind_core::recherches::NOMBRE_MAX;
+use jobmind_core::rubriques::{self, Exigence, Onglet};
 use jobmind_storage::offres::OffreComplete;
 use serde_json::{Value, json};
 
@@ -122,6 +123,29 @@ fn lu_vue(nom: &str, lu: Option<(String, &str, LuPar, Confiance)>, lue: bool, ab
     }
 }
 
+/// Le texte d'une offre rangé en onglets (0.1.4), pour une offre gardée comme pour une offre lue sur un site :
+/// `[{ "id", "nom", "rangs": [{ "nom", "valeur", "puces": [..], "exigence": "exige" | "souhaite" | "" }] }]`.
+pub fn onglets_vue(onglets: &[Onglet]) -> Value {
+    onglets
+        .iter()
+        .map(|o| {
+            let rangs: Vec<Value> = o
+                .rangs
+                .iter()
+                .map(|r| {
+                    json!({
+                        "nom": r.nom,
+                        "valeur": r.valeur,
+                        "puces": r.puces,
+                        "exigence": r.exigence.map_or("", Exigence::code),
+                    })
+                })
+                .collect();
+            json!({ "id": o.id, "nom": o.nom, "rangs": rangs })
+        })
+        .collect()
+}
+
 /// L'offre ouverte.
 fn fiche(x: &OffreComplete, aujourdhui: Jour, claude: bool) -> Value {
     let o = &x.offre;
@@ -165,12 +189,17 @@ fn fiche(x: &OffreComplete, aujourdhui: Jour, claude: bool) -> Value {
         Some(TeleOffre::Complet) => "Complet",
         None => pas_dit,
     };
-    let infos = vec![
+    let onglets = rubriques::decouper(&o.titre, &x.description);
+    let mut infos = vec![
         json!({ "nom": "Contrat", "valeur": o.contrat.map_or(pas_dit, Contrat::nom) }),
         json!({ "nom": "Salaire", "valeur": if o.salaire.is_empty() { pas_dit.to_string() } else { o.salaire.clone() } }),
         json!({ "nom": "Télétravail", "valeur": tele }),
         json!({ "nom": "Publiée", "valeur": o.publiee_le.map_or("Non précisée".to_string(), |j| format!("le {}", j.court(aujourdhui))) }),
     ];
+    // (0.1.4 : les horaires lus dans le texte, en court)
+    if let Some(h) = rubriques::horaires(&onglets) {
+        infos.push(json!({ "nom": "Horaires", "valeur": h }));
+    }
     let liens: Vec<Value> = x
         .liens
         .iter()
@@ -209,6 +238,8 @@ fn fiche(x: &OffreComplete, aujourdhui: Jour, claude: bool) -> Value {
         "double": o.sources.len() > 1,
         "infos": infos,
         "texte": x.description,
+        // (0.1.4 : le texte rangé en onglets)
+        "onglets": onglets_vue(&onglets),
         "texte_vide": match (x.venue_par_mail, x.liens.iter().find(|l| !l.url.is_empty())) {
             (Some(_), Some(l)) => format!(
                 "Le mail d'alerte ne donne que le titre. Clique « Voir sur {} », puis « Ajouter à Jobmind » dans la \
@@ -706,5 +737,36 @@ mod tests {
         let e = onglet(&x, j(18));
         assert_eq!(e["offres"]["vide"]["bouton"], "filtres");
         assert!(e["offres"]["fiche"].is_null());
+    }
+
+    /// 0.1.4 : l'offre ouverte a son texte rangé en onglets, les horaires dans les infos, sans tiret long.
+    #[test]
+    fn la_fiche_en_onglets() {
+        let mut v = exemple();
+        let x = v.ouverte.as_mut().unwrap();
+        x.description = "Agent de quai H/F\nVous chargez et déchargez les camions de l'entrepôt.\nDurée du travail\n\
+                         35H/semaine\nTravail en équipe\nPermis\nB - Véhicule léger Exigé\nEntreprise\n\
+                         Transporteur régional de 80 salariés."
+            .into();
+        let f = &onglet(&v, j(18))["offres"]["fiche"];
+        let o = f["onglets"].as_array().unwrap();
+        let ids: Vec<&str> = o.iter().map(|x| x["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["poste", "demande", "conditions", "entreprise"]);
+        assert_eq!(o[0]["nom"], "Le poste");
+        assert_eq!(o[0]["rangs"][0]["valeur"], "Vous chargez et déchargez les camions de l'entrepôt.");
+        assert_eq!(o[0]["rangs"][0]["exigence"], "");
+        assert_eq!(
+            o[1]["rangs"][0],
+            json!({ "nom": "Permis", "valeur": "B - Véhicule léger", "puces": [], "exigence": "exige" })
+        );
+        assert_eq!(o[2]["rangs"][0]["puces"], json!(["35H/semaine", "Travail en équipe"]));
+        // Les horaires en court, après les autres infos ; le texte entier reste
+        assert_eq!(f["infos"][4], json!({ "nom": "Horaires", "valeur": "35H/semaine" }));
+        assert!(f["texte"].as_str().unwrap().starts_with("Agent de quai"));
+        assert!(!f["onglets"].to_string().contains(['\u{2013}', '\u{2014}']));
+        // L'exemple sans rubrique : un seul onglet, et pas d'horaires
+        let f = &onglet(&exemple(), j(18))["offres"]["fiche"];
+        assert_eq!(f["onglets"].as_array().unwrap().len(), 1);
+        assert_eq!(f["infos"].as_array().unwrap().len(), 4);
     }
 }

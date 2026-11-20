@@ -31,7 +31,9 @@
 //! - [`envoi`] (étape 10) : l'adresse pour postuler lue dans une offre, l'adresse tapée et l'objet vérifiés, le rythme
 //!   des envois (un à la fois, une minute entre deux, 20 par jour au plus) ;
 //! - [`postuler`] (étape 11) : l'envoi sur le site : ce que Jordan tape dans le récapitulatif vérifié, ses coordonnées
-//!   trouvées dans son CV, une question du site rapprochée d'une réponse préparée, le choix d'une liste.
+//!   trouvées dans son CV, une question du site rapprochée d'une réponse préparée, le choix d'une liste ;
+//! - [`rubriques`] (0.1.4) : le texte d'une offre rangé en onglets (le poste, ce qu'ils demandent, horaires et
+//!   salaire, l'entreprise), avec « Exigé » et « Souhaité » notés à part.
 
 pub mod candidature;
 pub mod cle;
@@ -48,6 +50,7 @@ pub mod preparation;
 pub mod profil;
 pub mod recherche;
 pub mod recherches;
+pub mod rubriques;
 pub mod statut;
 pub mod style;
 pub mod suivi;

@@ -1643,6 +1643,9 @@ fn fiche_vue(f: &FicheSite, aujourdhui: jobmind_core::Jour) -> Value {
             { "nom": "Publiée", "valeur": publiee },
         ],
         "texte": o.description,
+        // (0.1.4 : le texte rangé en onglets, comme pour une offre gardée ; aucune adresse d'offre n'est envoyée à la
+        // page, l'écran retient l'onglet choisi par le titre)
+        "onglets": crate::vue_offres::onglets_vue(&jobmind_core::rubriques::decouper(&o.titre, &o.description)),
         "ajoutee": f.ajoutee,
         // (étape 6 : le diplôme et l'expérience lus par les règles, avec leur preuve)
         "lecture": lecture_vue(&lecture::lire(&o.titre, &o.description)),

@@ -435,6 +435,44 @@ button.jm-cal-d.oui:hover, button.jm-cal-d.oui:focus { background: color-mix(in 
 .jm-h2 { margin: 26px 0 10px; font-size: 13.5px; font-weight: 650; color: var(--doux); }
 .jm-o-texte { max-width: 720px; font-size: 15px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--texte); }
 
+/* L'offre en onglets (0.1.4) : soulignés en or comme les onglets du haut, des rangs « nom à gauche, valeur à droite » */
+.jm-fo-ong { display: flex; flex-wrap: wrap; gap: 2px 4px; max-width: 760px; margin-top: 28px; border-bottom: 1px solid color-mix(in srgb, var(--ligne) 70%, transparent); }
+.jm-fo-o { position: relative; display: flex; align-items: center; gap: 7px; padding: 10px 13px 11px; font-size: 14.5px; font-weight: 600; color: var(--pale); border-radius: 10px 10px 0 0; transition: color 200ms ease; }
+.jm-fo-o:hover, .jm-fo-o:focus { color: var(--doux); }
+.jm-fo-o.actif { color: var(--texte); }
+.jm-fo-o::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--jm);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--jm) 60%, transparent); transform: scaleX(0); transition: transform 300ms var(--jm-anim); }
+.jm-fo-o.actif::after { transform: scaleX(1); }
+.jm-fo-o .nb { min-width: 20px; height: 20px; padding: 0 6px; box-sizing: border-box; border-radius: 99px; background: color-mix(in srgb, var(--jm) 16%, transparent); color: var(--jm); font-size: 11.5px; font-weight: 700; display: grid; place-items: center; }
+.jm-fo-o.f:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--jm) 55%, transparent); }
+.jm-fo-p { container-type: inline-size; max-width: 760px; min-height: 180px; padding-top: 14px; }
+.jm-fo-p.entre { animation: jm-fo-entre 220ms var(--jm-anim) both; }
+@keyframes jm-fo-entre { from { opacity: 0; transform: translateY(6px); } }
+.jm-fo-p > .jm-lu + .jm-rangs { margin-top: 14px; padding-top: 4px; border-top: 1px solid color-mix(in srgb, var(--ligne) 60%, transparent); }
+.jm-rangs { display: flex; flex-direction: column; }
+.jm-rang { display: grid; grid-template-columns: 150px 1fr; gap: 12px; padding: 11px 0; border-bottom: 1px solid color-mix(in srgb, var(--ligne) 55%, transparent); }
+.jm-rang:last-child { border-bottom: 0; }
+.jm-rang.plein { grid-template-columns: 1fr; }
+.jm-rang-t { margin: 0; font-size: 15px; line-height: 1.65; color: var(--texte); white-space: pre-line; overflow-wrap: anywhere; }
+.jm-rang-t > .jm-exig { margin-left: 8px; }
+.jm-rang-n { font-size: 13px; color: var(--pale); padding-top: 1px; }
+.jm-rang-v { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.jm-rang-v > b { font-size: 15px; font-weight: 600; line-height: 1.5; color: var(--texte); white-space: pre-line; overflow-wrap: anywhere; }
+.jm-exig { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 6px; font-size: 11.5px; font-weight: 700; font-style: normal; vertical-align: 1px; white-space: nowrap; }
+.jm-rang-v > b > .jm-exig:first-child { margin-left: 0; }
+.jm-exig.exige { background: color-mix(in srgb, var(--rouge) 15%, transparent); color: var(--rouge); }
+.jm-exig.souhaite { background: color-mix(in srgb, var(--orange) 14%, transparent); color: var(--orange); }
+.jm-puces { display: flex; flex-wrap: wrap; gap: 6px; }
+.jm-puces span { padding: 4px 11px; border-radius: 99px; background: var(--carte2); border: 1px solid var(--ligne); font-size: 13px; color: var(--texte); overflow-wrap: anywhere; }
+/* (le diplôme et l'expérience lus, alignés sur les rangs ; leur phrase citée avec un trait or à gauche) */
+.jm-fo-p .jm-lu-l { grid-template-columns: 150px 1fr; column-gap: 12px; }
+.jm-fo-p .jm-lu-l q { margin-top: 3px; padding-left: 9px; border-left: 2px solid color-mix(in srgb, var(--jm) 75%, transparent); font-style: normal; }
+@container (max-width: 460px) {
+  .jm-rang, .jm-fo-p .jm-lu-l { grid-template-columns: 1fr; gap: 4px; }
+  .jm-fo-p .jm-lu-n { grid-row: auto; }
+}
+@media (prefers-reduced-motion: reduce) { .jm-fo-p.entre { animation: none; } .jm-fo-o::after { transition: none; } }
+
 /* Mes recherches */
 .jm-rc.choisie { border-color: color-mix(in srgb, var(--jm) 40%, transparent); }
 .jm-rc > .jm-btns, .jm-rc > .jm-suppr { margin: 12px 0 0 60px; }
