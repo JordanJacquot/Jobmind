@@ -386,7 +386,7 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
         { "id": "favoris", "nom": "Favoris", "nombre": v.favoris },
         { "id": "plus_tard", "nom": "Plus tard", "nombre": v.plus_tard },
         { "id": "hors_sujet", "nom": "Hors sujet", "nombre": v.hors_sujet },
-        { "id": "cachees", "nom": "Cachées", "nombre": v.cachees },
+        { "id": "cachees", "nom": "Retirées", "nombre": v.cachees },
     ]);
     let tri = if v.saisie.tri == "recentes" { "recentes" } else { "pertinence" };
     let ia = json!({
@@ -480,8 +480,10 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
                 ("retirer", "Retirer les filtres"),
                 ("favori", "Favori"),
                 ("plus_tard", "Plus tard"),
-                ("cacher", "Pas pour moi"),
-                ("decacher", "Remettre dans la liste"),
+                ("cacher", "Retirer de ma liste"),
+                ("retirer_liste", "Retirer de ma liste"),
+                ("remettre_liste", "Remettre dans ma liste"),
+                ("decacher", "Remettre dans ma liste"),
                 ("postule", "J'ai postulé"),
                 ("voir_candidature", "Voir ma candidature"),
                 ("postule_deja", "Tu as noté une candidature pour cette offre."),

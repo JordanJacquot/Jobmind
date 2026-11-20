@@ -25,6 +25,7 @@
 //! - [`envois_site`] (étape 11) : chaque envoi sur le site de l'offre tenté puis fini (parti, refusé, incertain), le
 //!   contenu exact de chaque champ, la candidature entrée dans le suivi ; les coordonnées de Jordan pour les formulaires ;
 //! - [`dossier`] : le dossier de données et suite.json (copie gérée ou non, dossier de travail) ;
+//! - [`retirees`] (0.1.4) : les offres des sites retirées de la liste (« Retirer de ma liste »), qui ne reviennent plus ;
 //! - [`donnees`] : tout réuni ;
 //! - [`valeurs`] : les règles de PowerShell suivies (champs sans majuscules, vrai ou faux).
 //!
@@ -50,6 +51,7 @@ pub mod preparations;
 pub mod profil;
 pub mod rafraichir;
 pub mod reglages;
+pub mod retirees;
 pub mod sauvegarde;
 pub mod style;
 pub mod valeurs;

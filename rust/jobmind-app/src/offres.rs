@@ -45,7 +45,10 @@ use crate::suivi::{Fait, PAS_ENREGISTRE};
 pub const OUVRIR: &str = "o-ouvrir";
 pub const FAVORI: &str = "o-favori";
 pub const PLUS_TARD: &str = "o-plus-tard";
+/// « Retirer de ma liste » (le bouton de l'offre ouverte : bascule ; le nom en base reste `pas_pour_moi`)
 pub const CACHER: &str = "o-cacher";
+/// 0.1.4 : la croix d'une ligne : retire l'offre de ma liste sans l'ouvrir (sans basculer)
+pub const RETIRER: &str = "o-retirer";
 pub const FILTRES: &str = "o-filtres";
 pub const CHOISIR: &str = "o-choisir";
 pub const RECHERCHE: &str = "o-recherche";
@@ -56,7 +59,8 @@ pub const VOIR: &str = "o-voir";
 /// Étape 6 : « Pas hors sujet » (et son contraire), « Lire avec Claude »
 pub const PAS_HORS_SUJET: &str = "o-pas-hors-sujet";
 pub const LIRE_IA: &str = "o-lire-ia";
-const GESTES: [&str; 13] = [
+const GESTES: [&str; 14] = [
+    RETIRER,
     PAS_HORS_SUJET,
     LIRE_IA,
     OUVRIR,
@@ -384,6 +388,7 @@ impl Offres {
             FAVORI => marquer(base, valeur, Marque::Favori),
             PLUS_TARD => marquer(base, valeur, Marque::PlusTard),
             CACHER => marquer(base, valeur, Marque::PasPourMoi),
+            RETIRER => retirer(base, valeur),
             CHOISIR => {
                 self.recherche = numero(valeur);
                 Ok(Fait { change: true, ..Fait::default() })
@@ -709,8 +714,8 @@ fn marquer(base: &Base, v: &Value, m: Marque) -> rusqlite::Result<Fait> {
         (Marque::Favori, false) => "Retirée des favoris.",
         (Marque::PlusTard, true) => "Gardée pour plus tard.",
         (Marque::PlusTard, false) => "Retirée de « Plus tard ».",
-        (Marque::PasPourMoi, true) => "Offre cachée. Tu la retrouves dans « Cachées ».",
-        (Marque::PasPourMoi, false) => "L'offre est de nouveau dans la liste.",
+        (Marque::PasPourMoi, true) => "Offre retirée de ta liste. Tu la retrouves dans « Retirées ».",
+        (Marque::PasPourMoi, false) => "L'offre est de nouveau dans ta liste.",
         (Marque::PasHorsSujet, true) => "C'est noté : l'offre revient dans la liste.",
         (Marque::PasHorsSujet, false) => "L'offre est de nouveau rangée dans « Hors sujet ».",
     };
@@ -723,6 +728,21 @@ fn marquer(base: &Base, v: &Value, m: Marque) -> rusqlite::Result<Fait> {
     Ok(Fait {
         message: Some(texte.into()),
         journal: Some(format!("Offres : offre {id}, {code} {}", if oui { "oui" } else { "non" })),
+        change: true,
+        ..Fait::default()
+    })
+}
+
+/// 0.1.4 : « Retirer de ma liste » depuis la ligne d'une offre gardée, sans l'ouvrir et sans basculer (une offre déjà
+/// retirée le reste).
+fn retirer(base: &Base, v: &Value) -> rusqlite::Result<Fait> {
+    let Some(id) = numero(v) else { return Ok(Fait::default()) };
+    let Some(change) = base_offres::poser(base.connexion(), id, Marque::PasPourMoi, true)? else {
+        return Ok(Fait { change: true, ..Fait::default() });
+    };
+    Ok(Fait {
+        message: change.then(|| "Offre retirée de ta liste. Tu la retrouves dans « Retirées ».".into()),
+        journal: Some(format!("Offres : offre {id}, retirée de ma liste{}", if change { "" } else { " (déjà)" })),
         change: true,
         ..Fait::default()
     })
@@ -923,6 +943,19 @@ mod tests {
         let ouv = v.ouverte.as_ref().unwrap();
         assert_eq!((ouv.offre.id, ouv.offre.favori, ouv.liens.len()), (quai, true, 1));
         assert_eq!(v.nouvelles, 11);
+        // (0.1.4 : la croix d'une ligne, « Retirer de ma liste », sans l'ouvrir et sans basculer ; « Remettre dans ma
+        // liste » par le bouton de l'offre, qui bascule)
+        let autre = v.liste.iter().find(|x| x.id != quai).unwrap().id;
+        let avant = v.cachees;
+        let f = o.geste(&ctx, RETIRER, &json!({ "id": autre }), m(9, 4));
+        assert_eq!(f.message.as_deref(), Some("Offre retirée de ta liste. Tu la retrouves dans « Retirées »."));
+        assert_eq!(o.vue(Some(&b), Some(&cles)).0.cachees, avant + 1);
+        let f = o.geste(&ctx, RETIRER, &json!({ "id": autre }), m(9, 4));
+        assert!(f.message.is_none() && f.journal.unwrap().ends_with("(déjà)"));
+        assert_eq!(o.vue(Some(&b), Some(&cles)).0.cachees, avant + 1);
+        let f = o.geste(&ctx, CACHER, &json!({ "id": autre }), m(9, 4));
+        assert_eq!(f.message.as_deref(), Some("L'offre est de nouveau dans ta liste."));
+        assert_eq!(o.vue(Some(&b), Some(&cles)).0.cachees, avant);
         // Les filtres : favoris ; puis un texte ; puis un département
         o.geste(&ctx, FILTRES, &json!({ "genre": "partout", "liste": "favoris" }), m(9, 5));
         assert_eq!(o.vue(Some(&b), Some(&cles)).0.total, 1);
@@ -1220,6 +1253,8 @@ mod tests {
             (OUVRIR, json!({ "id": "1" })),
             (FAVORI, json!({ "id": 99 })),
             (CACHER, json!(null)),
+            (RETIRER, json!({ "id": 99 })),
+            (RETIRER, json!("x")),
             ("o-chercher", json!({ "id": 42 })),
             (RECHERCHE, json!({ "mots": "", "lieu": "ville" })),
             (RECHERCHE, json!({ "mots": "cariste", "lieu": "ville", "ville": "<script>", "rayon": 10 })),

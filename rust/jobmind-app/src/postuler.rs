@@ -685,9 +685,11 @@ impl Coulisse {
         if self.po_occupe() && self.postuler.as_ref().is_some_and(|p| p.offre != offre) {
             return Ok(message("Une autre candidature est en cours sur un site : termine-la ou ferme-la d'abord."));
         }
-        if self.attente.is_some() || self.attend_personne() {
+        if self.occupe() || self.attend_personne() {
             return Ok(message("Jobmind lit déjà une page : attends un instant."));
         }
+        // (0.1.4 : la lecture automatique d'une offre en coulisse cède la place à la candidature)
+        self.ceder_lecture();
         let Some(url) = adresse_offre(&o) else {
             return Ok(message("Cette offre n'a pas de lien vers un site : Jobmind ne peut pas y postuler."));
         };
@@ -1796,7 +1798,7 @@ impl Coulisse {
         let envoyee = base_site::envoyee(c, offre).ok().flatten();
         let p = self.postuler.as_ref().filter(|p| p.offre == offre);
         let ouvert = p.filter(|p| !p.linkedin);
-        let recap = ouvert.map(|p| recap_vue(p, self.attente.is_some(), aujourdhui));
+        let recap = ouvert.map(|p| recap_vue(p, self.occupe(), aujourdhui));
         json!({
             "offre": offre,
             "site": site.code(),

@@ -275,3 +275,19 @@ fn france_travail_bloc_descriptif() {
     assert!(p.offre.description.contains("Accueil des clients de nuit"), "{}", p.offre.description);
     assert!(!p.offre.description.contains("Vous accueillez"));
 }
+
+/// La clé stable d'une offre : la même offre revue (paramètres de suivi, autre adresse du même site) a la même clé.
+#[test]
+fn cle_stable_des_offres() {
+    let ft = "https://candidat.francetravail.fr/offres/recherche/detail/123ABCD";
+    assert_eq!(cle_offre(ft), Some((Site::FranceTravail, "123ABCD".to_string())));
+    assert_eq!(cle_offre(&format!("{ft}?utm_source=x")), cle_offre(ft));
+    let li = cle_offre("https://www.linkedin.com/jobs/search/?currentJobId=4012345678&trk=x");
+    assert_eq!(li, Some((Site::LinkedIn, "4012345678".to_string())));
+    assert_eq!(li, cle_offre("https://www.linkedin.com/jobs/view/4012345678/"));
+    assert_eq!(
+        cle_offre("https://exemple.fr/emploi/12?utm_medium=y&ref=z"),
+        Some((Site::Autre, "https://exemple.fr/emploi/12".to_string()))
+    );
+    assert_eq!(cle_offre("pas une adresse"), None);
+}

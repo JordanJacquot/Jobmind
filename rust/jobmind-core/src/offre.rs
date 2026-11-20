@@ -437,7 +437,7 @@ impl Liste {
             Liste::Favoris => "Favoris",
             Liste::PlusTard => "Plus tard",
             Liste::HorsSujet => "Hors sujet",
-            Liste::Cachees => "Cachées",
+            Liste::Cachees => "Retirées",
         }
     }
 

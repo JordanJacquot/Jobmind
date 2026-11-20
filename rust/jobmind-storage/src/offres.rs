@@ -479,6 +479,16 @@ pub fn basculer(c: &Connection, id: i64, m: Marque) -> rusqlite::Result<Option<b
     c.query_row(&format!("SELECT {col} FROM offres WHERE id = ?1"), [p], |r| r.get::<_, i64>(0)).map(|v| Some(v == 1))
 }
 
+/// Pose une marque à cette valeur, sans basculer (sur la première du groupe). Rend vrai si elle a changé (rien :
+/// l'offre n'existe pas).
+pub fn poser(c: &Connection, id: i64, m: Marque, oui: bool) -> rusqlite::Result<Option<bool>> {
+    let Some(p) = principale(c, id)? else { return Ok(None) };
+    let col = m.colonne();
+    let n =
+        c.execute(&format!("UPDATE offres SET {col} = ?1 WHERE id = ?2 AND {col} <> ?1"), params![i64::from(oui), p])?;
+    Ok(Some(n > 0))
+}
+
 /// Note l'offre comme ouverte. Faux si elle n'existe pas.
 pub fn marquer_vue(c: &Connection, id: i64) -> rusqlite::Result<bool> {
     let Some(p) = principale(c, id)? else { return Ok(false) };

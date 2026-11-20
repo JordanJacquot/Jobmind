@@ -1566,6 +1566,8 @@ impl Etat {
         // (étape 5 bis : les sites lus en coulisse, la carte de connexion, la petite fenêtre du site)
         if let Some(perso) = e.pointer_mut("/accueil/perso").and_then(Value::as_object_mut) {
             self.coulisse.filtres = (self.offres.filtres.sans_diplome, self.offres.filtres.debutant);
+            // (0.1.4 : une offre gardée retirée de ma liste dans l'autre liste compte aussi pour les sites)
+            self.coulisse.relire_retirees(d.base.as_ref());
             perso.insert("coulisse".into(), self.coulisse.vue(self.jour));
             // (étape 8 : la candidature préparée de l'offre ouverte)
             let (p, raison) = self.preparation.vue(d.base.as_ref(), Some(&self.cles), self.offres.ouverte, self.jour);
@@ -2426,6 +2428,13 @@ impl Etat {
         {
             self.connexion_vue = None;
             self.faire(app, |e, _| e.coulisse.oublier_connexion());
+        }
+        // (0.1.4 : la lecture automatique des offres de la liste affichée ; en pause quand la page de Jobmind est
+        // cachée, comme « Écran : caché, en pause » au journal)
+        let visible = app.state::<Page>().visible() != Some(false);
+        let f = self.coulisse.lecture_auto(ici, visible);
+        if f != crate::suivi::Fait::default() {
+            self.faire(app, |_, _| f);
         }
     }
 

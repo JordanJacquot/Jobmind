@@ -959,3 +959,53 @@ button.jm-bilan.f:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(-
 .jm-bilan-bt.on { color: var(--jm); background: color-mix(in srgb, var(--jm) 12%, transparent); }
 .jm-bilan-bt.on svg { fill: color-mix(in srgb, var(--jm) 35%, transparent); }
 .jm-bilan-bt.f:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--jm) 55%, transparent); }
+
+/* 0.1.4 (étape 2) : la liste des résultats d'un site se lit toute seule. En haut, l'encart « Jobmind lit les offres »
+   et sa jauge ; sous chaque offre, où en est sa lecture ; à droite, la croix « Retirer de ma liste » (ou « Remettre ») */
+.jm-lec { display: flex; flex-direction: column; gap: 7px; margin: 0 4px 10px; padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.035); border: 1px solid var(--ligne); }
+.jm-lec-l { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--doux); }
+.jm-lec-l span { min-width: 0; }
+.jm-lec-l b { flex: none; font-weight: 700; color: var(--jm); font-variant-numeric: tabular-nums; }
+.jm-lec-j { height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.07); overflow: hidden; }
+.jm-lec-j > i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, color-mix(in srgb, var(--jm) 70%, #8a5a00), var(--jm)); transition: width 700ms ease; }
+.jm-lec.finie .jm-lec-l { color: var(--vert); }
+.jm-lec.finie .jm-lec-j > i { background: var(--vert); }
+.jm-lec.arret { border-color: color-mix(in srgb, var(--orange) 35%, transparent); background: color-mix(in srgb, var(--orange) 7%, transparent); }
+.jm-lec.arret .jm-lec-l { color: color-mix(in srgb, var(--orange) 80%, var(--texte)); }
+.jm-lec.arret .jm-lec-j > i { background: color-mix(in srgb, var(--orange) 45%, transparent); transition: none; }
+
+.jm-off-l { position: relative; }
+.jm-cand.avec-x { padding-right: 44px; }
+.jm-off-etat { display: flex; align-items: center; gap: 7px; min-width: 0; margin-top: 3px; font-size: 12.5px; color: var(--pale); }
+.jm-off-etat > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jm-off-etat > i { width: 7px; height: 7px; flex: none; border-radius: 50%; background: currentColor; opacity: 0.7; }
+.jm-off-etat.cours { color: var(--jm); }
+.jm-off-etat.cours > i { opacity: 1; animation: jm-pulse 1100ms ease-in-out infinite; }
+.jm-off-etat.lue { color: var(--vert); }
+.jm-off-etat.lue > i { opacity: 1; }
+@keyframes jm-pulse { 50% { opacity: 0.25; transform: scale(0.8); } }
+.jm-off-x { position: absolute; top: 8px; right: 6px; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 9px; color: var(--pale); transition: background 180ms ease, color 180ms ease; }
+.jm-off-x svg { width: 15px; height: 15px; }
+.jm-off-x:hover, .jm-off-x:focus { background: rgba(255, 255, 255, 0.08); color: var(--rouge); }
+.jm-off-x.f:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--jm) 60%, transparent); }
+.jm-off-l.retiree .jm-cand { opacity: 0.5; padding-right: 96px; }
+.jm-off-remettre { position: absolute; top: 8px; right: 6px; height: 28px; padding: 0 10px; border-radius: 9px; font-size: 12.5px; font-weight: 650; color: var(--jm); background: color-mix(in srgb, var(--jm) 11%, transparent); transition: background 180ms ease; }
+.jm-off-remettre:hover, .jm-off-remettre:focus { background: color-mix(in srgb, var(--jm) 20%, transparent); }
+.jm-off-remettre.f:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--jm) 60%, transparent); }
+.jm-off-revoir { align-self: flex-start; margin: 8px 10px 2px; padding: 4px 6px; border-radius: 8px; font-size: 13px; color: var(--doux); text-decoration: underline; text-underline-offset: 3px; }
+.jm-off-revoir:hover, .jm-off-revoir:focus { color: var(--texte); background: rgba(255, 255, 255, 0.05); }
+.jm-off-revoir.f:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--jm) 60%, transparent); }
+
+/* L'offre qui s'ouvre : son titre, « Jobmind ouvre l'offre », la grosse barre or et l'étape (la largeur est menée par
+   jobmind.js, image par image : aucune transition ici) */
+.jm-ouv { display: flex; flex-direction: column; gap: 26px; padding: 34px 44px 40px; }
+.jm-ouv-t h1 { margin: 0; font-size: 28px; line-height: 1.2; overflow-wrap: anywhere; }
+.jm-ouv-c { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 100%; max-width: 560px; margin: 24px auto 0; text-align: center; }
+.jm-ouv-c h2 { margin: 0; font-size: 19px; font-weight: 700; }
+.jm-ouv-j { width: 100%; height: 12px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--ligne); overflow: hidden; }
+.jm-ouv-j > i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, color-mix(in srgb, var(--jm) 70%, #8a5a00), var(--jm)); box-shadow: 0 0 12px color-mix(in srgb, var(--jm) 45%, transparent); }
+.jm-ouv-e { margin: 0; min-height: 1.5em; font-size: 14.5px; color: var(--doux); }
+@media (prefers-reduced-motion: reduce) {
+  .jm-off-etat.cours > i { animation: none; }
+  .jm-lec-j > i { transition: none; }
+}

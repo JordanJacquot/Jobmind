@@ -65,7 +65,7 @@ fn fiche() -> Fiche {
 #[test]
 fn migration_11_sur_une_base_de_l_etape_10() {
     let mut b = Base::en_memoire_jusqua(10, m(9, 0)).unwrap();
-    assert_eq!(b.migrer_tout(m(9, 1)).unwrap(), vec![11, 12]);
+    assert_eq!(b.migrer_tout(m(9, 1)).unwrap(), vec![11, 12, 13]);
     let n: i64 = b.connexion().query_row("SELECT COUNT(*) FROM envois_site", [], |r| r.get(0)).unwrap();
     assert_eq!(n, 0);
 }

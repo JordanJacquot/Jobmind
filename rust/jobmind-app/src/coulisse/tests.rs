@@ -536,7 +536,7 @@ fn le_secret_ne_se_montre_pas_et_s_efface() {
 }
 
 /// Étape 6 : ce que les règles lisent dans une offre d'un site, et les filtres « Aucun diplôme requis » et « Débutant
-/// accepté » sur les résultats dont le texte est connu (un résultat pas encore ouvert reste montré).
+/// accepté » sur les résultats (0.1.4 : un résultat pas encore lu est caché quand un filtre est coché).
 #[test]
 fn lecture_et_filtres_des_resultats() {
     let sans = lecture::lire("Agent de tri", "Poste sans diplôme. Débutants acceptés.");
@@ -547,7 +547,10 @@ fn lecture_et_filtres_des_resultats() {
     assert!(!passe(Some(&bac), (true, false)));
     assert!(!passe(Some(&bac), (false, true)));
     assert!(passe(Some(&bac), (false, false)));
-    assert!(passe(None, (true, true)));
+    // (0.1.4 : une offre pas encore lue ne passe pas un filtre coché ; sans filtre, elle passe)
+    assert!(!passe(None, (true, true)));
+    assert!(!passe(None, (true, false)) && !passe(None, (false, true)));
+    assert!(passe(None, (false, false)));
     let v = lecture_vue(&sans);
     assert_eq!(v[0]["valeur"], "Aucun diplôme demandé");
     assert_eq!(v[0]["preuve"], "Poste sans diplôme");
@@ -674,3 +677,4 @@ fn chaque_chemin_envoie_la_petite_fenetre_a_la_page() {
 }
 
 mod garde;
+mod lecture_auto;

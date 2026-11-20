@@ -960,6 +960,15 @@ fn simple_id(t: &str, max: usize) -> Option<String> {
     ok.then(|| t.to_string())
 }
 
+/// La clé stable d'une offre : son site et son identifiant chez lui (sinon son adresse remise au propre, sans les
+/// paramètres de suivi). La même offre revue dans une autre recherche a la même clé ; rien pour une adresse illisible.
+pub fn cle_offre(adresse: &str) -> Option<(Site, String)> {
+    let a = Adresse::lire(adresse)?;
+    let site = Site::depuis_hote(&a.hote);
+    let id = identifiant(site, &a).map_or_else(|| a.propre(), |(id, _)| id);
+    Some((site, id))
+}
+
 /// L'identifiant de l'offre chez son site, et son adresse remise au propre (la même offre revue est reconnue).
 pub(crate) fn identifiant(site: Site, a: &Adresse) -> Option<(String, String)> {
     match site {

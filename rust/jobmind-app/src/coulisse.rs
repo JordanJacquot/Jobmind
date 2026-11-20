@@ -19,18 +19,30 @@
 //!   LinkedIn). Ouverte pour une vérification, elle se referme seule quand la page redevient normale, et Jobmind
 //!   reprend ce qu'il faisait.
 //!
-//! Une page à la fois, seulement après un clic de Jordan : aucun parcours automatique, aucune boucle de chargements
-//! (le programme laisse au moins [`ECART_MS`] entre deux chargements), aucun contournement de captcha. Une page
-//! relue (le site met un peu de temps à se dessiner) l'est au plus [`RELECTURES`] fois, sans la recharger.
+//! Une page à la fois : aucune boucle de chargements (le programme laisse au moins [`ECART_MS`] entre deux
+//! chargements), aucun contournement de captcha. Une page relue (le site met un peu de temps à se dessiner) l'est au
+//! plus [`RELECTURES`] fois, sans la recharger.
+//!
+//! 0.1.4, la lecture automatique : une liste lue, Jobmind ouvre elle-même en coulisse les offres de cette page (pas
+//! les suivantes), une à la fois, dans l'ordre, une toutes les [`PAUSE_LECTURE_AUTO`] après la fin de la lecture
+//! d'avant ([`Coulisse::lecture_auto`]), pour les filtres « Aucun diplôme requis » et « Débutant accepté ». Elle ne
+//! change jamais l'offre affichée ([`But::Lecture`]), cède la place à tout geste de Jordan, attend pendant une
+//! connexion, une petite fenêtre, une candidature, ou Jobmind cachée ; elle s'arrête pour la page au premier signe du
+//! site (page de secours, captcha, connexion demandée, page illisible, pas de réponse), sans jamais réessayer en
+//! boucle, et ne lit pas les offres retirées (« Retirer de ma liste », gardées dans la base).
 //!
 //! Ce module ne fait que décider (testable sans fenêtre) : chaque geste donne des [`Ordre`] que le programme exécute
 //! sur la vue des sites (src\programme.rs), et ce que la vue rapporte (une page chargée, une page lue) revient ici.
+
+use std::collections::HashSet;
+use std::time::{Duration, Instant};
 
 use jobmind_core::lecture::{self, Confiance, LectureOffre};
 use jobmind_core::recherche::Lieu;
 use jobmind_sources::page::{PageLue, Site};
 use jobmind_sources::sites::{self, Comprise, Ecran, LieuSite, Resultat};
 use jobmind_storage::offres as base_offres;
+use jobmind_storage::retirees as base_retirees;
 use jobmind_storage::{Base, Moment};
 use serde_json::{Value, json};
 
@@ -58,6 +70,15 @@ pub const APRES_SAISIE_MS: u64 = 6000;
 /// La petite fenêtre ouverte pour une vérification : la page relue à cet écart (sans la recharger), pour la refermer
 /// dès que la vérification est faite.
 pub const VERIFIER_MS: u64 = 4000;
+/// 0.1.4 : la lecture automatique des offres d'une liste lue. Une offre à la fois, dans l'ordre, au plus une toutes
+/// les [`PAUSE_LECTURE_AUTO`] comptées depuis la fin de la lecture d'avant (en plus de [`ECART_MS`] entre deux
+/// chargements). Rien pendant une connexion, une petite fenêtre, une candidature, ou Jobmind cachée.
+pub const PAUSE_LECTURE_AUTO: Duration = Duration::from_secs(4);
+/// Après un arrêt demandé par le site (page de secours, captcha, connexion, pas de réponse), plus de lecture
+/// automatique sur ce site pendant ce temps, même pour une nouvelle liste (jamais d'essais en boucle).
+pub const PAUSE_APRES_ARRET: Duration = Duration::from_secs(15 * 60);
+/// Les offres lues complètes gardées en mémoire (par adresse) : rouvertes tout de suite, sans recharger la page.
+pub const OFFRES_LUES_MAX: usize = 60;
 
 /// Les gestes de la page.
 pub const SOURCE: &str = "cs-source";
@@ -77,7 +98,15 @@ pub const VOIR_OFFRE: &str = "cs-offre";
 pub const DECONNECTER: &str = "cs-deconnecter";
 /// « Oublier ma connexion » d'un site : ses identifiants gardés effacés (crate::coulisse::garde)
 pub const OUBLIER: &str = "cs-oublier";
-const GESTES: [&str; 15] = [
+/// 0.1.4 : une offre des résultats retirée de la liste (et gardée retirée dans la base), remise, et les retirées
+/// montrées ou cachées
+pub const RETIRER: &str = "cs-retirer";
+pub const REMETTRE: &str = "cs-remettre";
+pub const VOIR_RETIREES: &str = "cs-voir-retirees";
+const GESTES: [&str; 18] = [
+    RETIRER,
+    REMETTRE,
+    VOIR_RETIREES,
     SOURCE,
     CHERCHER,
     SUIVANTE,
@@ -216,6 +245,9 @@ pub enum But {
     Liste,
     /// L'offre de ce résultat
     Offre(usize),
+    /// 0.1.4 : l'offre de ce résultat, lue toute seule par Jobmind (la lecture automatique) : elle ne change jamais ce
+    /// qui est affiché ; un clic de Jordan sur ce résultat en fait une [`But::Offre`]
+    Lecture(usize),
     /// La connexion
     Connexion,
     /// Étape 11 : la candidature sur le site (crate::postuler)
@@ -301,6 +333,23 @@ pub struct ListeSite {
     pub suivante: bool,
     /// Le résultat ouvert
     pub ouvert: Option<usize>,
+    /// 0.1.4 : la lecture automatique des offres de cette page
+    pub lecture: Auto,
+}
+
+/// La lecture automatique des offres d'une page de résultats (0.1.4).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Auto {
+    /// Son début noté au journal
+    pub annoncee: bool,
+    /// La prochaine offre pas avant ce moment (rien : le moment sera posé au prochain pas, la pause commence)
+    pub prochaine: Option<Instant>,
+    /// Toutes les offres de la page sont lues
+    pub finie: bool,
+    /// Arrêtée pour cette page : la phrase pour Jordan
+    pub arret: Option<String>,
+    /// Les offres lues par elle
+    pub faites: usize,
 }
 
 /// Une offre d'un site, lue en coulisse.
@@ -369,6 +418,46 @@ pub struct Coulisse {
     pub verifies: Option<Identifiants>,
     /// Les sites dont les identifiants gardés sont à effacer
     pub a_oublier: Vec<Site>,
+    /// 0.1.4 : les offres lues complètes (lecture automatique ou clic), les plus récentes à la fin : un clic sur une
+    /// offre déjà lue l'ouvre tout de suite, sans recharger
+    pub offres_lues: Vec<FicheSite>,
+    /// 0.1.4 : les clés des offres retirées (« site:identifiant », voir [`cle`]) : celles de la base, et celles des
+    /// offres gardées retirées de ma liste ; relues de la base par [`Coulisse::relire_retirees`]
+    pub retirees: HashSet<String>,
+    /// « Revoir les offres retirées » : elles sont montrées dans la liste
+    pub voir_retirees: bool,
+    /// L'étape de l'offre qui s'ouvre (10 demandée, 40 page chargée, 70 page lue, 100 prête)
+    pub etape: u8,
+    /// Les sites où la lecture automatique a été arrêtée par le site : jusqu'à quand (rien : à dater au prochain pas),
+    /// et pourquoi (« sa page de secours »), dans l'ordre de `Site::CONNUS`
+    pub bloque: [Option<(Option<Instant>, String)>; 4],
+}
+
+/// La clé stable d'une offre d'un site : « francetravail:123ABC » (sinon son adresse remise au propre).
+pub(crate) fn cle(url: &str) -> String {
+    match jobmind_sources::page::cle_offre(url) {
+        Some((s, id)) => format!("{}:{id}", s.code()),
+        None => url.trim().to_string(),
+    }
+}
+
+/// Une page de secours d'un site (France Travail renvoie vers secours-hp.francetravail.fr après trop de chargements).
+fn page_de_secours(adresse: &str) -> bool {
+    let a = adresse.to_ascii_lowercase();
+    a.contains("secours") || a.contains("maintenance") || a.contains("indisponible")
+}
+
+/// La page lue montre une autre offre du même site que celle demandée (la page d'avant n'est pas encore remplacée).
+fn autre_offre(demandee: &str, lue: &str) -> bool {
+    use jobmind_sources::page::cle_offre;
+    match (cle_offre(demandee), cle_offre(lue)) {
+        (Some((s1, i1)), Some((s2, i2))) => s1 != Site::Autre && s1 == s2 && i1 != i2,
+        _ => false,
+    }
+}
+
+fn hote_de(adresse: &str) -> String {
+    jobmind_sources::page::Adresse::lire(adresse).map(|a| a.hote).unwrap_or_default()
 }
 
 /// L'identifiant et le mot de passe d'un site (le mot de passe effacé de la mémoire quand ils sont lâchés).
@@ -394,11 +483,21 @@ fn lu_court(l: &LectureOffre) -> String {
     x.join(" · ")
 }
 
-/// Le résultat passe les filtres « Aucun diplôme requis » et « Débutant accepté » (un texte pas encore lu : oui).
+/// Le résultat passe les filtres « Aucun diplôme requis » et « Débutant accepté ». Un texte pas encore lu ne passe
+/// pas quand un de ces filtres est coché (0.1.4 : Jordan voyait des offres Bac+2 pas encore ouvertes) ; sans filtre,
+/// tout passe.
 fn passe(l: Option<&LectureOffre>, (sans_diplome, debutant): (bool, bool)) -> bool {
-    let Some(l) = l else { return true };
+    let Some(l) = l else { return !sans_diplome && !debutant };
     (!sans_diplome || l.diplome.as_ref().is_some_and(|d| d.valeur == lecture::Diplome::Aucun))
         && (!debutant || l.experience.as_ref().is_some_and(|e| e.valeur == lecture::Experience::Debutant))
+}
+
+/// La phrase d'une lecture automatique arrêtée sur une offre que Jobmind n'arrive pas à lire.
+fn illisible(s: Site) -> String {
+    format!(
+        "Jobmind n'arrive pas à lire une offre de {} : elle arrête de lire les offres toute seule. Clique sur une offre pour l'ouvrir.",
+        s.nom()
+    )
 }
 
 /// La place de la petite fenêtre dans la page de Jobmind, en pixels de la page (avant l'échelle de la fenêtre).
@@ -512,7 +611,206 @@ impl Coulisse {
         let id = self.nouvel_id();
         self.attente = Some(Attente { id, but, site, adresse: adresse.clone(), lectures: 0, reprise: false });
         self.attendue = None;
+        self.etape = 10;
         vec![Ordre::Charger(adresse)]
+    }
+
+    /// Occupé par autre chose qu'une lecture automatique (celle-ci cède toujours la place à un geste de Jordan).
+    pub(crate) fn occupe(&self) -> bool {
+        self.attente.as_ref().is_some_and(|a| !matches!(a.but, But::Lecture(_)))
+    }
+
+    /// La lecture automatique en cours est abandonnée (un geste de Jordan passe avant) ; elle reprendra après la pause.
+    pub(crate) fn ceder_lecture(&mut self) -> bool {
+        if !self.attente.as_ref().is_some_and(|a| matches!(a.but, But::Lecture(_))) {
+            return false;
+        }
+        self.attente = None;
+        self.attendue = None;
+        true
+    }
+
+    /// Les offres retirées relues de la base : celles des sites, et les offres gardées retirées de ma liste.
+    pub fn relire_retirees(&mut self, base: Option<&Base>) {
+        let Some(b) = base else { return };
+        let c = b.connexion();
+        let (Ok(l), Ok(g)) = (base_retirees::lister(c), base_retirees::adresses_gardees_retirees(c)) else { return };
+        let mut s: HashSet<String> = l.into_iter().map(|r| format!("{}:{}", r.site, r.id_site)).collect();
+        s.extend(g.iter().map(|(_, u)| cle(u)));
+        self.retirees = s;
+    }
+
+    /// Une offre retirée (par sa croix, ou gardée puis retirée de ma liste).
+    pub fn est_retiree(&self, url: &str) -> bool {
+        !url.trim().is_empty() && self.retirees.contains(&cle(url))
+    }
+
+    /// Ce que les règles ont lu dans cette offre (rien : pas encore lue).
+    fn lu_de(&self, url: &str) -> Option<&LectureOffre> {
+        self.lus.iter().find(|(u, _)| !u.is_empty() && *u == url).map(|x| &x.1)
+    }
+
+    /// Les résultats de la liste de ce site que la lecture automatique doit lire : pas retirés, avec une adresse ;
+    /// et, parmi eux, ceux pas encore lus, dans l'ordre.
+    fn a_lire(&self, s: Site) -> (Vec<usize>, Vec<usize>) {
+        let Some(l) = self.liste_de(s) else { return (Vec::new(), Vec::new()) };
+        let tous: Vec<usize> = l
+            .resultats
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| !r.url.trim().is_empty() && !self.est_retiree(&r.url))
+            .map(|(i, _)| i)
+            .collect();
+        let reste = tous.iter().copied().filter(|i| self.lu_de(&l.resultats[*i].url).is_none()).collect();
+        (tous, reste)
+    }
+
+    /// Le pas de la lecture automatique (appelé souvent par le programme, avec l'heure et la visibilité de Jobmind) :
+    /// la prochaine offre de la page affichée est chargée en coulisse quand tout est libre et que la pause est passée.
+    pub fn lecture_auto(&mut self, ici: Instant, visible: bool) -> Fait {
+        for b in self.bloque.iter_mut().flatten() {
+            if b.0.is_none() {
+                b.0 = Some(ici + PAUSE_APRES_ARRET);
+            }
+        }
+        let Some(s) = self.source else { return Fait::default() };
+        let Some(l) = self.liste_de(s) else { return Fait::default() };
+        if l.lecture.finie || l.lecture.arret.is_some() || l.resultats.is_empty() {
+            return Fait::default();
+        }
+        // (en pause : la pause recommence entière après)
+        // (une candidature finie reste montrée : seule une candidature en cours met en pause)
+        let libre = self.attente.is_none() && self.connexion.is_none() && self.petite.is_none() && !self.po_occupe();
+        if !visible || !libre || self.reconnecter.is_some() {
+            if let Some(l) = self.liste_de_mut(s) {
+                l.lecture.prochaine = None;
+            }
+            return Fait::default();
+        }
+        match l.lecture.prochaine {
+            None => {
+                if let Some(l) = self.liste_de_mut(s) {
+                    l.lecture.prochaine = Some(ici + PAUSE_LECTURE_AUTO);
+                }
+                return Fait::default();
+            }
+            Some(t) if ici < t => return Fait::default(),
+            Some(_) => {}
+        }
+        let (_, reste) = self.a_lire(s);
+        let annoncee = l.lecture.annoncee;
+        let faites = l.lecture.faites;
+        let url = reste.first().map(|&i| l.resultats[i].url.clone()).unwrap_or_default();
+        let Some(&i) = reste.first() else {
+            if let Some(l) = self.liste_de_mut(s) {
+                l.lecture.finie = true;
+                l.lecture.prochaine = None;
+            }
+            return Fait {
+                journal: annoncee
+                    .then(|| format!("Sites : lecture automatique finie sur {} ({faites} offres lues)", s.code())),
+                change: true,
+                ..Fait::default()
+            };
+        };
+        // (le site a demandé d'arrêter il y a peu : pas de nouvel essai, même pour une nouvelle liste)
+        if let Some((Some(jusqua), pourquoi)) = self.bloque[indice(s)].clone() {
+            if ici < jusqua {
+                if let Some(l) = self.liste_de_mut(s) {
+                    l.lecture.arret = Some(format!(
+                        "Jobmind ne lit pas les offres toute seule sur {} pendant quelques minutes, après {pourquoi}. Clique sur une offre pour l'ouvrir.",
+                        s.nom()
+                    ));
+                }
+                return Fait {
+                    journal: Some(format!(
+                        "Sites : lecture automatique pas lancée sur {} (en pause après {pourquoi})",
+                        s.code()
+                    )),
+                    change: true,
+                    ..Fait::default()
+                };
+            }
+            self.bloque[indice(s)] = None;
+        }
+        if let Some(l) = self.liste_de_mut(s) {
+            l.lecture.annoncee = true;
+            l.lecture.prochaine = None;
+        }
+        let o = self.charger(s, But::Lecture(i), url);
+        Fait {
+            journal: (!annoncee).then(|| {
+                let n = reste.len();
+                format!("Sites : lecture automatique de {n} offre{} sur {}", if n > 1 { "s" } else { "" }, s.code())
+            }),
+            ..ordres(o, true)
+        }
+    }
+
+    /// La lecture automatique de la page de ce site s'arrête (pour cette page) ; `bloque` : le site l'a demandé, plus
+    /// de lecture automatique sur ce site pendant [`PAUSE_APRES_ARRET`].
+    fn arreter_auto(&mut self, s: Site, texte: String, bloque: Option<&str>, trace: &str) -> Fait {
+        if let Some(l) = self.liste_de_mut(s)
+            && !l.lecture.finie
+            && l.lecture.arret.is_none()
+        {
+            l.lecture.arret = Some(texte);
+            l.lecture.prochaine = None;
+        }
+        if let Some(p) = bloque
+            && Site::CONNUS.contains(&s)
+        {
+            self.bloque[indice(s)] = Some((None, p.to_string()));
+        }
+        Fait {
+            journal: Some(format!("Sites : lecture automatique arrêtée sur {} ({trace})", s.code())),
+            change: true,
+            ..Fait::default()
+        }
+    }
+
+    /// « Retirer de ma liste » (la croix d'un résultat) ou « Remettre » : gardé dans la base.
+    fn retirer(&mut self, base: Option<&Base>, v: &Value, remettre: bool, maintenant: Moment) -> Fait {
+        let Some(s) = self.source else { return Fait::default() };
+        let Some(i) = v.get("i").and_then(Value::as_u64).map(|i| i as usize) else { return Fait::default() };
+        let Some(r) = self.liste_de(s).and_then(|l| l.resultats.get(i)).cloned() else { return Fait::default() };
+        let Some((site, id)) = jobmind_sources::page::cle_offre(&r.url) else { return Fait::default() };
+        let Some(base) = base else {
+            return Fait::refus(SANS_BASE, "Sites : retrait impossible, pas de base".into());
+        };
+        let c = base.connexion();
+        let fait = if remettre {
+            base_retirees::remettre(c, site.code(), &id).and_then(|_| {
+                // (la même offre gardée puis retirée de ma liste : remise dans ma liste aussi)
+                let k = cle(&r.url);
+                for (n, u) in base_retirees::adresses_gardees_retirees(c)? {
+                    if cle(&u) == k {
+                        base_offres::poser(c, n, base_offres::Marque::PasPourMoi, false)?;
+                    }
+                }
+                Ok(())
+            })
+        } else {
+            base_retirees::retirer(c, site.code(), &id, &r.url, &r.titre, maintenant).map(|_| ())
+        };
+        if let Err(e) = fait {
+            return Fait::refus(PAS_ENREGISTRE, format!("Sites : retrait non enregistré ({e})"));
+        }
+        // (une offre retirée n'est pas lue toute seule : sa lecture en cours s'arrête)
+        if !remettre && self.attente.as_ref().is_some_and(|a| a.site == s && a.but == But::Lecture(i)) {
+            self.ceder_lecture();
+        }
+        self.relire_retirees(Some(base));
+        Fait {
+            journal: Some(format!(
+                "Sites : offre {} de {} {}",
+                i + 1,
+                s.code(),
+                if remettre { "remise dans la liste" } else { "retirée de la liste" }
+            )),
+            change: true,
+            ..Fait::default()
+        }
     }
 
     /// Un geste de la page : vérifié, puis les ordres pour la vue des sites.
@@ -529,6 +827,12 @@ impl Coulisse {
                     change: true,
                     ..Fait::default()
                 }
+            }
+            RETIRER => self.retirer(base, v, false, maintenant),
+            REMETTRE => self.retirer(base, v, true, maintenant),
+            VOIR_RETIREES => {
+                self.voir_retirees = !self.voir_retirees;
+                Fait { change: true, ..Fait::default() }
             }
             CHERCHER => self.chercher(base, v),
             SUIVANTE => self.suivante(),
@@ -634,7 +938,7 @@ impl Coulisse {
         if self.po_occupe() {
             return Fait { message: Some(OCCUPE_PO.into()), ..Fait::default() };
         }
-        if self.attente.is_some() {
+        if self.occupe() {
             return Fait {
                 message: Some("Jobmind lit déjà une page : attends un instant.".into()), ..Fait::default()
             };
@@ -669,6 +973,7 @@ impl Coulisse {
             resultats: Vec::new(),
             suivante: false,
             ouvert: None,
+            lecture: Auto::default(),
         });
         if self.fiche.as_ref().is_some_and(|f| f.site == s) {
             self.fiche = None;
@@ -685,7 +990,7 @@ impl Coulisse {
         if self.po_occupe() {
             return Fait { message: Some(OCCUPE_PO.into()), ..Fait::default() };
         }
-        if self.attente.is_some() {
+        if self.occupe() {
             return Fait {
                 message: Some("Jobmind lit déjà une page : attends un instant.".into()), ..Fait::default()
             };
@@ -698,6 +1003,7 @@ impl Coulisse {
             l.resultats.clear();
             l.ouvert = None;
             l.suivante = false;
+            l.lecture = Auto::default();
         }
         self.annonces[indice(s)] = None;
         let o = self.charger(s, But::Liste, adresse);
@@ -711,19 +1017,58 @@ impl Coulisse {
             return Fait { message: Some(OCCUPE_PO.into()), ..Fait::default() };
         }
         let Some(i) = v.get("i").and_then(Value::as_u64).map(|i| i as usize) else { return Fait::default() };
-        if self.attente.is_some() {
-            return Fait {
-                message: Some("Jobmind lit déjà une page : attends un instant.".into()), ..Fait::default()
-            };
-        }
         let Some(url) = self.liste_de(s).and_then(|l| l.resultats.get(i)).map(|r| r.url.clone()) else {
             return Fait::default();
         };
+        // (0.1.4 : déjà lue, par la lecture automatique ou un clic d'avant : ouverte tout de suite, sans recharger ;
+        // la lecture automatique en cours continue)
+        if self.fiche.as_ref().is_some_and(|f| f.url == url) {
+            if let Some(l) = self.liste_de_mut(s) {
+                l.ouvert = Some(i);
+            }
+            return Fait { change: true, ..Fait::default() };
+        }
+        if let Some(f) = self.offres_lues.iter().find(|f| f.site == s && f.url == url).cloned() {
+            if let Some(l) = self.liste_de_mut(s) {
+                l.ouvert = Some(i);
+            }
+            self.fiche = Some(f);
+            return Fait {
+                journal: Some(format!("Sites : offre {} ouverte tout de suite (déjà lue)", i + 1)),
+                change: true,
+                ..Fait::default()
+            };
+        }
+        match self.attente.as_ref().map(|a| (a.site, a.but)) {
+            // (justement en cours de lecture automatique : elle sera montrée à la fin de sa lecture)
+            Some((x, But::Lecture(j))) if x == s && j == i => {
+                if let Some(a) = self.attente.as_mut() {
+                    a.but = But::Offre(i);
+                }
+                if let Some(l) = self.liste_de_mut(s) {
+                    l.ouvert = Some(i);
+                }
+                self.fiche = None;
+                return Fait {
+                    journal: Some(format!("Sites : offre {} demandée (sa lecture était en cours)", i + 1)),
+                    change: true,
+                    ..Fait::default()
+                };
+            }
+            // (la lecture automatique d'une autre offre est abandonnée : l'offre cliquée est la suivante chargée)
+            Some((_, But::Lecture(_))) => {
+                self.ceder_lecture();
+            }
+            Some(_) => {
+                return Fait {
+                    message: Some("Jobmind lit déjà une page : attends un instant.".into()),
+                    ..Fait::default()
+                };
+            }
+            None => {}
+        }
         if let Some(l) = self.liste_de_mut(s) {
             l.ouvert = Some(i);
-        }
-        if self.fiche.as_ref().is_some_and(|f| f.url == url) {
-            return Fait { change: true, ..Fait::default() };
         }
         self.fiche = None;
         let o = self.charger(s, But::Offre(i), url.clone());
@@ -742,6 +1087,11 @@ impl Coulisse {
             Ok((id, texte, journal)) => {
                 if let Some(f) = self.fiche.as_mut() {
                     f.ajoutee = Some(id);
+                    let u = f.url.clone();
+                    // (rouverte plus tard depuis la mémoire : « Ajoutée à tes offres » reste)
+                    for x in self.offres_lues.iter_mut().filter(|x| x.url == u) {
+                        x.ajoutee = Some(id);
+                    }
                 }
                 self.dire(site, Annonce { texte: texte.clone(), genre: "ok", bouton: None, offre: Some(id) });
                 Fait { message: Some(texte), bravo: true, journal: Some(journal), change: true, ..Fait::default() }
@@ -794,7 +1144,7 @@ impl Coulisse {
         if mail.is_empty() || mdp.est_vide() {
             return Fait { message: Some("Tape ton mail et ton mot de passe.".into()), ..Fait::default() };
         }
-        if self.attente.is_some() {
+        if self.occupe() {
             return Fait {
                 message: Some("Jobmind lit déjà une page : attends un instant.".into()), ..Fait::default()
             };
@@ -902,7 +1252,13 @@ impl Coulisse {
         if !attend || self.petite.as_ref().is_some_and(|p| p.lecture.is_some()) {
             return Fait::default();
         }
+        let ouvre = matches!(self.attente.as_ref().map(|a| a.but), Some(But::Offre(_)));
+        self.etape = self.etape.max(40);
         let o = self.lire(ATTENTE_LECTURE_MS);
+        if ouvre {
+            // (la barre de l'offre qui s'ouvre avance)
+            return ordres(vec![o], true);
+        }
         ordres(vec![o], false)
     }
 
@@ -933,6 +1289,10 @@ impl Coulisse {
             return ordres(vec![o], false);
         }
         let Some(a) = self.attente.take() else { return Fait::default() };
+        // (une lecture automatique : elle s'arrête pour cette page, sans déranger Jordan)
+        if let But::Lecture(_) = a.but {
+            return self.arreter_auto(a.site, illisible(a.site), None, &format!("lecture perdue, {raison}"));
+        }
         self.connexion = None;
         self.dire(
             a.site,
@@ -952,6 +1312,17 @@ impl Coulisse {
         }
         let Some(a) = self.attente.take() else { return Fait::default() };
         self.attendue = None;
+        if let But::Lecture(_) = a.but {
+            return self.arreter_auto(
+                a.site,
+                format!(
+                    "{} ne répond pas : Jobmind arrête de lire les offres toute seule. Clique sur une offre pour l'ouvrir.",
+                    a.site.nom()
+                ),
+                Some("un site qui ne répondait pas"),
+                "le site ne répond pas",
+            );
+        }
         self.connexion = None;
         self.dire(
             a.site,
@@ -1002,7 +1373,7 @@ impl Coulisse {
             match self.attente.as_ref().map(|a| a.but) {
                 Some(But::Connexion) => self.lu_connexion(l),
                 Some(But::Postuler) => self.po_lu(base, l, maintenant),
-                Some(But::Liste) | Some(But::Offre(_)) => self.lu_contenu(base, l, maintenant),
+                Some(But::Liste | But::Offre(_) | But::Lecture(_)) => self.lu_contenu(base, l, maintenant),
                 None => Fait { change: !journal.is_empty(), ..Fait::default() },
             }
         };
@@ -1137,11 +1508,71 @@ impl Coulisse {
         }
     }
 
-    /// Une page lue pour une liste ou une offre.
+    /// Une page lue pour une liste ou une offre (ou une offre lue par la lecture automatique).
     fn lu_contenu(&mut self, base: Option<&Base>, l: Lecture, _maintenant: Moment) -> Fait {
-        let _ = base;
         let Some(a) = self.attente.clone() else { return Fait::default() };
         let c = l.comprise;
+        // 0.1.4 : une page de secours (France Travail renvoie vers secours-hp.francetravail.fr après des chargements
+        // répétés) : la lecture automatique de ce site s'arrête tout de suite, jamais d'essai en boucle
+        let secours = page_de_secours(&c.adresse);
+        if let But::Lecture(_) = a.but {
+            let nom = a.site.nom();
+            let deroute = hote_de(&c.adresse) != hote_de(&a.adresse);
+            let arret = if secours || deroute {
+                Some((
+                    format!(
+                        "{nom} a renvoyé Jobmind vers {}. Jobmind arrête de lire les offres toute seule pour ne pas gêner le site. Clique sur une offre pour l'ouvrir.",
+                        if secours { "sa page de secours" } else { "une autre page" }
+                    ),
+                    if secours { "sa page de secours" } else { "une redirection du site" },
+                    format!("redirigé vers {}", hote_de(&c.adresse)),
+                ))
+            } else {
+                match c.ecran {
+                    Ecran::Captcha | Ecran::Verification => Some((
+                        format!(
+                            "{nom} demande de vérifier que tu es une personne. Jobmind arrête de lire les offres toute seule. Clique sur une offre pour l'ouvrir."
+                        ),
+                        "une vérification du site",
+                        format!("le site demande une personne, {}", c.ecran.code()),
+                    )),
+                    Ecran::Connexion(_) => Some((
+                        format!(
+                            "{nom} demande de te connecter. Jobmind arrête de lire les offres toute seule. Clique sur une offre pour l'ouvrir."
+                        ),
+                        "une demande de connexion",
+                        "le site demande une connexion".to_string(),
+                    )),
+                    Ecran::Normale => None,
+                }
+            };
+            if let Some((texte, pourquoi, trace)) = arret {
+                self.attente = None;
+                self.attendue = None;
+                return self.arreter_auto(a.site, texte, Some(pourquoi), &trace);
+            }
+        }
+        let mut f = self.lu_contenu_suite(base, a.clone(), c);
+        if secours && !matches!(a.but, But::Lecture(_)) {
+            let g = self.arreter_auto(
+                a.site,
+                format!(
+                    "{} a renvoyé Jobmind vers sa page de secours. Jobmind arrête de lire les offres toute seule pour ne pas gêner le site.",
+                    a.site.nom()
+                ),
+                Some("sa page de secours"),
+                "page de secours",
+            );
+            f.journal = Some(match (f.journal.take(), g.journal) {
+                (Some(x), Some(y)) => format!("{x} ; {y}"),
+                (x, y) => x.or(y).unwrap_or_default(),
+            });
+            f.change = true;
+        }
+        f
+    }
+
+    fn lu_contenu_suite(&mut self, base: Option<&Base>, a: Attente, c: Comprise) -> Fait {
         match c.ecran {
             Ecran::Captcha => return self.demander_personne(a.site, Raison::Captcha, &c.trace),
             Ecran::Verification => return self.demander_personne(a.site, Raison::Verification, &c.trace),
@@ -1178,7 +1609,10 @@ impl Coulisse {
                     if let Some(x) = self.liste_de_mut(a.site) {
                         x.resultats = c.liste.resultats;
                         x.suivante = c.liste.suivante;
+                        // (0.1.4 : la lecture automatique de ses offres commence après la pause)
+                        x.lecture = Auto::default();
                     }
+                    self.relire_retirees(base);
                     return Fait {
                         journal: Some(format!(
                             "Sites : liste lue de {} ({n} résultats, page {page}, lue par {lu_par}{})",
@@ -1207,19 +1641,18 @@ impl Coulisse {
                 }
                 self.relire_ou_casser(a, &c.trace, "liste")
             }
-            But::Offre(i) => match c.offre {
+            But::Offre(i) | But::Lecture(i) => match c.offre {
+                // (une autre offre que celle demandée : la page d'avant, pas encore remplacée ; relue)
+                Ok(lue) if autre_offre(&a.adresse, &lue.offre.url) => {
+                    let trace = format!("autre offre lue ({}) ; {}", lue.offre.url, c.trace);
+                    self.relire_ou_casser(a, &trace, "offre")
+                }
                 Ok(lue) => {
                     self.attente = None;
                     let url = self
                         .liste_de(a.site)
                         .and_then(|x| x.resultats.get(i))
                         .map_or(lue.offre.url.clone(), |r| r.url.clone());
-                    let j = format!(
-                        "Sites : offre lue de {} (lue par {}{})",
-                        a.site.code(),
-                        lue.lu_par.code(),
-                        lue.candidats.as_ref().map(|c| format!(", {}", c.texte)).unwrap_or_default()
-                    );
                     // (étape 6 : ce que les règles y lisent, gardé pour la liste et ses filtres)
                     let l = lecture::lire(&lue.offre.titre, &lue.offre.description);
                     self.lus.retain(|(u, _)| *u != url);
@@ -1227,7 +1660,30 @@ impl Coulisse {
                     if self.lus.len() > LUS_MAX {
                         self.lus.remove(0);
                     }
-                    self.fiche = Some(FicheSite { site: a.site, url, lue, ajoutee: None });
+                    // (0.1.4 : l'offre entière gardée en mémoire, rouverte tout de suite d'un clic)
+                    let fiche = FicheSite { site: a.site, url: url.clone(), lue, ajoutee: None };
+                    self.offres_lues.retain(|f| f.url != url);
+                    self.offres_lues.push(fiche.clone());
+                    if self.offres_lues.len() > OFFRES_LUES_MAX {
+                        self.offres_lues.remove(0);
+                    }
+                    if let But::Lecture(_) = a.but {
+                        // (une lecture automatique ne change jamais ce qui est affiché ; une seule ligne au journal
+                        // pour toute la page, au début et à la fin)
+                        if let Some(x) = self.liste_de_mut(a.site) {
+                            x.lecture.faites += 1;
+                            x.lecture.prochaine = None;
+                        }
+                        return Fait { change: true, ..Fait::default() };
+                    }
+                    let j = format!(
+                        "Sites : offre lue de {} (lue par {}{})",
+                        a.site.code(),
+                        fiche.lue.lu_par.code(),
+                        fiche.lue.candidats.as_ref().map(|c| format!(", {}", c.texte)).unwrap_or_default()
+                    );
+                    self.etape = 100;
+                    self.fiche = Some(fiche);
                     Fait { journal: Some(j), change: true, ..Fait::default() }
                 }
                 Err(e) => {
@@ -1246,9 +1702,18 @@ impl Coulisse {
                 x.lectures += 1;
             }
             let o = self.lire(ECART_RELECTURE_MS);
-            return ordres(vec![o], false);
+            // (l'offre qui s'ouvre : sa page est lue, pas encore prête ; sa barre avance)
+            let ouvre = matches!(a.but, But::Offre(_));
+            if ouvre {
+                self.etape = self.etape.max(70);
+            }
+            return ordres(vec![o], ouvre);
         }
         self.attente = None;
+        // (une lecture automatique : elle s'arrête pour cette page, sans annonce)
+        if let But::Lecture(_) = a.but {
+            return self.arreter_auto(a.site, illisible(a.site), None, &format!("offre illisible ; {trace}"));
+        }
         self.dire(
             a.site,
             annonce(format!("Jobmind n'arrive pas à lire cette page de {}.", a.site.nom()), "erreur", Some("voir")),
@@ -1478,31 +1943,15 @@ impl Coulisse {
             })
         };
         let source = self.source;
-        let attente = self.attente.as_ref().filter(|_| !self.attend_personne()).map(|a| match a.but {
-            But::Liste => format!("Jobmind lit les résultats sur {}...", a.site.nom()),
-            But::Offre(_) => format!("Jobmind ouvre l'offre sur {}...", a.site.nom()),
-            But::Connexion => format!("Connexion à {}...", a.site.nom()),
-            But::Postuler => format!("Candidature sur {}...", a.site.nom()),
+        let attente = self.attente.as_ref().filter(|_| !self.attend_personne()).and_then(|a| match a.but {
+            But::Liste => Some(format!("Jobmind lit les résultats sur {}...", a.site.nom())),
+            But::Offre(_) => Some(format!("Jobmind ouvre l'offre sur {}...", a.site.nom())),
+            // (la lecture automatique se montre dans la liste, jamais comme une attente)
+            But::Lecture(_) => None,
+            But::Connexion => Some(format!("Connexion à {}...", a.site.nom())),
+            But::Postuler => Some(format!("Candidature sur {}...", a.site.nom())),
         });
-        let liste = source.and_then(|s| self.liste_de(s)).map(|l| {
-            let lu = |r: &Resultat| self.lus.iter().find(|(u, _)| !u.is_empty() && *u == r.url).map(|x| &x.1);
-            let caches = l.resultats.iter().filter(|r| !passe(lu(r), self.filtres)).count();
-            let mut sous = match l.resultats.len() { 0 => format!("Page {}", l.page), 1 => format!("Page {}, 1 offre", l.page), n => format!("Page {}, {n} offres", l.page) };
-            if caches > 0 {
-                sous.push_str(&format!(", {caches} cachée{} par tes filtres", if caches > 1 { "s" } else { "" }));
-            }
-            json!({
-                "site": l.site.code(),
-                "titre": format!("Sur {}", l.site.nom()),
-                "sous": sous,
-                "suivante": l.suivante && self.attente.is_none(),
-                "lignes": l.resultats.iter().enumerate().filter(|(_, r)| passe(lu(r), self.filtres)).map(|(i, r)| {
-                    let sous = [r.entreprise.as_str(), r.lieu.as_str()].iter().filter(|x| !x.is_empty()).copied().collect::<Vec<_>>().join(" · ");
-                    let l3 = [Some(r.date.as_str()), r.candidats.as_deref()].into_iter().flatten().filter(|x| !x.is_empty()).collect::<Vec<_>>().join(" · ");
-                    json!({ "i": i, "titre": r.titre, "sous": sous, "l3": l3, "sel": l.ouvert == Some(i), "lu": lu(r).map(lu_court).unwrap_or_default() })
-                }).collect::<Vec<_>>(),
-            })
-        });
+        let liste = source.and_then(|s| self.liste_de(s)).map(|l| self.liste_vue(l));
         let fiche = self.fiche.as_ref().filter(|f| Some(f.site) == source).map(|f| fiche_vue(f, aujourdhui));
         let annonce = source.and_then(|s| self.annonces[indice(s)].as_ref()).map(annonce_vue);
         let connexion = self
@@ -1583,7 +2032,7 @@ impl Coulisse {
                 "fermer": "Fermer",
                 "lecture": "Lecture de la page...",
                 "vide_t": "{site} dans Jobmind",
-                "vide": "Choisis ta recherche, puis clique « Chercher sur {site} ». Jobmind lit les résultats du site et te les montre ici, une page à la fois, seulement quand tu cliques.",
+                "vide": "Choisis ta recherche, puis clique « Chercher sur {site} ». Jobmind lit les résultats du site et te les montre ici, une page à la fois. Ensuite, elle lit chaque offre toute seule, doucement, pour tes filtres.",
                 "vide_note": "Pour voir plus d'offres, connecte-toi à ton compte : Jobmind tape ton mail et ton mot de passe pour toi.",
                 "choisir": "Choisis une offre dans la liste pour la lire ici.",
                 "cx_titre": "Me connecter à {site}",
@@ -1606,8 +2055,133 @@ impl Coulisse {
             t.insert("garde".into(), json!("Jobmind se souvient de ta connexion sur ce PC."));
             t.insert("garde_note".into(), json!("Si {site} te déconnecte, Jobmind te reconnecte toute seule."));
             t.insert("oublier".into(), json!("Oublier ma connexion"));
+            // (0.1.4 : la lecture automatique et les offres retirées)
+            for (k, x) in [
+                ("l_retirer", "Retirer de ma liste"),
+                ("l_remettre", "Remettre"),
+                ("l_lue", "Lue"),
+                ("l_cours", "Lecture en cours..."),
+                ("l_attente", "Pas encore lue"),
+                ("revoir_retirees", "Revoir les offres retirées"),
+                ("cacher_retirees", "Cacher les offres retirées"),
+                ("ouvre_offre", "Jobmind ouvre l'offre"),
+                ("lecture_finie", "Toutes les offres de la page sont lues"),
+            ] {
+                t.insert(k.into(), json!(x));
+            }
+        }
+        // (0.1.4 : la barre de l'offre cliquée qui s'ouvre, par étapes réelles)
+        if let Some(o) = v.as_object_mut() {
+            o.insert("progression".into(), if self.attend_personne() { Value::Null } else { self.progression() });
         }
         v
+    }
+
+    /// La liste lue d'un site, comme la page la montre : les lignes (leurs `i` restent les rangs dans les résultats),
+    /// où en est la lecture de chacune, les offres retirées, et la lecture automatique de la page.
+    fn liste_vue(&self, l: &ListeSite) -> Value {
+        let en_cours = self.attente.as_ref().filter(|a| a.site == l.site).and_then(|a| match a.but {
+            But::Lecture(i) | But::Offre(i) => Some(i),
+            _ => None,
+        });
+        let (mut pas_lues, mut caches, mut retirees) = (0usize, 0usize, 0usize);
+        let mut lignes = Vec::new();
+        for (i, r) in l.resultats.iter().enumerate() {
+            let lu = self.lu_de(&r.url);
+            let retiree = self.est_retiree(&r.url);
+            if retiree {
+                retirees += 1;
+                if !self.voir_retirees {
+                    continue;
+                }
+            } else if !passe(lu, self.filtres) {
+                if lu.is_none() {
+                    pas_lues += 1;
+                } else {
+                    caches += 1;
+                }
+                continue;
+            }
+            let sous = [r.entreprise.as_str(), r.lieu.as_str()]
+                .iter()
+                .filter(|x| !x.is_empty())
+                .copied()
+                .collect::<Vec<_>>()
+                .join(" · ");
+            let l3 = [Some(r.date.as_str()), r.candidats.as_deref()]
+                .into_iter()
+                .flatten()
+                .filter(|x| !x.is_empty())
+                .collect::<Vec<_>>()
+                .join(" · ");
+            let etat = if lu.is_some() {
+                "lue"
+            } else if en_cours == Some(i) {
+                "cours"
+            } else {
+                "attente"
+            };
+            lignes.push(json!({
+                "i": i,
+                "titre": r.titre,
+                "sous": sous,
+                "l3": l3,
+                "sel": l.ouvert == Some(i),
+                "lu": lu.map(lu_court).unwrap_or_default(),
+                "etat": etat,
+                "retiree": retiree,
+            }));
+        }
+        let mut sous = match l.resultats.len() {
+            0 => format!("Page {}", l.page),
+            1 => format!("Page {}, 1 offre", l.page),
+            n => format!("Page {}, {n} offres", l.page),
+        };
+        if pas_lues > 0 {
+            sous.push_str(&format!(", {pas_lues} pas encore lue{}", if pas_lues > 1 { "s" } else { "" }));
+        }
+        if caches > 0 {
+            sous.push_str(&format!(", {caches} cachée{} par tes filtres", if caches > 1 { "s" } else { "" }));
+        }
+        // (la lecture automatique : les offres de la page qui ne sont pas retirées)
+        let (tous, reste) = self.a_lire(l.site);
+        let lecture = if tous.is_empty() {
+            Value::Null
+        } else {
+            let (total, lues) = (tous.len(), tous.len() - reste.len());
+            let finie = reste.is_empty();
+            let arret = if finie { None } else { l.lecture.arret.clone() };
+            let texte = match &arret {
+                Some(a) => a.clone(),
+                None if finie => "Toutes les offres de la page sont lues".to_string(),
+                None => format!("Jobmind lit les offres : {lues} sur {total}"),
+            };
+            json!({ "lues": lues, "total": total, "texte": texte, "finie": finie, "arret": arret })
+        };
+        json!({
+            "site": l.site.code(),
+            "titre": format!("Sur {}", l.site.nom()),
+            "sous": sous,
+            "suivante": l.suivante && !self.occupe(),
+            "lignes": lignes,
+            "lecture": lecture,
+            "retirees": retirees,
+            "voir_retirees": self.voir_retirees,
+        })
+    }
+
+    /// La barre de l'offre cliquée qui s'ouvre : l'étape atteinte et sa phrase (rien : aucune offre ne s'ouvre).
+    fn progression(&self) -> Value {
+        let Some(a) = self.attente.as_ref().filter(|a| matches!(a.but, But::Offre(_))) else { return Value::Null };
+        let nom = a.site.nom();
+        let pc = self.etape.clamp(10, 100);
+        let etape = match pc {
+            100 => "L'offre est prête.".to_string(),
+            70..=99 => format!("{nom} finit d'afficher l'offre, Jobmind la relit..."),
+            40..=69 => format!("Jobmind lit la page de {nom}..."),
+            _ => format!("La page de {nom} se charge..."),
+        };
+        json!({ "pc": pc, "etape": etape })
     }
 }
 
