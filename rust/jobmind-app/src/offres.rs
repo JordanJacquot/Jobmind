@@ -218,6 +218,8 @@ pub struct VueOffres {
     /// Claude lit (la phrase), ou ce qu'a donné sa dernière lecture
     pub ia_en_cours: Option<String>,
     pub ia_annonce: Option<Annonce>,
+    /// 0.1.4 : ce que l'annuaire officiel dit de l'entreprise de l'offre ouverte (posé par le programme)
+    pub annuaire: Option<crate::entreprise::Connu>,
 }
 
 /// Rien encore (les tests, une base qui ne s'ouvre pas).

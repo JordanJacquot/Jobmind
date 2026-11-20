@@ -21,10 +21,17 @@
 //!   un formulaire de connexion en un ou deux écrans, un captcha, une vérification, connecté ou non). Les quatre sites
 //!   imités de l'essai sont dans `sites::exemples`.
 //!
+//! 0.1.4 :
+//! - [`annuaire`] : l'annuaire officiel des entreprises (recherche-entreprises.api.gouv.fr), pour l'onglet
+//!   « L'entreprise » d'une offre ; le site de l'entreprise donné dans l'annonce est lu avec la page ([`page`]).
+//!
 //! Une page n'est lue que sur un clic, une à la fois.
 
 /// Les alertes « nouvelles offres » reçues par mail (étape 7) : reconnues, puis leurs offres lues.
 pub mod alertes;
+/// 0.1.4 : l'annuaire officiel des entreprises (qui recrute, secteur, taille, adresse), appelé sur un fil à part de
+/// l'appli quand Jordan ouvre une offre.
+pub mod annuaire;
 /// Les communes de France (nom, codes postaux, code INSEE), pour chercher sur France Travail autour d'une ville.
 pub mod communes;
 #[cfg(any(test, feature = "faux"))]

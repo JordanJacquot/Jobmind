@@ -18,6 +18,9 @@ thiserror = "=2.0.21"
 # Les données structurées des pages (JSON-LD) et l'archive de chaque offre (le même serde_json que le reste de
 # l'espace de travail)
 serde_json = { version = "=1.0.154", features = ["preserve_order"] }
+# 0.1.4 : l'annuaire officiel des entreprises (recherche-entreprises.api.gouv.fr), appelé sur un fil à part de l'appli.
+# Le même client HTTP que Claude (jobmind-llm), bloquant, chiffré par SChannel (Windows), sans ses options par défaut
+ureq = { version = "=3.1.4", default-features = false, features = ["native-tls"] }
 
 [lints]
 workspace = true

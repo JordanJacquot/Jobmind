@@ -462,6 +462,21 @@ button.jm-cal-d.oui:hover, button.jm-cal-d.oui:focus { background: color-mix(in 
 .jm-rang-v > b > .jm-exig:first-child { margin-left: 0; }
 .jm-exig.exige { background: color-mix(in srgb, var(--rouge) 15%, transparent); color: var(--rouge); }
 .jm-exig.souhaite { background: color-mix(in srgb, var(--orange) 14%, transparent); color: var(--orange); }
+/* 0.1.4 : la carte de l'entreprise, en haut de son onglet (le site, ce que dit l'annuaire, d'où ça vient) */
+.jm-fe { display: flex; flex-direction: column; }
+.jm-fe-site { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--ligne) 80%, transparent);
+  background: color-mix(in srgb, var(--jm) 5%, transparent); margin-bottom: 6px; }
+.jm-fe-ic { width: 38px; height: 38px; flex: none; border-radius: 11px; display: grid; place-items: center; font-size: 12.5px; font-weight: 750; letter-spacing: 0.3px;
+  color: var(--jm); background: color-mix(in srgb, var(--jm) 14%, transparent); }
+.jm-fe-t { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.jm-fe-t > b { font-size: 15.5px; font-weight: 650; color: var(--texte); overflow-wrap: anywhere; }
+.jm-fe-t > b.sans { font-weight: 600; color: var(--doux); }
+.jm-fe-t > span { font-size: 12.5px; color: var(--pale); }
+.jm-fe-site > .jm-bt { flex: none; }
+.jm-fe-att { margin-top: 10px; }
+.jm-fe-note { margin-top: 10px; line-height: 1.5; }
+.jm-fe + .jm-rangs { margin-top: 12px; padding-top: 4px; border-top: 1px solid color-mix(in srgb, var(--ligne) 60%, transparent); }
+@media (max-width: 560px) { .jm-fe-site { flex-wrap: wrap; } .jm-fe-site > .jm-bt { width: 100%; } }
 .jm-puces { display: flex; flex-wrap: wrap; gap: 6px; }
 .jm-puces span { padding: 4px 11px; border-radius: 99px; background: var(--carte2); border: 1px solid var(--ligne); font-size: 13px; color: var(--texte); overflow-wrap: anywhere; }
 /* (le diplôme et l'expérience lus, alignés sur les rangs ; leur phrase citée avec un trait or à gauche) */

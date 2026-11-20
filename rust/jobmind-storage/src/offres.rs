@@ -270,6 +270,8 @@ pub struct OffreComplete {
     pub lecture: LectureGardee,
     /// Étape 7 : le jour où une alerte mail l'a apportée (rien : venue d'ailleurs)
     pub venue_par_mail: Option<Jour>,
+    /// 0.1.4 : le site internet de l'entreprise donné dans l'annonce (migration 14) ; vide sinon
+    pub site_entreprise: String,
 }
 
 /// Le numéro de la première offre du groupe de celle-ci (elle-même si ce n'est pas un doublon).
@@ -308,6 +310,16 @@ pub fn lire(c: &Connection, id: i64) -> rusqlite::Result<Option<OffreComplete>> 
     let candidats = candidats(c, p)?;
     let lecture = lecture_de(c, p)?;
     let venue_par_mail = crate::mails::venue_par_mail(c, p)?;
+    // (0.1.4 : le site de l'entreprise, gardé sur la première du groupe, sinon sur une autre)
+    let site_entreprise: String = c
+        .query_row(
+            "SELECT site_entreprise FROM offres WHERE (id = ?1 OR doublon_de = ?1) AND site_entreprise <> '' \
+             ORDER BY id <> ?1, id LIMIT 1",
+            [p],
+            |r| r.get(0),
+        )
+        .optional()?
+        .unwrap_or_default();
     Ok(Some(OffreComplete {
         offre: o,
         description,
@@ -317,7 +329,18 @@ pub fn lire(c: &Connection, id: i64) -> rusqlite::Result<Option<OffreComplete>> 
         candidats,
         lecture,
         venue_par_mail,
+        site_entreprise,
     }))
+}
+
+/// 0.1.4 : garde le site internet de l'entreprise donné dans l'annonce (sur la première offre du groupe ; un site
+/// vide ne remplace rien). Vrai si l'offre existe.
+pub fn noter_site_entreprise(c: &Connection, id: i64, site: &str) -> rusqlite::Result<bool> {
+    let Some(p) = principale(c, id)? else { return Ok(false) };
+    if !site.trim().is_empty() {
+        c.execute("UPDATE offres SET site_entreprise = ?2 WHERE id = ?1", params![p, site.trim()])?;
+    }
+    Ok(true)
 }
 
 /// Le nombre de candidats qu'une page montrait, avec le site et le jour (étape 5).

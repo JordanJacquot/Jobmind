@@ -34,7 +34,7 @@ fn migration_4_sur_une_base_de_l_etape_3() {
             [],
         )
         .unwrap();
-    assert_eq!(b.migrer_tout(m(9)).unwrap(), vec![4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+    assert_eq!(b.migrer_tout(m(9)).unwrap(), vec![4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
     let c = b.connexion();
     let sources: Vec<String> = c
         .prepare("SELECT code FROM sources ORDER BY id")
@@ -291,4 +291,19 @@ fn ajouter_une_page() {
     assert_eq!(o.offre.contrat, Some(Contrat::Cdi));
     assert_eq!(o.offre.departement.as_deref(), Some("57"));
     assert_eq!(o.candidats, None);
+}
+
+/// 0.1.4 (migration 14) : le site de l'entreprise donné dans l'annonce, gardé avec l'offre ; un site vide ne
+/// remplace rien ; une offre inconnue n'est pas créée.
+#[test]
+fn site_de_l_entreprise_garde() {
+    let b = base();
+    let c = b.connexion();
+    let o = autre("ft-1", "Cariste", "Transports Exemple", "Metz (57)", "CDI", "Conduite de chariots.");
+    let a = offres::ajouter_page(c, "francetravail", &o, None, m(10)).unwrap();
+    assert_eq!(offres::lire(c, a.id).unwrap().unwrap().site_entreprise, "");
+    assert!(offres::noter_site_entreprise(c, a.id, "https://www.transports-exemple.fr/").unwrap());
+    assert!(offres::noter_site_entreprise(c, a.id, "").unwrap());
+    assert_eq!(offres::lire(c, a.id).unwrap().unwrap().site_entreprise, "https://www.transports-exemple.fr/");
+    assert!(!offres::noter_site_entreprise(c, 9999, "https://www.exemple.fr/").unwrap());
 }

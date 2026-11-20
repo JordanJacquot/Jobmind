@@ -291,3 +291,120 @@ fn cle_stable_des_offres() {
     );
     assert_eq!(cle_offre("pas une adresse"), None);
 }
+
+/// 0.1.4 : le site de l'entreprise donné dans une offre de France Travail (pages inventées, de la forme du bloc de
+/// novembre 2026) : le lien de la partie « Entreprise » d'abord, sans ses paramètres ; les liens du site d'emploi et
+/// des réseaux sociaux écartés.
+#[test]
+fn france_travail_site_de_l_entreprise() {
+    let adresse = "https://candidat.francetravail.fr/offres/recherche/detail/216LVQT";
+    let page = |bloc: &str| {
+        format!(
+            "<html><head><title>Offre d'emploi Cariste (H/F) - 57 - METZ - 216LVQT | France Travail</title></head>\
+            <body><a href=\"https://www.facebook.com/FranceTravail\">Facebook</a>\
+            <descriptif-offre id=\"webco-descriptif-offre\"><div data-jm-ombre=\"1\"><h1>Cariste (H/F)</h1>\
+            <p>Conduite de chariots, chargement des camions. Formation possible sur \
+            <a href=\"https://www.formation-exemple.fr/caces\">ce site</a>.</p>{bloc}</div></descriptif-offre>\
+            </body></html>"
+        )
+    };
+    let entreprise = "<h3>Entreprise</h3><p>Transports Exemple</p><p>Transport routier de marchandises, 60 \
+        salariés.</p><a href=\"https://candidat.francetravail.fr/entreprise/123\">Voir ses offres</a>\
+        <a href=\"https://www.linkedin.com/company/transports-exemple\">LinkedIn</a>\
+        <a href=\"https://www.transports-exemple.fr/accueil?utm_source=francetravail&amp;x=1#haut\">Site internet</a>";
+    let p = lue(adresse, &page(entreprise));
+    propre(&p);
+    assert_eq!(p.site_entreprise, "https://www.transports-exemple.fr/accueil");
+    assert_eq!(p.offre.entreprise, "Transports Exemple");
+    // (sans partie « Entreprise » : un lien du bloc, s'il y en a un qui convient)
+    let p = lue(adresse, &page(""));
+    assert_eq!(p.site_entreprise, "https://www.formation-exemple.fr/caces");
+    assert_eq!(p.offre.entreprise, "");
+    // (seulement des liens à écarter : rien)
+    let rien = page(
+        "<h3>Entreprise</h3><p>Ce recruteur a choisi de rester anonyme pour cette offre.</p>\
+        <a href=\"https://www.francetravail.fr/candidat\">Aide</a><a href=\"https://youtu.be/xyz\">Vidéo</a>",
+    )
+    .replace("https://www.formation-exemple.fr/caces", "/aide");
+    let p = lue(adresse, &rien);
+    assert_eq!(p.site_entreprise, "");
+    // (une description à la place du nom : pas de nom)
+    assert_eq!(p.offre.entreprise, "");
+}
+
+/// 0.1.4 : le site de l'entreprise d'une autre page (données structurées, microdonnées, texte de l'annonce).
+#[test]
+fn site_de_l_entreprise_ailleurs() {
+    // Les données structurées : `sameAs` de l'entreprise (le lien vers la page elle-même écarté)
+    let html = "<html><head><script type=\"application/ld+json\">{\"@type\":\"JobPosting\",\"title\":\"Vendeur (H/F)\",\
+        \"description\":\"Vente en boutique, conseil aux clients.\",\"hiringOrganization\":{\"@type\":\"Organization\",\
+        \"name\":\"Boulangerie Martin\",\"url\":\"https://emplois.recrutement-exemple.com/martin\",\
+        \"sameAs\":[\"https://www.facebook.com/martin\",\"https://www.boulangerie-martin.fr/?ref=ats\"]}}</script>\
+        </head><body><h1>Vendeur (H/F)</h1></body></html>";
+    let p = lue("https://emplois.recrutement-exemple.com/offre/42", html);
+    assert_eq!(p.offre.entreprise, "Boulangerie Martin");
+    assert_eq!(p.site_entreprise, "https://www.boulangerie-martin.fr/");
+    // Les microdonnées : le lien `url` de l'entreprise
+    let html = "<html><body><div itemscope=\"\" itemtype=\"http://schema.org/JobPosting\"><h1 itemprop=\"title\">Magasinier\
+        </h1><div itemprop=\"hiringOrganization\" itemscope=\"\"><span itemprop=\"name\">Dupont et Fils</span>\
+        <a itemprop=\"url\" href=\"http://dupont-fils.fr\">dupont-fils.fr</a></div><div itemprop=\"description\">\
+        <p>Réception et rangement des marchandises.</p></div></div></body></html>";
+    let p = lue("https://www.annonces-exemple.fr/offre/7", html);
+    assert_eq!(p.site_entreprise, "http://dupont-fils.fr/");
+    // Le texte de l'annonce d'Indeed : un lien dedans
+    let html = "<html><body><h1 class=\"jobsearch-JobInfoHeader-title\">Agent de tri</h1>\
+        <div data-testid=\"inlineHeader-companyName\">Tri Express</div><div id=\"jobDescriptionText\">\
+        <p>Tri des colis. Découvrez-nous sur <a href=\"https://fr.indeed.com/cmp/tri-express\">Indeed</a> et sur \
+        <a href=\"https://tri-express.com/nous\">notre site</a>.</p></div></body></html>";
+    let p = lue("https://fr.indeed.com/viewjob?jk=abc123", html);
+    assert_eq!(p.site_entreprise, "https://tri-express.com/nous");
+    // Aucun lien : rien (jamais deviné)
+    let html = "<html><body><h1 class=\"jobsearch-JobInfoHeader-title\">Agent de tri</h1>\
+        <div data-testid=\"inlineHeader-companyName\">Tri Express</div><div id=\"jobDescriptionText\">\
+        <p>Tri des colis.</p></div></body></html>";
+    assert_eq!(lue("https://fr.indeed.com/viewjob?jk=abc123", html).site_entreprise, "");
+    // Les pages d'exemple des sites : jamais un lien du site lui-même
+    for (adresse, html) in PAGES {
+        if let Ok(p) = lire(adresse, html) {
+            assert!(!p.site_entreprise.contains("linkedin") && !p.site_entreprise.contains("indeed"), "{adresse}");
+        }
+    }
+}
+
+/// 0.1.4 : les liens qui ne sont jamais le site d'une entreprise.
+#[test]
+fn liens_ecartes() {
+    let page = Adresse::lire("https://candidat.francetravail.fr/offres/recherche/detail/1").unwrap();
+    let s = |h: &str| entreprise::site_ou_rien(h, &page);
+    for h in [
+        "https://www.google.fr/maps?q=metz",
+        "https://maps.google.com/x",
+        "https://fr.indeed.com/cmp/x",
+        "https://www.indeed.de/",
+        "https://fr.linkedin.com/company/x",
+        "https://www.pole-emploi.fr/x",
+        "https://www.francetravail.fr/",
+        "https://www.service-public.gouv.fr/",
+        "https://twitter.com/x",
+        "https://x.com/x",
+        "https://www.instagram.com/x",
+        "https://www.youtube.com/watch?v=1",
+        "https://www.welcometothejungle.com/fr/companies/x",
+        "https://www.glassdoor.co.uk/x",
+        "https://support.apple.com/x",
+        "https://www.microsoft.com/x",
+        "http://192.168.1.1/",
+        "http://localhost:8080/",
+        "http://imprimante.local/",
+        "https://intranet/",
+        "mailto:rh@exemple.fr",
+        "javascript:alert(1)",
+        "/entreprise/12",
+        "https://user:mdp@exemple.fr/",
+    ] {
+        assert_eq!(s(h), None, "{h}");
+    }
+    assert_eq!(s("https://www.transports-exemple.fr"), Some("https://www.transports-exemple.fr/".into()));
+    assert_eq!(s("HTTPS://WWW.Exemple.FR/Nous?utm_source=x#a"), Some("https://www.exemple.fr/Nous".into()));
+    assert_eq!(s("https://exemple.fr/page;jsessionid=12"), Some("https://exemple.fr/page".into()));
+}

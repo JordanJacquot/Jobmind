@@ -209,6 +209,9 @@ pub struct PageLue {
     pub offre: OffreTrouvee,
     pub candidats: Option<Candidats>,
     pub lu_par: LuPar,
+    /// 0.1.4 : le site internet de l'entreprise, s'il est donné dans l'annonce (« https://www.exemple.fr/ », sans
+    /// paramètres) ; vide sinon. Jamais deviné (voir `entreprise`).
+    pub site_entreprise: String,
 }
 
 /// Pourquoi une page n'a pas donné d'offre.
@@ -787,6 +790,8 @@ fn champs_france_travail(d: &Document, id: &str) -> Option<Champs> {
     }
     Some(Champs {
         titre,
+        // (0.1.4 : le nom de l'entreprise, s'il suit le titre de la partie « Entreprise » du bloc)
+        entreprise: entreprise::nom_france_travail(d, i, d.fin(i)).map(|n| ligne(&n)).unwrap_or_default(),
         lieu: ville_propre(&format!("{} - {}", dep.trim(), ville.trim())),
         description,
         plage_description: Some((i, d.fin(i))),
@@ -1090,6 +1095,9 @@ pub fn lire(adresse: &str, html: &str) -> Result<PageLue, PageRefusee> {
         (u.chars().take(300).collect(), u)
     });
     let url = texte::adresse(&url);
+    // (0.1.4 : le site de l'entreprise, s'il est donné dans l'annonce)
+    let site_entreprise =
+        texte::adresse(&entreprise::site_entreprise(&d, site, &a, distinctes.first().copied(), c.plage_description));
     let brut = serde_json::json!({
         "page": url,
         "lue_par": lu_par.code(),
@@ -1111,8 +1119,10 @@ pub fn lire(adresse: &str, html: &str) -> Result<PageLue, PageRefusee> {
         longitude: None,
         brut,
     };
-    Ok(PageLue { site, offre, candidats, lu_par })
+    Ok(PageLue { site, offre, candidats, lu_par, site_entreprise })
 }
+
+mod entreprise;
 
 #[cfg(test)]
 mod tests;

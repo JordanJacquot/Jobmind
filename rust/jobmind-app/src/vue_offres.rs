@@ -125,8 +125,10 @@ fn lu_vue(nom: &str, lu: Option<(String, &str, LuPar, Confiance)>, lue: bool, ab
 
 /// Le texte d'une offre rangé en onglets (0.1.4), pour une offre gardée comme pour une offre lue sur un site :
 /// `[{ "id", "nom", "rangs": [{ "nom", "valeur", "puces": [..], "exigence": "exige" | "souhaite" | "" }] }]`.
-pub fn onglets_vue(onglets: &[Onglet]) -> Value {
-    onglets
+/// La carte de l'entreprise (crate::entreprise::carte), s'il y en a une, va dans l'onglet « L'entreprise »
+/// (`"entreprise": {..}`), créé pour elle si le texte n'a pas de rubrique sur l'entreprise.
+pub fn onglets_vue(onglets: &[Onglet], carte: Option<Value>) -> Value {
+    let mut l: Vec<Value> = onglets
         .iter()
         .map(|o| {
             let rangs: Vec<Value> = o
@@ -143,11 +145,19 @@ pub fn onglets_vue(onglets: &[Onglet]) -> Value {
                 .collect();
             json!({ "id": o.id, "nom": o.nom, "rangs": rangs })
         })
-        .collect()
+        .collect();
+    if let Some(c) = carte {
+        let (id, nom) = rubriques::ONGLETS[3];
+        match l.iter_mut().find(|o| o["id"] == id) {
+            Some(o) => o["entreprise"] = c,
+            None => l.push(json!({ "id": id, "nom": nom, "rangs": [], "entreprise": c })),
+        }
+    }
+    Value::Array(l)
 }
 
-/// L'offre ouverte.
-fn fiche(x: &OffreComplete, aujourdhui: Jour, claude: bool) -> Value {
+/// L'offre ouverte (`annuaire` : ce que l'annuaire officiel dit de son entreprise).
+fn fiche(x: &OffreComplete, aujourdhui: Jour, claude: bool, annuaire: Option<&crate::entreprise::Connu>) -> Value {
     let o = &x.offre;
     let l = &x.lecture;
     // (le texte d'une offre gardée d'Adzuna n'est qu'un résumé de l'annonce : ce qu'il ne dit pas, l'annonce complète
@@ -239,7 +249,10 @@ fn fiche(x: &OffreComplete, aujourdhui: Jour, claude: bool) -> Value {
         "infos": infos,
         "texte": x.description,
         // (0.1.4 : le texte rangé en onglets)
-        "onglets": onglets_vue(&onglets),
+        "onglets": onglets_vue(
+            &onglets,
+            crate::entreprise::carte(&o.entreprise, &o.lieu, &x.site_entreprise, annuaire)
+        ),
         "texte_vide": match (x.venue_par_mail, x.liens.iter().find(|l| !l.url.is_empty())) {
             (Some(_), Some(l)) => format!(
                 "Le mail d'alerte ne donne que le titre. Clique « Voir sur {} », puis « Ajouter à Jobmind » dans la \
@@ -455,7 +468,7 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
             } else {
                 String::new()
             },
-            "fiche": v.ouverte.as_ref().map(|o| fiche(o, aujourdhui, v.claude)),
+            "fiche": v.ouverte.as_ref().map(|o| fiche(o, aujourdhui, v.claude, v.annuaire.as_ref())),
             "vide": vide(v),
             "gestion": gestion(v),
             "textes": textes(&[
@@ -601,6 +614,7 @@ mod tests {
                     par_ia: false,
                 },
                 venue_par_mail: None,
+                site_entreprise: String::new(),
             }),
             recherches: vec![r],
             recherche: Some(4),
@@ -766,9 +780,57 @@ mod tests {
         assert_eq!(f["infos"][4], json!({ "nom": "Horaires", "valeur": "35H/semaine" }));
         assert!(f["texte"].as_str().unwrap().starts_with("Agent de quai"));
         assert!(!f["onglets"].to_string().contains(['\u{2013}', '\u{2014}']));
-        // L'exemple sans rubrique : un seul onglet, et pas d'horaires
+        // (0.1.4 : la carte de l'entreprise en haut de son onglet, les rangs du texte restent)
+        assert_eq!(o[3]["entreprise"]["nom"], "Entrepôts du Val de Moselle");
+        assert_eq!(o[3]["rangs"][0]["valeur"], "Transporteur régional de 80 salariés.");
+        // L'exemple sans rubrique : le poste, l'onglet de l'entreprise pour sa carte seule, et pas d'horaires
         let f = &onglet(&exemple(), j(18))["offres"]["fiche"];
-        assert_eq!(f["onglets"].as_array().unwrap().len(), 1);
+        let o = f["onglets"].as_array().unwrap();
+        let ids: Vec<&str> = o.iter().map(|x| x["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["poste", "entreprise"]);
+        assert_eq!(o[1]["nom"], "L'entreprise");
+        assert_eq!(o[1]["rangs"], json!([]));
         assert_eq!(f["infos"].as_array().unwrap().len(), 4);
+    }
+
+    /// 0.1.4 : la carte de l'entreprise d'une offre gardée, avec et sans site dans l'annonce, avec l'annuaire.
+    #[test]
+    fn la_carte_de_l_entreprise() {
+        use crate::entreprise::Connu;
+        use jobmind_sources::annuaire::Fiche;
+        let mut v = exemple();
+        // (« Ennery, Moselle » : deux communes s'appellent Ennery, la carte ne cherche pas dans l'annuaire)
+        let c = onglet(&v, j(18))["offres"]["fiche"]["onglets"][1]["entreprise"].clone();
+        assert_eq!(c["attente"], false);
+        assert!(c["note"].as_str().unwrap().starts_with("Le nom vient de l'annonce."), "{c}");
+        v.ouverte.as_mut().unwrap().offre.lieu = "Ennery (57)".into();
+        // (sans site, l'annuaire pas encore répondu)
+        let c = onglet(&v, j(18))["offres"]["fiche"]["onglets"][1]["entreprise"].clone();
+        assert_eq!(
+            c,
+            json!({
+                "site": "", "origine": "", "nom": "Entrepôts du Val de Moselle", "secteur": "", "taille": "",
+                "adresse": "", "note": "Jobmind cherche cette entreprise dans l'annuaire officiel des entreprises.",
+                "attente": true
+            })
+        );
+        // (avec le site de l'annonce et la réponse de l'annuaire)
+        v.ouverte.as_mut().unwrap().site_entreprise = "https://www.entrepots-val-moselle.fr/".into();
+        v.annuaire = Some(Connu::Trouve(Fiche {
+            nom: "ENTREPOTS DU VAL DE MOSELLE".into(),
+            secteur: "Transports et entreposage".into(),
+            taille: "100 à 199 salariés (chiffre de 2023)".into(),
+            adresse: "ZONE ACTIPOLE 57365 ENNERY".into(),
+            commune: "ENNERY".into(),
+        }));
+        let f = onglet(&v, j(18));
+        let c = &f["offres"]["fiche"]["onglets"][1]["entreprise"];
+        assert_eq!(c["site"], "entrepots-val-moselle.fr");
+        assert_eq!(c["origine"], "Donné dans l'annonce");
+        assert_eq!(c["nom"], "ENTREPOTS DU VAL DE MOSELLE");
+        assert_eq!(c["taille"], "100 à 199 salariés (chiffre de 2023)");
+        assert_eq!(c["attente"], false);
+        // (aucune adresse de site envoyée à la page)
+        assert!(!f.to_string().contains("https://www.entrepots"), "{f}");
     }
 }

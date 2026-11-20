@@ -33,8 +33,8 @@ fn migration_13_sur_une_base_de_la_version_12() {
     let mut b = Base::en_memoire_jusqua(12, m(9)).unwrap();
     let o = offre("111", "https://candidat.francetravail.fr/offres/recherche/detail/111");
     offres::ajouter_page(b.connexion(), "francetravail", &o, None, m(9)).unwrap();
-    assert_eq!(b.migrer_tout(m(10)).unwrap(), vec![13]);
-    assert_eq!(b.version().unwrap(), 13);
+    assert_eq!(b.migrer_tout(m(10)).unwrap(), vec![13, 14]);
+    assert_eq!(b.version().unwrap(), 14);
     // (rien de perdu : l'offre gardée est toujours là ; la table nouvelle est vide)
     assert_eq!(offres::lister(b.connexion()).unwrap().len(), 1);
     assert!(retirees::lister(b.connexion()).unwrap().is_empty());

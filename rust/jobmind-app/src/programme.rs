@@ -45,6 +45,7 @@ use std::time::{Duration, Instant};
 
 use jobmind_core::Jour;
 use jobmind_core::cle::Service;
+use jobmind_sources::annuaire::{Demande as DemandeAnnuaire, ErreurAnnuaire, Fiche as FicheAnnuaire};
 use jobmind_storage::bulles::Demande;
 use jobmind_storage::cles::Cles;
 use jobmind_storage::{Base, Donnees, Journal};
@@ -150,6 +151,9 @@ struct Etat {
     faux_claude: Arc<Mutex<jobmind_llm::faux::ModeFaux>>,
     /// Étape 5 bis : les sites en coulisse (leurs listes, l'offre lue, la connexion, la petite fenêtre)
     coulisse: Coulisse,
+    /// 0.1.4 : ce que l'annuaire officiel des entreprises a dit (en mémoire pour la durée de l'appli), et l'entreprise
+    /// de l'offre affichée
+    annuaire: crate::entreprise::Annuaire,
     /// Ce que la vue des sites doit faire au prochain pas (hors du verrou de l'état)
     actions_vue: Vec<ActionVue>,
     /// Ce que la vue des sites a rapporté pendant ses événements, traité au prochain pas
@@ -192,6 +196,9 @@ struct Etat {
     /// Étape 12 : le tableau de bord, les exports, la sauvegarde
     bord: crate::bord::Bord,
 }
+
+/// 0.1.4 : ce que le fil de l'annuaire rapporte (la fiche de l'entreprise, rien, ou pourquoi il n'a pas répondu).
+type AnnuaireLu = Result<Option<FicheAnnuaire>, ErreurAnnuaire>;
 
 thread_local! {
     static ETAT: RefCell<Option<Etat>> = const { RefCell::new(None) };
@@ -533,6 +540,7 @@ pub fn lancer() -> ! {
             #[cfg(feature = "essai")]
             faux_claude,
             coulisse: Coulisse::avec_gardes(gardes),
+            annuaire: crate::entreprise::Annuaire::default(),
             actions_vue: Vec::new(),
             evenements_sites: Arc::new(Mutex::new(Vec::new())),
             chargement_prevu: None,
@@ -1551,10 +1559,26 @@ impl Etat {
         if let Some(r) = raison {
             self.journal.ecrire(&r);
         }
-        let (vue_offres, raison) = self.offres.vue(d.base.as_ref(), Some(&self.cles));
+        let (mut vue_offres, raison) = self.offres.vue(d.base.as_ref(), Some(&self.cles));
         if let Some(r) = raison {
             self.journal.ecrire(&r);
         }
+        // (0.1.4 : l'entreprise de l'offre affichée, gardée ou lue sur un site : ce que l'annuaire en a dit, et celle à
+        // lui demander au prochain pas)
+        let gardee =
+            vue_offres.ouverte.as_ref().and_then(|x| DemandeAnnuaire::depuis_offre(&x.offre.entreprise, &x.offre.lieu));
+        let de_site = self
+            .coulisse
+            .fiche
+            .as_ref()
+            .and_then(|f| DemandeAnnuaire::depuis_offre(&f.lue.offre.entreprise, &f.lue.offre.lieu));
+        vue_offres.annuaire = gardee.as_ref().and_then(|x| self.annuaire.connu(x)).cloned();
+        self.coulisse.annuaire = de_site.as_ref().and_then(|x| self.annuaire.connu(x)).cloned();
+        self.annuaire.voulue = match self.coulisse.source {
+            Some(s) if self.coulisse.fiche.as_ref().is_some_and(|f| f.site == s) => de_site,
+            Some(_) => None,
+            None => gardee,
+        };
         let (vue_mails, raison) = self.boite.vue(d.base.as_ref(), Some(&self.cles));
         if let Some(r) = raison {
             self.journal.ecrire(&r);
@@ -1735,6 +1759,9 @@ impl Etat {
             if coulisse::est_geste(id) {
                 return etat.coulisse.geste(d.base.as_ref(), id, valeur, maintenant);
             }
+            if crate::entreprise::est_geste(id) {
+                return etat.geste_entreprise(d.base.as_ref(), id);
+            }
             if crate::preparation::est_geste(id) {
                 let ctx = crate::preparation::Contexte { base: d.base.as_ref(), cles: Some(&etat.cles) };
                 return etat.preparation.geste(&ctx, id, valeur, maintenant);
@@ -1881,6 +1908,80 @@ impl Etat {
             self.ia_depuis = None;
         }
         self.faire(app, |etat, d| etat.offres.ia_finie(d.base.as_ref(), r, heure::maintenant()));
+    }
+
+    /// 0.1.4 : demande une entreprise à l'annuaire officiel, sur un fil à part (une seule requête, crate::entreprise).
+    fn lancer_annuaire(&mut self, app: &AppHandle, demande: DemandeAnnuaire) {
+        let (adresse, https) = self.adresse_annuaire();
+        let a = app.clone();
+        let d = demande.clone();
+        let r = std::thread::Builder::new().name("annuaire".into()).spawn(move || {
+            let r = jobmind_sources::annuaire::chercher(&d, &adresse, https);
+            rapporter_vers(&a, (d, r), Etat::retour_annuaire);
+        });
+        if let Err(e) = r {
+            let j = self.annuaire.reponse(&demande, Err(ErreurAnnuaire::Reseau(format!("fil non lancé : {e}"))));
+            self.journal.ecrire(&j);
+        }
+    }
+
+    /// L'adresse de l'annuaire et « https seulement » : la vraie.
+    #[cfg(not(feature = "essai"))]
+    fn adresse_annuaire(&self) -> (String, bool) {
+        (jobmind_sources::annuaire::ADRESSE.into(), true)
+    }
+
+    /// Construction d'essai : jamais le vrai annuaire (le port 9 de la machine, où personne n'écoute).
+    #[cfg(feature = "essai")]
+    fn adresse_annuaire(&self) -> (String, bool) {
+        ("http://127.0.0.1:9/search".into(), false)
+    }
+
+    /// La réponse de l'annuaire : gardée, la fiche affichée redessinée.
+    fn retour_annuaire(&mut self, app: &AppHandle, (d, r): (DemandeAnnuaire, AnnuaireLu)) {
+        let j = self.annuaire.reponse(&d, r);
+        self.faire(app, |_, _| Fait { journal: Some(j), change: true, ..Fait::default() });
+    }
+
+    /// 0.1.4 : « Ouvrir le site » ou « Chercher le site » de la carte de l'entreprise : l'adresse refaite ici d'après
+    /// l'offre affichée (la page n'en envoie aucune), ouverte dans la petite fenêtre.
+    fn geste_entreprise(&mut self, base: Option<&Base>, id: &str) -> Fait {
+        let offre = match self.coulisse.source {
+            Some(s) => self
+                .coulisse
+                .fiche
+                .as_ref()
+                .filter(|f| f.site == s)
+                .map(|f| (f.lue.offre.entreprise.clone(), f.lue.offre.lieu.clone(), f.lue.site_entreprise.clone())),
+            None => self
+                .offres
+                .ouverte
+                .and_then(|n| base.and_then(|b| jobmind_storage::offres::lire(b.connexion(), n).ok().flatten()))
+                .map(|x| (x.offre.entreprise, x.offre.lieu, x.site_entreprise)),
+        };
+        let Some((nom, lieu, site)) = offre else { return Fait::default() };
+        if self.coulisse.po_occupe() {
+            return Fait {
+                message: Some("Une candidature est en cours sur un site : termine-la ou ferme-la d'abord.".into()),
+                ..Fait::default()
+            };
+        }
+        let connu = DemandeAnnuaire::depuis_offre(&nom, &lieu).and_then(|x| self.annuaire.connu(&x).cloned());
+        match crate::entreprise::adresse_du_geste(id, &nom, &lieu, &site, connu.as_ref()) {
+            Ok(u) => {
+                let quoi = if id == crate::entreprise::OUVRIR_SITE { "site de l'annonce" } else { "recherche du site" };
+                Fait {
+                    coulisse: self.coulisse.voir_autre(&u),
+                    change: true,
+                    journal: Some(format!(
+                        "Entreprise : {quoi} dans la petite fenêtre ({})",
+                        jobmind_core::offre::hote(&u)
+                    )),
+                    ..Fait::default()
+                }
+            }
+            Err(m) => Fait { message: Some(m), ..Fait::default() },
+        }
     }
 
     /// Étape 8 : lance la préparation d'une candidature par Claude, sur un fil à part. La clé est lue ici, au dernier
@@ -2435,6 +2536,12 @@ impl Etat {
         let f = self.coulisse.lecture_auto(ici, visible);
         if f != crate::suivi::Fait::default() {
             self.faire(app, |_, _| f);
+        }
+        // (0.1.4 : l'entreprise de l'offre affichée demandée à l'annuaire officiel, une fois, Jobmind visible)
+        if let Some(d) = self.annuaire.a_lancer(visible) {
+            self.journal.ecrire("Entreprise : demande à l'annuaire officiel");
+            // (la carte est déjà en attente : rien à renvoyer avant la réponse)
+            self.lancer_annuaire(app, d);
         }
     }
 

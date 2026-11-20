@@ -27,6 +27,8 @@
 //!   gardé) ; la petite fenêtre du site, seulement quand le site demande une personne ou que Jordan veut voir la page.
 //!   La vue des sites elle-même est créée par [`fenetre::creer_vue_sites`], dans la fenêtre « principale », sans aucun
 //!   accès aux commandes ;
+//! - [`entreprise`] (0.1.4) : l'onglet « L'entreprise » d'une offre : le site donné dans l'annonce, et ce que dit
+//!   l'annuaire officiel des entreprises (demandé sur un fil à part, une fois par entreprise) ;
 //! - [`bord`] (étape 12) : le tableau de bord, l'export CSV et PDF, la sauvegarde et sa remise, le réglage du
 //!   rafraîchissement automatique des recherches ;
 //! - [`pont`] : les messages du kit vérifiés, l'habillage du thème, le retour à la console de Mindset ;
@@ -45,6 +47,7 @@ pub mod bord;
 pub mod commandes;
 pub mod coulisse;
 pub mod ecran;
+pub mod entreprise;
 pub mod envoi;
 #[cfg(feature = "essai")]
 pub mod essai;

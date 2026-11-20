@@ -2414,6 +2414,28 @@
     }).join('')}</div>`;
   }
 
+  // 0.1.4 : la carte de l'entreprise, en haut de son onglet : son site (donné dans l'annonce) ou « Chercher le site »,
+  // puis ce que dit l'annuaire officiel des entreprises, et d'où ça vient. Aucune adresse ici : Rust envoie le nom du
+  // site seulement, et ses deux boutons sont des gestes dont Rust refait l'adresse.
+  const FE_NOMS = { qui: 'Qui recrute', secteur: 'Secteur', taille: 'Taille', adresse: 'Adresse du siège', ouvrir: 'Ouvrir le site', chercher: 'Chercher le site', sans_site: "Pas de site dans l'annonce", attente: "Jobmind cherche dans l'annuaire officiel des entreprises" };
+  const carteSur = (c) => { const x = objet(c); return texteSur(x.nom) || texteSur(x.site) ? x : null; };
+  function carteEntrepriseHTML(c, t) {
+    const { esc } = O, mot = (k) => t(`ent_${k}`) || FE_NOMS[k];
+    const site = texteSur(c.site), nom = texteSur(c.nom);
+    let h = `<div class="jm-fe-site"><span class="jm-fe-ic" aria-hidden="true">www</span><div class="jm-fe-t">`;
+    h += site ? `<b>${esc(site)}</b>${texteSur(c.origine) ? `<span>${esc(texteSur(c.origine))}</span>` : ''}` : `<b class="sans">${esc(mot('sans_site'))}</b>`;
+    h += '</div>';
+    if (site) h += bouton('ent-site', 'fe:site', mot('ouvrir'), 'ext', 'principal');
+    else if (nom) h += bouton('ent-chercher', 'fe:chercher', mot('chercher'), 'loupe', '');
+    h += '</div>';
+    const rangs = [['qui', c.nom], ['secteur', c.secteur], ['taille', c.taille], ['adresse', c.adresse]]
+      .map(([k, v]) => ({ nom: mot(k), valeur: texteSur(v), puces: [] })).filter((r) => r.valeur);
+    h += rangsFicheHTML(rangs, t);
+    if (c.attente === true) h += `<div class="jm-attente petite jm-fe-att" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(mot('attente'))}</span></div>`;
+    if (texteSur(c.note)) h += `<p class="jm-petit jm-fe-note">${esc(texteSur(c.note))}</p>`;
+    return `<div class="jm-fe">${h}</div>`;
+  }
+
   // La barre d'onglets et le panneau choisi ; `cle` dit quelle offre, `texteH` le panneau « Texte complet » déjà dessiné
   function ongletsFicheHTML(f, cle, t, texteH) {
     const { esc } = O;
@@ -2423,8 +2445,10 @@
     for (const o of liste(f.onglets)) {
       if (!FO_IDS.includes(o?.id) || ongs.some((x) => x.id === o.id)) continue;
       const rangs = liste(o.rangs).filter((r) => texteSur(r?.nom) && (texteSur(r?.valeur) || liste(r?.puces).some((p) => texteSur(p))));
-      if (!rangs.length && !(o.id === 'demande' && lu.length)) continue;
-      ongs.push({ id: o.id, nom: foMot(t, o.id, o.nom), rangs });
+      // (0.1.4 : l'onglet de l'entreprise existe aussi pour sa carte seule)
+      const carte = o.id === 'entreprise' ? carteSur(o.entreprise) : null;
+      if (!rangs.length && !(o.id === 'demande' && lu.length) && !carte) continue;
+      ongs.push({ id: o.id, nom: foMot(t, o.id, o.nom), rangs, carte });
     }
     // (une lecture sans onglet « demande » : il est créé quand même, juste après « Le poste »)
     if (lu.length && !ongs.some((x) => x.id === 'demande')) ongs.splice(ongs.findIndex((x) => x.id === 'poste') + 1, 0, { id: 'demande', nom: foMot(t, 'demande'), rangs: [] });
@@ -2438,6 +2462,7 @@
     let p;
     if (choisi.id === 'texte') p = texteH;
     else if (choisi.id === 'demande') p = luHTML(f.lecture, t, true) + rangsFicheHTML(choisi.rangs, t);
+    else if (choisi.carte) p = carteEntrepriseHTML(choisi.carte, t) + rangsFicheHTML(choisi.rangs, t);
     else p = rangsFicheHTML(choisi.rangs, t);
     const entre = foAnime; foAnime = false;
     return `<div class="jm-fo-ong" role="tablist">${tabs}</div><div class="jm-fo-p${entre ? ' entre' : ''}" id="jm-fo-p" role="tabpanel" aria-labelledby="jm-fo-t-${choisi.id}">${p}</div>`;
@@ -3263,6 +3288,8 @@
       if (d.perso === 'menu-choix') { choisirMenu(el); return; }
       // (0.1.4 : un onglet de l'offre ouverte, choisi ici sans passer par Rust)
       if (d.perso === 'fo-onglet') { choisirOngletFiche(el, d.id); return; }
+      // (0.1.4 : « Ouvrir le site », « Chercher le site » de l'entreprise : Rust refait l'adresse d'après l'offre ouverte)
+      if (d.perso === 'ent-site' || d.perso === 'ent-chercher') { O.son?.ok?.(); O.action(d.perso); return; }
       if (validerSites(el, d)) return;
       if (typeof d.perso === 'string' && d.perso.startsWith('po-')) { validerPo(el, d); return; }
       if (d.perso === 'onglet' && idSur(d.id)) { if (d.id !== onglet) O.son?.tic?.(); montrer(d.id); return; }

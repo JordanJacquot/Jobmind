@@ -431,6 +431,8 @@ pub struct Coulisse {
     /// Les sites où la lecture automatique a été arrêtée par le site : jusqu'à quand (rien : à dater au prochain pas),
     /// et pourquoi (« sa page de secours »), dans l'ordre de `Site::CONNUS`
     pub bloque: [Option<(Option<Instant>, String)>; 4],
+    /// 0.1.4 : ce que l'annuaire officiel dit de l'entreprise de l'offre ouverte (posé par le programme avant la vue)
+    pub annuaire: Option<crate::entreprise::Connu>,
 }
 
 /// La clé stable d'une offre d'un site : « francetravail:123ABC » (sinon son adresse remise au propre).
@@ -1126,6 +1128,16 @@ impl Coulisse {
         let offre = jobmind_sources::page::Adresse::lire(adresse).is_some();
         self.petite = Some(Petite { raison: Raison::Voir, site, offre, lecture: None, annonce: None });
         vec![Ordre::Charger(adresse.to_string()), Ordre::Montrer]
+    }
+
+    /// 0.1.4 : la petite fenêtre sur une page qui n'est pas une offre (le site de l'entreprise, sa recherche web) : son
+    /// bandeau ne propose pas « Ajouter à Jobmind ».
+    pub fn voir_autre(&mut self, adresse: &str) -> Vec<Ordre> {
+        let o = self.voir(adresse);
+        if let Some(p) = self.petite.as_mut() {
+            p.offre = false;
+        }
+        o
     }
 
     /// La page de connexion du site, dans la petite fenêtre (Google, Apple, ou un écran inconnu).
@@ -1952,7 +1964,11 @@ impl Coulisse {
             But::Postuler => Some(format!("Candidature sur {}...", a.site.nom())),
         });
         let liste = source.and_then(|s| self.liste_de(s)).map(|l| self.liste_vue(l));
-        let fiche = self.fiche.as_ref().filter(|f| Some(f.site) == source).map(|f| fiche_vue(f, aujourdhui));
+        let fiche = self
+            .fiche
+            .as_ref()
+            .filter(|f| Some(f.site) == source)
+            .map(|f| fiche_vue(f, aujourdhui, self.annuaire.as_ref()));
         let annonce = source.and_then(|s| self.annonces[indice(s)].as_ref()).map(annonce_vue);
         let connexion = self
             .connexion
@@ -2190,7 +2206,7 @@ fn annonce_vue(a: &Annonce) -> Value {
 }
 
 /// L'offre d'un site, comme l'onglet Offres la montre.
-fn fiche_vue(f: &FicheSite, aujourdhui: jobmind_core::Jour) -> Value {
+fn fiche_vue(f: &FicheSite, aujourdhui: jobmind_core::Jour, annuaire: Option<&crate::entreprise::Connu>) -> Value {
     let o = &f.lue.offre;
     let pas_dit = "Non précisé";
     let sous = [o.entreprise.as_str(), o.lieu.as_str()]
@@ -2219,7 +2235,10 @@ fn fiche_vue(f: &FicheSite, aujourdhui: jobmind_core::Jour) -> Value {
         "texte": o.description,
         // (0.1.4 : le texte rangé en onglets, comme pour une offre gardée ; aucune adresse d'offre n'est envoyée à la
         // page, l'écran retient l'onglet choisi par le titre)
-        "onglets": crate::vue_offres::onglets_vue(&jobmind_core::rubriques::decouper(&o.titre, &o.description)),
+        "onglets": crate::vue_offres::onglets_vue(
+            &jobmind_core::rubriques::decouper(&o.titre, &o.description),
+            crate::entreprise::carte(&o.entreprise, &o.lieu, &f.lue.site_entreprise, annuaire),
+        ),
         "ajoutee": f.ajoutee,
         // (étape 6 : le diplôme et l'expérience lus par les règles, avec leur preuve)
         "lecture": lecture_vue(&lecture::lire(&o.titre, &o.description)),
@@ -2262,6 +2281,8 @@ fn garder(base: Option<&Base>, p: &PageLue, maintenant: Moment) -> Result<(i64, 
     let candidats = p.candidats.as_ref().map(|c| (c.texte.as_str(), c.nombre.map(i64::from)));
     let a = base_offres::ajouter_page(base.connexion(), p.site.code(), &p.offre, candidats, maintenant)
         .map_err(|e| Box::new(Fait::refus(PAS_ENREGISTRE, format!("Sites : offre non gardée ({e})"))))?;
+    // (0.1.4 : le site de l'entreprise donné dans l'annonce, gardé avec elle ; une erreur ici ne perd pas l'offre)
+    let site_garde = base_offres::noter_site_entreprise(base.connexion(), a.id, &p.site_entreprise);
     let titre = titre_court(&p.offre.titre);
     let mut texte = match (a.nouvelle, a.fusionnee) {
         (true, false) => format!("« {titre} » est ajoutée à tes offres."),
@@ -2283,6 +2304,10 @@ fn garder(base: Option<&Base>, p: &PageLue, maintenant: Moment) -> Result<(i64, 
         p.lu_par.code(),
         p.candidats.as_ref().map(|c| format!(", {}", c.texte)).unwrap_or_default()
     );
+    let journal = match site_garde {
+        Ok(_) => journal,
+        Err(e) => format!("{journal}, site de l'entreprise non gardé ({e})"),
+    };
     Ok((a.id, texte, journal))
 }
 
