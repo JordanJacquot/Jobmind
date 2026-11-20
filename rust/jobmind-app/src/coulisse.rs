@@ -2221,24 +2221,34 @@ fn fiche_vue(f: &FicheSite, aujourdhui: jobmind_core::Jour, annuaire: Option<&cr
         jobmind_core::Jour::lire_iso(&o.publiee_le)
             .map_or(o.publiee_le.clone(), |j| format!("le {}", j.court(aujourdhui)))
     };
+    // (0.1.5 : le texte rangé pour la fiche « En bref d'abord », comme pour une offre gardée ; aucune adresse d'offre
+    // n'est envoyée à la page, l'écran retient l'onglet choisi par le titre)
+    let contrat = jobmind_core::offre::contrat_lu(&o.contrat, &o.titre, &o.description);
+    let nom = crate::entreprise::nom_offre(&o.entreprise, &o.titre, &o.description);
+    let (bref, rangee) = crate::vue_offres::fiche_b_vue(
+        &jobmind_core::fiche::ranger(&o.titre, &o.description),
+        &o.salaire,
+        contrat,
+        crate::entreprise::carte(&nom, &o.lieu, &f.lue.site_entreprise, annuaire),
+    );
     json!({
         "site": f.site.code(),
         "titre": o.titre,
         "sous": sous,
         "source": format!("Lue sur {}", f.site.nom()),
         "candidats": f.lue.candidats.as_ref().map(|c| format!("{} sur {}", c.texte, f.site.nom())),
-        "infos": [
-            { "nom": "Contrat", "valeur": jobmind_core::offre::contrat_lu(&o.contrat, &o.titre, &o.description).map_or(pas_dit, jobmind_core::recherche::Contrat::nom) },
-            { "nom": "Salaire", "valeur": if o.salaire.is_empty() { pas_dit } else { o.salaire.as_str() } },
-            { "nom": "Publiée", "valeur": publiee },
-        ],
-        "texte": o.description,
-        // (0.1.4 : le texte rangé en onglets, comme pour une offre gardée ; aucune adresse d'offre n'est envoyée à la
-        // page, l'écran retient l'onglet choisi par le titre)
-        "onglets": crate::vue_offres::onglets_vue(
-            &jobmind_core::rubriques::decouper(&o.titre, &o.description),
-            crate::entreprise::carte(&o.entreprise, &o.lieu, &f.lue.site_entreprise, annuaire),
+        // (0.1.5 : sans ce que les cases « En bref » montrent déjà)
+        "infos": crate::vue_offres::sans_doublon(
+            vec![
+                json!({ "nom": "Contrat", "valeur": contrat.map_or(pas_dit, jobmind_core::recherche::Contrat::nom) }),
+                json!({ "nom": "Salaire", "valeur": if o.salaire.is_empty() { pas_dit } else { o.salaire.as_str() } }),
+                json!({ "nom": "Publiée", "valeur": publiee }),
+            ],
+            &bref,
         ),
+        "texte": o.description,
+        "bref": bref,
+        "rangee": rangee,
         "ajoutee": f.ajoutee,
         // (étape 6 : le diplôme et l'expérience lus par les règles, avec leur preuve)
         "lecture": lecture_vue(&lecture::lire(&o.titre, &o.description)),

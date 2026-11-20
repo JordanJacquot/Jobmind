@@ -39,6 +39,7 @@ pub mod candidature;
 pub mod cle;
 pub mod envoi;
 pub mod export;
+pub mod fiche;
 pub mod jour;
 pub mod lecture;
 pub mod lieux;

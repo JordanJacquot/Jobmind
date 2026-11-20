@@ -466,6 +466,102 @@ fn offre(i: usize, site: &str, dedans: bool) -> String {
     page(&format!("{} | {}", o.0, o.1), &corps)
 }
 
+/// 0.1.5 : deux offres de France Travail dans la forme réelle de son bloc (novembre 2026) : l'en-tête (« Offre n° »,
+/// le titre, « VILLE (57)Localiser avec Mappy », « Actualisée le »), le texte de l'employeur, « Profil souhaité »,
+/// « Critères de l’offre », « L'employeur ». Texte inventé (entreprises de [`OFFRES`]). Les autres : la page simple.
+const TEXTES_FT: [(usize, &str); 2] = [
+    (
+        1,
+        "Offre n° 203ESS1\n\nAgent de quai (H/F)\n\nWOIPPY (57)Localiser avec Mappy\n\nDébutant accepté\n\n\
+Actualisée le 18 novembre 2026\n\n\
+Transports Moselle Fret, transporteur régional de marchandises installé sur la zone portuaire de Woippy, recherche \
+un agent de quai pour son équipe du matin.\n\n\
+Vos missions :\n\
+- Réceptionner les camions et vérifier les bons de livraison\n\
+- Décharger et contrôler les colis au transpalette électrique\n\
+- Trier les marchandises par tournée de livraison\n\
+- Charger les semi-remorques au départ en respectant l'ordre de livraison\n\n\
+Formation assurée en interne, accompagnement par un tuteur pendant les deux premières semaines.\n\n\
+Profil souhaité\n\nExpérience Débutant accepté\n\nQualification Employé non qualifié\n\nPublic cible Tous\n\n\
+Compétences\n\n- Charger et décharger des marchandises\n\n- Contrôler la conformité d'une livraison\n\n\
+- Règles de sécurité\n\n\
+Savoir-être professionnels\n\n- Travailler en équipe\n\n- Faire preuve de rigueur et de précision\n\n\
+- Faire preuve de réactivité\n\n\
+Permis\n\n- B - Véhicule léger Souhaité\n\n\
+Critères de l\u{2019}offre\n\nIntitulé métier Agent / Agente de quai (N1103)\n\nLieu de travail 57 - WOIPPY\n\n\
+Contrat CDI - Contrat travail\n\n\
+Conditions horaires\n\n- 35H/semaine\n\n- Travail en journée\n\n- Horaires : 5h-12h du lundi au vendredi\n\n\
+Salaire Mensuel de 1900 Euros sur 12 mois\n\n\
+Avantages\n\n- Titres restaurant / Prime de panier\n\n- Mutuelle\n\n\
+L'employeur\n\nTRANSPORTS MOSELLE FRET\n\n\
+Secteur d'activité Transports routiers de fret de proximité\n\nEffectif 20 à 49 salariés\n\n\
+Entreprise familiale créée en 1998, Transports Moselle Fret livre chaque jour les commerces et les artisans de la \
+région messine avec une flotte de 25 camions.\n\nVoir toutes les offres de l\u{2019}employeur",
+    ),
+    (
+        4,
+        "Offre n° 203ESS4\n\nEmployé de libre-service\n\nMETZ (57)Localiser avec Mappy\n\n\
+Actualisée le 13 novembre 2026\n\n\
+Le Supermarché des Arènes, magasin de proximité du quartier Sainte-Thérèse, agrandit son équipe des rayons \
+épicerie et produits frais.\n\n\
+Vos missions :\n\
+- Mettre en rayon les produits livrés le matin\n\
+- Assurer la rotation des produits frais et retirer les dates courtes\n\
+- Renseigner et orienter les clients dans le magasin\n\
+- Tenir la caisse en renfort aux heures d'affluence\n\n\
+Profil souhaité\n\nExpérience 6 Mois - Poste équivalent\n\nQualification Employé qualifié\n\n\
+Compétences\n\n- Mettre en rayon des produits\n\n- Contrôler les dates de péremption\n\n\
+- Encaisser des paiements\n\n\
+Savoir-être professionnels\n\n- Avoir le sens du service\n\n- Faire preuve d'autonomie\n\n\
+- Travailler en équipe\n\n\
+Critères de l\u{2019}offre\n\nIntitulé métier Employé / Employée de libre-service (D1507)\n\n\
+Lieu de travail 57 - METZ\n\nContrat CDI - Contrat travail\n\n\
+Conditions horaires\n\n- 35H/semaine\n\n- Travail en journée\n\n- Travail le samedi\n\n\
+- Horaires : 7h-12h et 13h-16h\n\n\
+Salaire Mensuel de 1900 Euros sur 12 mois\n\n\
+Avantages\n\n- Remise sur les achats\n\n- Mutuelle\n\n- Prime d'intéressement\n\n\
+L'employeur\n\nSUPERMARCHE DES ARENES\n\n\
+Secteur d'activité Supermarchés\n\nEffectif 20 à 49 salariés\n\n\
+Magasin indépendant ouvert en 2004, le Supermarché des Arènes propose plus de 8 000 produits, dont une large place \
+aux producteurs lorrains.\n\nVoir toutes les offres de l\u{2019}employeur",
+    ),
+];
+
+/// La page de détail d'une offre de France Travail (novembre 2026) : le titre de la page avec le département, la ville
+/// et le numéro de l'offre, puis le texte dans le bloc `#webco-descriptif-offre` (une ligne par paragraphe, les puces
+/// « - » en liste), sans données structurées.
+fn offre_france_travail(i: usize, texte: &str) -> String {
+    let o = OFFRES[i];
+    let mut bloc = String::new();
+    let mut liste = false;
+    for l in texte.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        if let Some(p) = l.strip_prefix("- ") {
+            if !liste {
+                bloc.push_str("<ul>");
+                liste = true;
+            }
+            bloc.push_str(&format!("<li>{}</li>", esc(p)));
+        } else {
+            if liste {
+                bloc.push_str("</ul>");
+                liste = false;
+            }
+            bloc.push_str(&format!("<p>{}</p>", esc(l)));
+        }
+    }
+    if liste {
+        bloc.push_str("</ul>");
+    }
+    let corps = format!(
+        "<header><a class=\"btn-connexion\" href=\"/espacepersonnel/\">Se connecter</a></header><main class=\"carte\">\
+<div itemtype=\"http://schema.org/JobPosting\" itemscope=\"\" class=\"modal-body\"><descriptif-offre id-offre=\"{id}\" \
+id=\"webco-descriptif-offre\">{bloc}</descriptif-offre></div></main>",
+        id = id_france_travail(i),
+    );
+    let titre = format!("Offre d'emploi {} - {} - {} - {}", o.0, &o.3[..2], o.2.to_uppercase(), id_france_travail(i));
+    page(&format!("{titre} | France Travail"), &corps)
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // La connexion
 // ---------------------------------------------------------------------------------------------------------------
@@ -734,7 +830,12 @@ fn offre_de(chemin: &str, q: &str, r: &Requete) -> Option<RepFaux> {
         let jk = parametre(q, "jk")?;
         (0..OFFRES.len()).find(|i| jk_indeed(*i) == jk)?
     } else if let Some(id) = chemin.strip_prefix("candidat.francetravail.fr/offres/recherche/detail/") {
-        (0..OFFRES.len()).find(|i| id_france_travail(*i) == id)?
+        let i = (0..OFFRES.len()).find(|i| id_france_travail(*i) == id)?;
+        // (0.1.5 : deux offres dans la forme réelle du bloc de France Travail)
+        if let Some((_, texte)) = TEXTES_FT.iter().find(|(n, _)| *n == i) {
+            return Some(RepFaux::html(200, offre_france_travail(i, texte)));
+        }
+        i
     } else {
         let c = chemin.strip_prefix("www.welcometothejungle.com")?;
         (0..OFFRES.len()).find(|i| chemin_wttj(*i) == c)?

@@ -1565,13 +1565,18 @@ impl Etat {
         }
         // (0.1.4 : l'entreprise de l'offre affichée, gardée ou lue sur un site : ce que l'annuaire en a dit, et celle à
         // lui demander au prochain pas)
-        let gardee =
-            vue_offres.ouverte.as_ref().and_then(|x| DemandeAnnuaire::depuis_offre(&x.offre.entreprise, &x.offre.lieu));
-        let de_site = self
-            .coulisse
-            .fiche
-            .as_ref()
-            .and_then(|f| DemandeAnnuaire::depuis_offre(&f.lue.offre.entreprise, &f.lue.offre.lieu));
+        // (0.1.5 : sans nom gardé, celui que le texte donne après « L'employeur »)
+        let gardee = vue_offres.ouverte.as_ref().and_then(|x| {
+            let nom = crate::entreprise::nom_offre(&x.offre.entreprise, &x.offre.titre, &x.description);
+            DemandeAnnuaire::depuis_offre(&nom, &x.offre.lieu)
+        });
+        let de_site = self.coulisse.fiche.as_ref().and_then(|f| {
+            let o = &f.lue.offre;
+            DemandeAnnuaire::depuis_offre(
+                &crate::entreprise::nom_offre(&o.entreprise, &o.titre, &o.description),
+                &o.lieu,
+            )
+        });
         vue_offres.annuaire = gardee.as_ref().and_then(|x| self.annuaire.connu(x)).cloned();
         self.coulisse.annuaire = de_site.as_ref().and_then(|x| self.annuaire.connu(x)).cloned();
         self.annuaire.voulue = match self.coulisse.source {
@@ -1947,17 +1952,22 @@ impl Etat {
     /// l'offre affichée (la page n'en envoie aucune), ouverte dans la petite fenêtre.
     fn geste_entreprise(&mut self, base: Option<&Base>, id: &str) -> Fait {
         let offre = match self.coulisse.source {
-            Some(s) => self
-                .coulisse
-                .fiche
-                .as_ref()
-                .filter(|f| f.site == s)
-                .map(|f| (f.lue.offre.entreprise.clone(), f.lue.offre.lieu.clone(), f.lue.site_entreprise.clone())),
+            Some(s) => self.coulisse.fiche.as_ref().filter(|f| f.site == s).map(|f| {
+                let o = &f.lue.offre;
+                (
+                    crate::entreprise::nom_offre(&o.entreprise, &o.titre, &o.description),
+                    o.lieu.clone(),
+                    f.lue.site_entreprise.clone(),
+                )
+            }),
             None => self
                 .offres
                 .ouverte
                 .and_then(|n| base.and_then(|b| jobmind_storage::offres::lire(b.connexion(), n).ok().flatten()))
-                .map(|x| (x.offre.entreprise, x.offre.lieu, x.site_entreprise)),
+                .map(|x| {
+                    let nom = crate::entreprise::nom_offre(&x.offre.entreprise, &x.offre.titre, &x.description);
+                    (nom, x.offre.lieu, x.site_entreprise)
+                }),
         };
         let Some((nom, lieu, site)) = offre else { return Fait::default() };
         if self.coulisse.po_occupe() {

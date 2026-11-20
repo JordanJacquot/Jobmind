@@ -204,7 +204,31 @@ pub const OFFRES: [Inventee; 12] = [
         21800,
         23500,
         17,
-        "Chargement et déchargement des camions, contrôle des palettes à l'arrivée, rangement en zone de stockage. Débutant accepté, formation assurée sur place. Aucun diplôme demandé.",
+        // (0.1.5 : dans la forme réelle d'une offre de France Travail, comme Jobmind la garde)
+        "Offre n° 5100000001\n\nAgent de quai H/F\n\nENNERY (57)Localiser avec Mappy\n\nDébutant accepté\n\n\
+Actualisée le 17 novembre 2026\n\n\
+Les Entrepôts du Val de Moselle, plateforme logistique de 40 000 m² au nord de Metz, renforcent leur équipe de quai \
+pour suivre la hausse de leur activité.\n\n\
+Vos missions :\n\
+- Charger et décharger les camions au transpalette électrique\n\
+- Contrôler les palettes à l'arrivée (quantités, état des colis)\n\
+- Ranger les marchandises en zone de stockage\n\
+- Préparer les documents de transport avec le chef de quai\n\n\
+Aucun diplôme demandé, formation assurée sur place par un tuteur.\n\n\
+Profil souhaité\n\nExpérience Débutant accepté\n\nQualification Employé non qualifié\n\nPublic cible Tous\n\n\
+Compétences\n\n- Charger et décharger des marchandises\n\n- Contrôler l'état des colis\n\n- Règles de sécurité\n\n\
+Savoir-être professionnels\n\n- Travailler en équipe\n\n- Faire preuve de rigueur et de précision\n\n\
+- Faire preuve de réactivité\n\n\
+Permis\n\n- B - Véhicule léger Souhaité\n\n\
+Critères de l\u{2019}offre\n\nIntitulé métier Agent / Agente de quai (N1103)\n\nLieu de travail 57 - ENNERY\n\n\
+Contrat CDI - Contrat travail\n\n\
+Conditions horaires\n\n- 35H/semaine\n\n- Travail en journée\n\n- Horaires : 7h-12h et 13h-16h du lundi au vendredi\n\n\
+Salaire Annuel de 21800.00 Euros à 23500.00 Euros sur 12 mois\n\n\
+Avantages\n\n- Titres restaurant / Prime de panier\n\n- Mutuelle\n\n- Prime de fin d'année\n\n\
+L'employeur\n\nENTREPOTS DU VAL DE MOSELLE\n\n\
+Secteur d'activité Entreposage et stockage non frigorifique\n\nEffectif 20 à 49 salariés\n\n\
+Plateforme logistique indépendante installée à Ennery depuis 2009, les Entrepôts du Val de Moselle stockent et \
+expédient chaque jour les marchandises des commerces de la région.\n\nVoir toutes les offres de l\u{2019}employeur",
     ),
     (
         "5100000002",
@@ -249,7 +273,36 @@ pub const OFFRES: [Inventee; 12] = [
         1750,
         1900,
         14,
-        "Accueil et conseil des clients au rayon outillage, mise en rayon, encaissement. Temps partiel 28 h. BTS commerce exigé.",
+        // (0.1.5 : dans la forme réelle d'une offre de France Travail)
+        "Offre n° 5100000004\n\nVendeur conseil bricolage\n\nAUGNY (57)Localiser avec Mappy\n\n\
+Actualisée le 14 novembre 2026\n\n\
+Maison et Outils Lorraine, magasin de bricolage de la zone commerciale d'Augny, recherche un vendeur conseil pour \
+son rayon outillage.\n\n\
+Vos missions :\n\
+- Accueillir et conseiller les clients au rayon outillage\n\
+- Assurer la mise en rayon et le balisage des prix\n\
+- Passer les commandes des clients professionnels\n\
+- Tenir l'encaissement en renfort le samedi\n\n\
+Ce que nous vous apportons :\n\
+- Une formation aux produits par nos fournisseurs\n\
+- Des horaires fixes, connus à l'avance\n\n\
+Profil souhaité\n\nExpérience 1 An - Poste équivalent\n\nQualification Employé qualifié\n\n\
+Formation\n\n- Bac+2 ou équivalents Commerce Exigé\n\n\
+Compétences\n\n- Conseiller un client sur un produit\n\n- Mettre en rayon des produits\n\n\
+- Outillage électroportatif\n\n\
+Savoir-être professionnels\n\n- Avoir le sens du service\n\n- Faire preuve de curiosité\n\n\
+- Travailler en équipe\n\n\
+Critères de l\u{2019}offre\n\nIntitulé métier Vendeur / Vendeuse en bricolage (D1213)\n\nLieu de travail 57 - AUGNY\n\n\
+Contrat CDI - Contrat travail\n\n\
+Conditions horaires\n\n- 28H/semaine\n\n- Travail en journée\n\n- Travail le samedi\n\n\
+- Horaires : 9h-12h30 et 14h-18h\n\n\
+Salaire Mensuel de 1750.00 Euros à 1900.00 Euros sur 12 mois\n\n\
+Avantages\n\n- Remise sur les achats\n\n- Mutuelle\n\n\
+L'employeur\n\nMAISON ET OUTILS LORRAINE\n\n\
+Secteur d'activité Commerce de détail de quincaillerie, peintures et verres en grandes surfaces\n\n\
+Effectif 50 à 99 salariés\n\n\
+Magasin indépendant de 6 000 m², Maison et Outils Lorraine équipe les particuliers et les artisans du sud messin \
+depuis 1991.\n\nVoir toutes les offres de l\u{2019}employeur",
     ),
     (
         "5100000005",
@@ -294,7 +347,28 @@ pub const OFFRES: [Inventee; 12] = [
         11,
         12,
         11,
-        "Entretien de bureaux le matin, de 6 h à 9 h. Débutant accepté.",
+        // (0.1.5 : dans la forme réelle d'une offre de France Travail)
+        "Offre n° 5100000007\n\nAgent d'entretien\n\nMETZ (57)Localiser avec Mappy\n\nDébutant accepté\n\n\
+Actualisée le 11 novembre 2026\n\n\
+Netéa Propreté, entreprise de nettoyage installée à Metz, recherche un agent d'entretien pour un ensemble de bureaux \
+du quartier de l'Amphithéâtre.\n\n\
+Vos principales missions seront de :\n\
+- Vider les corbeilles et trier les déchets\n\
+- Dépoussiérer les postes de travail\n\
+- Nettoyer les sanitaires et la cuisine\n\
+- Laver les sols à l'autolaveuse\n\n\
+Profil souhaité\n\nExpérience Débutant accepté\n\nQualification Employé non qualifié\n\nPublic cible Tous\n\n\
+Compétences\n\n- Nettoyer des locaux\n\n- Utiliser une autolaveuse\n\n- Règles d'hygiène et de propreté\n\n\
+Savoir-être professionnels\n\n- Faire preuve d'autonomie\n\n- Être ponctuel\n\n\
+Critères de l\u{2019}offre\n\nIntitulé métier Agent / Agente d'entretien de locaux (K2204)\n\n\
+Lieu de travail 57 - METZ\n\n\
+Contrat CDD - 6 Mois - Contrat travail\n\n\
+Conditions horaires\n\n- 15H/semaine\n\n- Travail en journée\n\n- Horaires : 6h-9h du lundi au vendredi\n\n\
+Salaire Horaire de 11.88 Euros\n\n\
+Avantages\n\n- Véhicule de service\n\n\
+L'employeur\n\nNETEA PROPRETE\n\n\
+Secteur d'activité Nettoyage courant des bâtiments\n\nEffectif 10 à 19 salariés\n\n\
+Voir toutes les offres de l\u{2019}employeur",
     ),
     (
         "5100000008",

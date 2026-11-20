@@ -1032,6 +1032,7 @@
       if (ofPil === 'cand') return `${h}${candidatureHTML(p)}</div>`;
     }
     h += `<div class="jm-infos">${liste(f.infos).map((i) => `<div><span>${esc(texteSur(i?.nom))}</span><b>${esc(texteSur(i?.valeur))}</b></div>`).join('')}</div>`;
+    h += brefHTML(f.bref);   // (0.1.5 : les cases « En bref », en haut de la fiche)
     const voir = bouton('cs-voir', 'cs:voir', t('voir'), 'ext', '', ` data-id="${s.id}"`);
     if (numSur(f.ajoutee)) {
       h += `<div class="jm-action calme-o"><span class="jm-a-ic">${icone('coche')}</span><div class="jm-a-txt"><b>${esc(t('ajoutee'))}</b></div><div class="jm-a-bts">${bouton('cs-offre', 'cs:offre', t('voir_offre'), 'dossier', '', ` data-id="${f.ajoutee}"`)}</div></div><div class="jm-btns">${voir}</div>`;
@@ -2386,31 +2387,40 @@
     return `<div class="jm-pilules jm-o-pil" role="tablist">${[['offre', esc(t('p_offre'))], ['cand', `${esc(t('p_cand'))}${pret ? ` <small>${esc(t('prete'))}</small>` : ''}`]].map(([id, nom]) => `<button type="button" role="tab" aria-selected="${ofPil === id}" class="jm-pil f${ofPil === id ? ' actif' : ''}" data-perso="pr-pil" data-id="${id}" data-k="op:${id}">${nom}</button>`).join('')}</div>`;
   }
 
-  // ---------------------------------------------------------------- L'offre en onglets (0.1.4)
-  // Sous les boutons de l'offre ouverte (gardée ou lue sur un site) : « Le poste », « Ce qu'ils demandent » (le diplôme
-  // et l'expérience lus avec leur phrase, puis ce que Rust a rangé), « Horaires et salaire », « L'entreprise » et
-  // toujours « Texte complet ». Changer d'onglet est un choix d'affichage : rien ne part vers Rust. L'onglet choisi est
-  // retenu tant que la même offre reste ouverte ; une autre offre revient au premier.
+  // ---------------------------------------------------------------- L'offre « En bref d'abord » (0.1.5)
+  // Sous les boutons de l'offre ouverte (gardée ou lue sur un site), la fiche que Rust a rangée (`f.rangee`) en onglets
+  // pastilles : « Le poste », « Ce qu'ils demandent », « Horaires et salaire », « L'entreprise » et toujours « Texte
+  // complet ». Les cases « En bref » (`f.bref`) sont dessinées plus haut, sous l'en-tête. Un onglet sans rien à montrer
+  // n'est pas affiché. Changer d'onglet est un choix d'affichage : rien ne part vers Rust. L'onglet choisi est retenu
+  // tant que la même offre reste ouverte ; une autre offre revient au premier. Une vieille réponse sans `rangee` :
+  // seulement le texte complet.
   const FO_IDS = ['poste', 'demande', 'conditions', 'entreprise'];
-  const FO_NOMS = { poste: 'Le poste', demande: "Ce qu'ils demandent", conditions: 'Horaires et salaire', entreprise: "L'entreprise", texte: 'Texte complet', exige: 'Exigé', souhaite: 'Souhaité' };
+  const FO_NOMS = { poste: 'Le poste', demande: "Ce qu'ils demandent", conditions: 'Horaires et salaire', entreprise: "L'entreprise", texte: 'Texte complet',
+    journee: "Ta journée, dans l'ordre", lieu: 'Lieu', obligatoire: 'Obligatoire', un_plus: 'Un plus', experience: 'Expérience', qualification: 'Qualification',
+    savoir_faire: 'Savoir faire', qualites: 'Qualités', semaine: 'Ta semaine', salaire: 'Salaire', en_plus: 'En plus', temps: 'Temps de travail',
+    contrat: 'Contrat', annonce: "Ce qu'en dit l'annonce", secteur: 'Secteur', effectif: 'Effectif' };
   let foVue = null;       // l'offre dont l'onglet est retenu ('o:12' gardée, 's:site:...' lue sur un site)
   let foOng = null;       // son onglet choisi (rien : le premier)
   let foAnime = false;    // le panneau vient de changer (il entre en douceur)
   // (un mot : celui de la table de Rust s'il existe, sinon celui envoyé, sinon le nôtre)
   const foMot = (t, k, nom) => t(`og_${k}`) || texteSur(nom) || FO_NOMS[k] || '';
+  const textesFb = (l) => liste(l).map((x) => texteSur(x).trim()).filter(Boolean);
 
-  // Les rangs d'un onglet : le nom à gauche, la valeur à droite (avec « Exigé » ou « Souhaité »), puis ses puces
-  function rangsFicheHTML(rangs, t) {
+  // Les cases « En bref » : 0 à 5 (salaire, temps, horaires, contrat...), seulement ce qui est connu
+  function brefHTML(b) {
+    const { esc } = O;
+    const cases = liste(b).filter((c) => texteSur(c?.nom) && texteSur(c?.valeur)).slice(0, 5);
+    if (!cases.length) return '';
+    return `<div class="jm-bref">${cases.map((c) => `<div class="jm-bref-c"><span>${esc(texteSur(c.nom))}</span><b>${esc(texteSur(c.valeur))}</b>${texteSur(c.sous) ? `<span>${esc(texteSur(c.sous))}</span>` : ''}</div>`).join('')}</div>`;
+  }
+
+  // Des rangs « nom à gauche, valeur à droite » (la carte de l'entreprise)
+  function rangsFicheHTML(rangs) {
     const { esc } = O;
     if (!rangs.length) return '';
     return `<div class="jm-rangs">${rangs.map((r) => {
-      const v = texteSur(r.valeur), pu = liste(r.puces).map((p) => texteSur(p)).filter(Boolean);
-      const ex = ['exige', 'souhaite'].includes(r.exigence) ? `<i class="jm-exig ${r.exigence}">${esc(foMot(t, r.exigence))}</i>` : '';
-      const nom = texteSur(r.nom), court = v.length <= 60 && !v.includes('\n');
-      let h = nom ? `<div class="jm-rang"><span class="jm-rang-n">${esc(nom)}</span><div class="jm-rang-v">` : `<div class="jm-rang plein"><div class="jm-rang-v">`;
-      if (v || ex) h += court ? `<b>${esc(v)}${ex}</b>` : `<p class="jm-rang-t">${esc(v)}${ex}</p>`;
-      if (pu.length) h += `<div class="jm-puces">${pu.map((p) => `<span>${esc(p)}</span>`).join('')}</div>`;
-      return `${h}</div></div>`;
+      const v = texteSur(r.valeur), court = v.length <= 60 && !v.includes('\n');
+      return `<div class="jm-rang"><span class="jm-rang-n">${esc(texteSur(r.nom))}</span><div class="jm-rang-v">${court ? `<b>${esc(v)}</b>` : `<p class="jm-rang-t">${esc(v)}</p>`}</div></div>`;
     }).join('')}</div>`;
   }
 
@@ -2429,43 +2439,121 @@
     else if (nom) h += bouton('ent-chercher', 'fe:chercher', mot('chercher'), 'loupe', '');
     h += '</div>';
     const rangs = [['qui', c.nom], ['secteur', c.secteur], ['taille', c.taille], ['adresse', c.adresse]]
-      .map(([k, v]) => ({ nom: mot(k), valeur: texteSur(v), puces: [] })).filter((r) => r.valeur);
-    h += rangsFicheHTML(rangs, t);
+      .map(([k, v]) => ({ nom: mot(k), valeur: texteSur(v) })).filter((r) => r.valeur);
+    h += rangsFicheHTML(rangs);
     if (c.attente === true) h += `<div class="jm-attente petite jm-fe-att" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(mot('attente'))}</span></div>`;
     if (texteSur(c.note)) h += `<p class="jm-petit jm-fe-note">${esc(texteSur(c.note))}</p>`;
     return `<div class="jm-fe">${h}</div>`;
+  }
+
+  // La fiche rangée, nettoyée : chaque champ du bon genre, rien d'autre
+  function rangeeSure(r) {
+    const x = objet(r), s = (k) => texteSur(x[k]).trim();
+    const plages = liste(x.plages).filter((p) => Number.isInteger(p?.debut) && Number.isInteger(p?.fin) && p.debut >= 0 && p.fin <= 1440 && p.fin > p.debut);
+    return {
+      intro: s('intro'), missions: textesFb(x.missions), lieu: s('lieu'), poste_texte: s('poste_texte'),
+      obligatoire: textesFb(x.obligatoire), un_plus: textesFb(x.un_plus), experience: s('experience'), qualification: s('qualification'),
+      savoir_faire: textesFb(x.savoir_faire), qualites: textesFb(x.qualites), demande_texte: s('demande_texte'),
+      salaire: s('salaire'), temps: s('temps'), horaires: textesFb(x.horaires), plages: plages.map((p) => ({ debut: p.debut, fin: p.fin })),
+      contrat: s('contrat'), avantages: textesFb(x.avantages), conditions_texte: s('conditions_texte'),
+      entreprise: s('entreprise'), secteur: s('secteur'), effectif: s('effectif'), entreprise_texte: s('entreprise_texte'),
+      carte: carteSur(x.carte),
+    };
+  }
+
+  // (une heure : 360 => « 6 h », 810 => « 13 h 30 »)
+  const heureFiche = (m) => `${Math.floor(m / 60)} h${m % 60 ? ` ${String(m % 60).padStart(2, '0')}` : ''}`;
+  const carteFb = (genre, titre, corps) => `<div class="jm-fb-carte${genre ? ` ${genre}` : ''}"><div class="jm-fb-t">${O.esc(titre)}</div>${corps}</div>`;
+  const pastillesFb = (l) => `<div class="jm-puces">${l.map((p) => `<span>${O.esc(p)}</span>`).join('')}</div>`;
+  const ligneFb = (ic, txt) => `<div class="jm-fb-l">${icone(ic)}<span>${O.esc(txt)}</span></div>`;
+  const texteFb = (x) => (x ? `<p class="jm-fb-texte">${O.esc(x)}</p>` : '');
+
+  function posteFbHTML(r, t) {
+    const { esc } = O;
+    let h = r.intro.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean).map((p) => `<p class="jm-fb-intro">${esc(p)}</p>`).join('');
+    if (r.missions.length) {
+      h += carteFb('', foMot(t, 'journee'), `<ol class="jm-fb-etapes">${r.missions.map((m, i) => `<li><span class="jm-fb-num" aria-hidden="true">${i + 1}</span><span>${esc(m)}</span></li>`).join('')}</ol>`);
+    }
+    if (r.lieu) h += `<p class="jm-fb-lieu">${icone('lieu')}<span>${esc(foMot(t, 'lieu'))} : ${esc(r.lieu)}</span></p>`;
+    return h + texteFb(r.poste_texte);
+  }
+
+  function demandeFbHTML(r, f, t) {
+    let g = '';
+    if (r.obligatoire.length) g += carteFb('oblig', foMot(t, 'obligatoire'), r.obligatoire.map((x) => ligneFb('attention', x)).join(''));
+    if (r.un_plus.length) g += carteFb('plus', foMot(t, 'un_plus'), r.un_plus.map((x) => ligneFb('etoile', x)).join(''));
+    if (r.experience || r.qualification) {
+      g += carteFb('exp', foMot(t, 'experience'), `${r.experience ? ligneFb('coche', r.experience) : ''}${r.qualification ? `<p class="jm-fb-sous">${O.esc(foMot(t, 'qualification'))} : ${O.esc(r.qualification)}</p>` : ''}`);
+    }
+    if (r.savoir_faire.length) g += carteFb('', foMot(t, 'savoir_faire'), pastillesFb(r.savoir_faire));
+    if (r.qualites.length) g += carteFb('large', foMot(t, 'qualites'), pastillesFb(r.qualites));
+    // (0.1.5 : la lecture par règles ou par Claude seulement quand l'annonce ne range pas elle-même ce qu'elle
+    // demande : sinon elle répète les cartes)
+    const range = r.obligatoire.length || r.un_plus.length || r.experience || r.qualification;
+    return `${range ? '' : luHTML(f.lecture, t, true)}${g ? `<div class="jm-fb-grille">${g}</div>` : ''}${texteFb(r.demande_texte)}`;
+  }
+
+  // La frise d'une journée de 0 h à 24 h : une barre par plage d'heures, avec ses heures écrites à gauche
+  function friseFbHTML(plages) {
+    const pc = (m) => `${((m / 1440) * 100).toFixed(2)}%`;
+    const lignes = plages.map((p, i) => `<span class="jm-fb-fr-n">${O.esc(`${heureFiche(p.debut)} à ${heureFiche(p.fin)}`)}</span><div class="jm-fb-fr-b" aria-hidden="true"><i${i % 2 ? ' class="deux"' : ''} style="left:${pc(p.debut)};width:${pc(p.fin - p.debut)}"></i></div>`).join('');
+    const graduations = ['0 h', '6 h', '12 h', '18 h', '24 h'].map((x) => `<span>${x}</span>`).join('');
+    return `<div class="jm-fb-frise">${lignes}<span></span><div class="jm-fb-fr-g" aria-hidden="true">${graduations}</div></div>`;
+  }
+
+  function conditionsFbHTML(r, t) {
+    const { esc } = O;
+    let h = '';
+    if (r.plages.length || r.horaires.length || r.temps) {
+      let c = r.temps ? `<p class="jm-fb-fort">${esc(r.temps)}</p>` : '';
+      if (r.plages.length) c += friseFbHTML(r.plages) + (r.horaires.length ? `<p class="jm-fb-sous">${esc(r.horaires.join('. '))}</p>` : '');
+      else c += r.horaires.map((x) => ligneFb('horloge', x)).join('');
+      h += carteFb('', foMot(t, 'semaine'), c);
+    }
+    let g = '';
+    if (r.salaire) g += carteFb('', foMot(t, 'salaire'), `<b class="jm-fb-gros">${esc(r.salaire)}</b>`);
+    if (r.avantages.length) g += carteFb('', foMot(t, 'en_plus'), pastillesFb(r.avantages));
+    if (r.contrat) g += carteFb('', foMot(t, 'contrat'), `<p class="jm-fb-fort">${esc(r.contrat)}</p>`);
+    if (g) h += `<div class="jm-fb-grille">${g}</div>`;
+    return h + texteFb(r.conditions_texte);
+  }
+
+  function entrepriseFbHTML(r, t) {
+    const { esc } = O;
+    let h = r.carte ? carteEntrepriseHTML(r.carte, t) : '';
+    const infos = [r.secteur ? `${foMot(t, 'secteur')} : ${r.secteur}` : '', r.effectif ? `${foMot(t, 'effectif')} : ${r.effectif}` : ''].filter(Boolean);
+    if (r.entreprise || infos.length || r.entreprise_texte) {
+      // (le nom est déjà sur la carte de l'entreprise quand elle est là)
+      h += carteFb('', r.carte ? foMot(t, 'annonce') : (r.entreprise || foMot(t, 'annonce')), `${infos.map((x) => `<p class="jm-fb-sous">${esc(x)}</p>`).join('')}${texteFb(r.entreprise_texte)}`);
+    }
+    return h;
   }
 
   // La barre d'onglets et le panneau choisi ; `cle` dit quelle offre, `texteH` le panneau « Texte complet » déjà dessiné
   function ongletsFicheHTML(f, cle, t, texteH) {
     const { esc } = O;
     if (cle !== foVue) { foVue = cle; foOng = null; foAnime = false; }
-    const lu = liste(f.lecture).filter((i) => texteSur(i?.nom));
     const ongs = [];
-    for (const o of liste(f.onglets)) {
-      if (!FO_IDS.includes(o?.id) || ongs.some((x) => x.id === o.id)) continue;
-      const rangs = liste(o.rangs).filter((r) => (texteSur(r?.valeur) || liste(r?.puces).some((p) => texteSur(p))));
-      // (0.1.4 : l'onglet de l'entreprise existe aussi pour sa carte seule)
-      const carte = o.id === 'entreprise' ? carteSur(o.entreprise) : null;
-      if (!rangs.length && !(o.id === 'demande' && lu.length) && !carte) continue;
-      ongs.push({ id: o.id, nom: foMot(t, o.id, o.nom), rangs, carte });
+    if (f.rangee && typeof f.rangee === 'object' && !Array.isArray(f.rangee)) {
+      const r = rangeeSure(f.rangee);
+      const lu = liste(f.lecture).some((i) => texteSur(i?.nom));
+      const a = {
+        poste: r.intro || r.missions.length || r.lieu || r.poste_texte,
+        demande: lu || r.obligatoire.length || r.un_plus.length || r.experience || r.qualification || r.savoir_faire.length || r.qualites.length || r.demande_texte,
+        conditions: r.plages.length || r.horaires.length || r.temps || r.salaire || r.avantages.length || r.contrat || r.conditions_texte,
+        entreprise: r.carte || r.entreprise || r.secteur || r.effectif || r.entreprise_texte,
+      };
+      const panneaux = { poste: () => posteFbHTML(r, t), demande: () => demandeFbHTML(r, f, t), conditions: () => conditionsFbHTML(r, t), entreprise: () => entrepriseFbHTML(r, t) };
+      for (const id of FO_IDS) if (a[id]) ongs.push({ id, nom: foMot(t, id), panneau: panneaux[id] });
     }
-    // (une lecture sans onglet « demande » : il est créé quand même, juste après « Le poste »)
-    if (lu.length && !ongs.some((x) => x.id === 'demande')) ongs.splice(ongs.findIndex((x) => x.id === 'poste') + 1, 0, { id: 'demande', nom: foMot(t, 'demande'), rangs: [] });
-    ongs.push({ id: 'texte', nom: foMot(t, 'texte'), rangs: [] });
+    ongs.push({ id: 'texte', nom: foMot(t, 'texte'), panneau: () => texteH });
     const choisi = ongs.find((x) => x.id === foOng) || ongs[0];
     const tabs = ongs.map((o) => {
       const oui = o === choisi;
-      const n = o.id === 'demande' ? o.rangs.length + lu.filter((i) => i.dit === true).length : 0;
-      return `<button type="button" role="tab" id="jm-fo-t-${o.id}" aria-controls="jm-fo-p" aria-selected="${oui}" class="jm-fo-o f${oui ? ' actif' : ''}" data-perso="fo-onglet" data-id="${o.id}" data-k="fo:${o.id}">${esc(o.nom)}${n ? `<span class="nb">${n}</span>` : ''}</button>`;
+      return `<button type="button" role="tab" id="jm-fo-t-${o.id}" aria-controls="jm-fo-p" aria-selected="${oui}" class="jm-fo-o f${oui ? ' actif' : ''}" data-perso="fo-onglet" data-id="${o.id}" data-k="fo:${o.id}">${esc(o.nom)}</button>`;
     }).join('');
-    let p;
-    if (choisi.id === 'texte') p = texteH;
-    else if (choisi.id === 'demande') p = luHTML(f.lecture, t, true) + rangsFicheHTML(choisi.rangs, t);
-    else if (choisi.carte) p = carteEntrepriseHTML(choisi.carte, t) + rangsFicheHTML(choisi.rangs, t);
-    else p = rangsFicheHTML(choisi.rangs, t);
     const entre = foAnime; foAnime = false;
-    return `<div class="jm-fo-ong" role="tablist">${tabs}</div><div class="jm-fo-p${entre ? ' entre' : ''}" id="jm-fo-p" role="tabpanel" aria-labelledby="jm-fo-t-${choisi.id}">${p}</div>`;
+    return `<div class="jm-fo-ong" role="tablist">${tabs}</div><div class="jm-fo-p${entre ? ' entre' : ''}" id="jm-fo-p" role="tabpanel" aria-labelledby="jm-fo-t-${choisi.id}">${choisi.panneau()}</div>`;
   }
 
   // Un onglet de l'offre choisi (clic, A ou Entrée) : dessiné ici, sans passer par Rust
@@ -3005,6 +3093,7 @@
       if (ofPil === 'cand') return `${h}${candidatureHTML(p)}</div>`;
     }
     h += `<div class="jm-infos">${liste(f.infos).map((i) => `<div><span>${esc(texteSur(i?.nom))}</span><b>${esc(texteSur(i?.valeur))}</b></div>`).join('')}</div>`;
+    h += brefHTML(f.bref);   // (0.1.5 : les cases « En bref », en haut de la fiche)
     if (f.ia === 'lire') h += `<div class="jm-ia">${icone('loupe')}<div><span>${esc(t('lire_ia_t'))}</span>${bouton('of-lire-ia', 'ov:ia', t('lire_ia'), 'droite', 'discret', ` data-id="${f.id}"`)}</div></div>`;
     else if (f.ia === 'cle') h += `<div class="jm-ia">${icone('cle')}<div><span>${esc(t('cle_ia_t'))}</span>${bouton('of-cles', 'ov:ia-cle', t('ouvrir_cles'), 'cle', 'discret')}</div></div>`;
     if (p) h += annoncePrepHTML(p) + actionPrepHTML(p);

@@ -408,3 +408,102 @@ fn liens_ecartes() {
     assert_eq!(s("HTTPS://WWW.Exemple.FR/Nous?utm_source=x#a"), Some("https://www.exemple.fr/Nous".into()));
     assert_eq!(s("https://exemple.fr/page;jsessionid=12"), Some("https://exemple.fr/page".into()));
 }
+
+/// La partie « L'employeur » des vraies offres de France Travail (novembre 2026, texte du bloc recopié dans un
+/// `div data-jm-ombre`) : le titre, le nom sur la ligne suivante, « Secteur d'activité ... », « Effectif ... »,
+/// « Site internet ... », la présentation, puis « Voir toutes les offres de l’employeur » ou « Découvrir l’employeur ».
+fn page_employeur(employeur: &str) -> String {
+    format!(
+        "<html><head><title>Offre d'emploi Soigneur animalier (H/F) - 57 - RHODES - 216LVQT | France Travail</title>\
+        </head><body><a href=\"https://www.facebook.com/FranceTravail\">Facebook</a>\
+        <descriptif-offre id=\"webco-descriptif-offre\"><div data-jm-ombre=\"1\"><h1>Soigneur animalier (H/F)</h1>\
+        <p>Offre n° 216LVQT</p><p>Vos missions : nourrir les animaux, nettoyer les enclos. Formation sur \
+        <a href=\"https://www.formation-exemple.fr/caces\">ce site</a>.</p><h2>Profil souhaité</h2>\
+        <p>Expérience Débutant accepté</p>\
+        <h2>Critères de l\u{2019}offre</h2><p>Contrat CDD - 3 Mois - Contrat travail</p>\
+        {employeur}</div></descriptif-offre></body></html>"
+    )
+}
+
+#[test]
+fn france_travail_l_employeur() {
+    let adresse = "https://candidat.francetravail.fr/offres/recherche/detail/216LVQT";
+    let lue_ft = |employeur: &str| {
+        let p = lue(adresse, &page_employeur(employeur));
+        propre(&p);
+        p
+    };
+    // Offre 1 (Parc animalier) : titre et lignes en éléments à part, le site en texte (sans lien)
+    let p = lue_ft(
+        "<h2>L'employeur</h2><div class=\"media\"><div class=\"media-body\"><h3>PARC ANIMALIER DE SAINTE CROIX</h3>\
+        <p>Secteur d'activité Gestion des jardins botaniques et zoologiques et des réserves naturelles</p>\
+        <p>Effectif Non disponible</p><p>Site internet https://parcsaintecroix.com/fr/recrutement-et-stage</p>\
+        <p>Au cœur de 120 hectares de nature préservée, le Parc Animalier de Sainte-Croix est un lieu de \
+        découverte.</p>\
+        </div></div><a href=\"/offres/recherche?emp=1\">Voir toutes les offres de l\u{2019}employeur</a>",
+    );
+    assert_eq!(p.offre.entreprise, "PARC ANIMALIER DE SAINTE CROIX");
+    assert_eq!(p.site_entreprise, "https://parcsaintecroix.com/fr/recrutement-et-stage");
+    // La même, le site en lien (libellé et lien sur la même ligne)
+    let p = lue_ft(
+        "<div class=\"titre\">L'employeur</div><div>PARC ANIMALIER DE SAINTE CROIX</div>\
+        <div><span>Secteur d'activité</span> <span>Gestion des jardins botaniques</span></div>\
+        <div><span>Effectif</span> <span>Non disponible</span></div><div><span>Site internet</span> \
+        <a href=\"https://parcsaintecroix.com/fr/recrutement-et-stage?utm_source=ft\">\
+        https://parcsaintecroix.com/fr/recrutement-et-stage</a></div>",
+    );
+    assert_eq!(p.offre.entreprise, "PARC ANIMALIER DE SAINTE CROIX");
+    assert_eq!(p.site_entreprise, "https://parcsaintecroix.com/fr/recrutement-et-stage");
+    // Le site en lien sous le libellé seul (« Site internet », puis le lien sur sa ligne)
+    let p = lue_ft(
+        "<h2>L'employeur</h2><p>PARC ANIMALIER DE SAINTE CROIX</p><p>Site internet</p>\
+        <p><a href=\"https://parcsaintecroix.com/fr/\">parcsaintecroix.com</a></p>",
+    );
+    assert_eq!(p.site_entreprise, "https://parcsaintecroix.com/fr/");
+    // Offre 2 (Adecco) : pas de site, « Découvrir l’employeur » ; le lien de la description n'est pas le site
+    // de l'employeur, mais reste le dernier recours du bloc (comme en 0.1.4)
+    let p = lue_ft(
+        "<h2>L'employeur</h2><p>ADECCO FRANCE</p><p>Secteur d'activité Activités des agences de travail temporaire</p>\
+        <p>Effectif Non disponible</p><a href=\"https://candidat.francetravail.fr/entreprise/1\">Découvrir \
+        l\u{2019}employeur</a>",
+    );
+    assert_eq!(p.offre.entreprise, "ADECCO FRANCE");
+    assert_eq!(p.site_entreprise, "https://www.formation-exemple.fr/caces");
+    // Offre 3 (Constatimmo), avec « L’EMPLOYEUR » (apostrophe typographique, majuscules) et le nom sur la ligne du
+    // secteur
+    let p = lue_ft(
+        "<h3>L\u{2019}EMPLOYEUR</h3><p><strong>CONSTATIMMO</strong> Secteur d'activité Analyses, essais et \
+        inspections techniques</p><p>Effectif Non disponible</p>\
+        <a href=\"/offres/recherche?emp=3\">Voir toutes les offres de l\u{2019}employeur</a>",
+    );
+    assert_eq!(p.offre.entreprise, "CONSTATIMMO");
+    // Nom absent : le titre suivi directement des libellés (jamais « Secteur d'activité ... » comme nom)
+    for employeur in [
+        "<h2>L'employeur</h2><p>Secteur d'activité Activités des agences de travail temporaire</p>\
+        <p>Effectif Non disponible</p><p>Site internet https://www.agence-exemple.fr</p>",
+        "<h2>L'employeur</h2><p>Effectif Non disponible</p>",
+        "<h2>L'employeur</h2><a href=\"/x\">Voir toutes les offres de l\u{2019}employeur</a>",
+        "<h2>L'employeur</h2><a href=\"/x\">Découvrir l\u{2019}employeur</a>",
+        "<h2>L'employeur</h2><p>Site internet https://www.agence-exemple.fr</p>",
+        "<h2>L'employeur</h2>",
+    ] {
+        let p = lue_ft(employeur);
+        assert_eq!(p.offre.entreprise, "", "{employeur}");
+    }
+    let p = lue_ft(
+        "<h2>L'employeur</h2><p>Secteur d'activité Agences</p><p>Site internet https://www.agence-exemple.fr</p>",
+    );
+    assert_eq!(p.site_entreprise, "https://www.agence-exemple.fr/");
+    // Site internet écarté (France Travail, réseau social) : pas pris, ni en texte ni en lien
+    let p = lue_ft(
+        "<h2>L'employeur</h2><p>GARAGE EXEMPLE</p><p>Site internet https://www.facebook.com/garage</p>\
+        <p>Site internet <a href=\"https://candidat.francetravail.fr/e/2\">\
+        https://candidat.francetravail.fr/e/2</a></p>",
+    );
+    assert_eq!(p.offre.entreprise, "GARAGE EXEMPLE");
+    assert_eq!(p.site_entreprise, "https://www.formation-exemple.fr/caces");
+    // L'ancien titre « Entreprise » toujours lu
+    let p = lue_ft("<h3>Entreprise</h3><p>Transports Exemple</p><p>Site internet www.transports-exemple.fr</p>");
+    assert_eq!(p.offre.entreprise, "Transports Exemple");
+    assert_eq!(p.site_entreprise, "https://www.transports-exemple.fr/");
+}

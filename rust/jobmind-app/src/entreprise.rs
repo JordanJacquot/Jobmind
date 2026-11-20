@@ -95,6 +95,15 @@ pub fn nom_du_site(site: &str) -> String {
         .unwrap_or_default()
 }
 
+/// 0.1.5 : le nom de l'entreprise d'une offre : celui gardé avec l'offre, sinon celui que son texte donne après
+/// « L'employeur » (les offres de France Travail gardées en 0.1.4 n'ont pas de nom en base).
+pub fn nom_offre(nom: &str, titre: &str, texte: &str) -> String {
+    if !nom.trim().is_empty() {
+        return nom.trim().to_string();
+    }
+    jobmind_core::fiche::ranger(titre, texte).entreprise
+}
+
 /// La carte de l'entreprise d'une offre, en haut de l'onglet « L'entreprise » : `{ site, origine, nom, secteur,
 /// taille, adresse, note, attente }` (voir le module). Rien sans nom d'entreprise ni site.
 pub fn carte(nom: &str, lieu: &str, site: &str, connu: Option<&Connu>) -> Option<Value> {

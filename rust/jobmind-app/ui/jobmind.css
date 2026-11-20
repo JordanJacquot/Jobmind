@@ -435,34 +435,62 @@ button.jm-cal-d.oui:hover, button.jm-cal-d.oui:focus { background: color-mix(in 
 .jm-h2 { margin: 26px 0 10px; font-size: 13.5px; font-weight: 650; color: var(--doux); }
 .jm-o-texte { max-width: 720px; font-size: 15px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--texte); }
 
-/* L'offre en onglets (0.1.4) : soulignés en or comme les onglets du haut, des rangs « nom à gauche, valeur à droite » */
-.jm-fo-ong { display: flex; flex-wrap: wrap; gap: 2px 4px; max-width: 760px; margin-top: 28px; border-bottom: 1px solid color-mix(in srgb, var(--ligne) 70%, transparent); }
-.jm-fo-o { position: relative; display: flex; align-items: center; gap: 7px; padding: 10px 13px 11px; font-size: 14.5px; font-weight: 600; color: var(--pale); border-radius: 10px 10px 0 0; transition: color 200ms ease; }
-.jm-fo-o:hover, .jm-fo-o:focus { color: var(--doux); }
-.jm-fo-o.actif { color: var(--texte); }
-.jm-fo-o::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--jm);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--jm) 60%, transparent); transform: scaleX(0); transition: transform 300ms var(--jm-anim); }
-.jm-fo-o.actif::after { transform: scaleX(1); }
-.jm-fo-o .nb { min-width: 20px; height: 20px; padding: 0 6px; box-sizing: border-box; border-radius: 99px; background: color-mix(in srgb, var(--jm) 16%, transparent); color: var(--jm); font-size: 11.5px; font-weight: 700; display: grid; place-items: center; }
-.jm-fo-o.f:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--jm) 55%, transparent); }
-.jm-fo-p { container-type: inline-size; max-width: 760px; min-height: 180px; padding-top: 14px; }
+/* La fiche « En bref d'abord » (0.1.5) : les cases en bref en haut, puis des onglets en pastilles (l'onglet choisi
+   rempli en or) et des cartes (missions numérotées, ce qui est obligatoire ou un plus, la frise des horaires) */
+.jm-bref { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 10px; max-width: 860px; margin-top: 22px; }
+.jm-bref-c { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 12px 14px; border-radius: 12px; background: var(--carte); border: 1px solid color-mix(in srgb, var(--ligne) 85%, transparent); }
+.jm-bref-c > span { font-size: 12.5px; color: var(--pale); overflow-wrap: anywhere; }
+.jm-bref-c > b { font-size: 17px; font-weight: 700; line-height: 1.35; color: var(--texte); overflow-wrap: anywhere; }
+.jm-fo-ong { display: flex; flex-wrap: wrap; gap: 8px; max-width: 860px; margin-top: 28px; }
+.jm-fo-o { display: inline-flex; align-items: center; min-height: 44px; box-sizing: border-box; padding: 0 16px; border-radius: 99px; font-size: 14.5px; font-weight: 600;
+  color: var(--doux); background: var(--carte); border: 1px solid var(--ligne); transition: background 180ms ease, color 180ms ease, border-color 180ms ease; }
+.jm-fo-o:hover, .jm-fo-o:focus { color: var(--texte); border-color: color-mix(in srgb, var(--jm) 40%, var(--ligne)); }
+.jm-fo-o.actif { color: #1C1503; background: var(--jm); border-color: var(--jm); }
+.jm-fo-o.f:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--jm) 45%, transparent); }
+.jm-fo-p { container-type: inline-size; max-width: 860px; min-height: 180px; padding-top: 16px; display: flex; flex-direction: column; gap: 14px; }
 .jm-fo-p.entre { animation: jm-fo-entre 220ms var(--jm-anim) both; }
 @keyframes jm-fo-entre { from { opacity: 0; transform: translateY(6px); } }
-.jm-fo-p > .jm-lu + .jm-rangs { margin-top: 14px; padding-top: 4px; border-top: 1px solid color-mix(in srgb, var(--ligne) 60%, transparent); }
+.jm-fo-p > * { margin-top: 0; margin-bottom: 0; }
+.jm-fb-intro { font-size: 16px; line-height: 1.6; color: var(--texte); white-space: pre-line; overflow-wrap: anywhere; }
+.jm-fb-texte { font-size: 15px; line-height: 1.65; color: var(--doux); white-space: pre-line; overflow-wrap: anywhere; }
+.jm-fb-carte { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 16px 18px; border-radius: 14px; background: var(--carte); border: 1px solid var(--ligne); }
+.jm-fb-carte > .jm-fb-texte { margin: 0; }
+.jm-fb-t { font-size: 13px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--jm); overflow-wrap: anywhere; }
+.jm-fb-carte.oblig { border-color: color-mix(in srgb, var(--rouge) 45%, transparent); }
+.jm-fb-carte.oblig .jm-fb-t, .jm-fb-carte.oblig .jm-fb-l svg { color: color-mix(in srgb, var(--rouge) 70%, #ffffff); }
+.jm-fb-carte.plus { border-color: color-mix(in srgb, var(--orange) 45%, transparent); }
+.jm-fb-carte.plus .jm-fb-t, .jm-fb-carte.plus .jm-fb-l svg { color: color-mix(in srgb, var(--orange) 75%, #ffffff); }
+.jm-fb-carte.exp { border-color: color-mix(in srgb, var(--vert) 45%, transparent); }
+.jm-fb-carte.exp .jm-fb-t, .jm-fb-carte.exp .jm-fb-l svg { color: color-mix(in srgb, var(--vert) 75%, #ffffff); }
+.jm-fb-carte.large { grid-column: 1 / -1; }
+.jm-fb-l { display: flex; align-items: flex-start; gap: 10px; font-size: 15px; line-height: 1.5; color: var(--texte); }
+.jm-fb-l svg { width: 18px; height: 18px; flex: none; margin-top: 2px; color: var(--jm); }
+.jm-fb-l > span { min-width: 0; overflow-wrap: anywhere; }
+.jm-fb-sous { margin: 0; font-size: 14px; line-height: 1.5; color: var(--doux); overflow-wrap: anywhere; }
+.jm-fb-fort { margin: 0; font-size: 15.5px; font-weight: 650; color: var(--texte); overflow-wrap: anywhere; }
+.jm-fb-gros { font-size: 22px; font-weight: 750; line-height: 1.3; color: var(--texte); overflow-wrap: anywhere; }
+.jm-fb-etapes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.jm-fb-etapes li { display: flex; align-items: flex-start; gap: 10px; font-size: 15px; line-height: 1.5; color: var(--texte); }
+.jm-fb-etapes li > span:last-child { min-width: 0; padding-top: 3px; overflow-wrap: anywhere; }
+.jm-fb-num { width: 28px; height: 28px; flex: none; box-sizing: border-box; border-radius: 50%; border: 1.5px solid var(--jm); color: var(--jm); display: grid; place-items: center; font-size: 13px; font-weight: 700; }
+.jm-fb-lieu { display: flex; align-items: flex-start; gap: 8px; font-size: 14.5px; line-height: 1.5; color: var(--doux); }
+.jm-fb-lieu svg { width: 17px; height: 17px; flex: none; margin-top: 2px; color: var(--jm); }
+.jm-fb-grille { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+/* (la frise : les heures écrites à gauche, la barre de 0 h à 24 h à droite, ses graduations dessous) */
+.jm-fb-frise { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px; align-items: center; }
+.jm-fb-fr-n { font-size: 13.5px; font-weight: 600; color: var(--doux); }
+.jm-fb-fr-b { position: relative; height: 26px; border-radius: 8px; background: var(--carte2); overflow: hidden; }
+.jm-fb-fr-b > i { position: absolute; top: 0; bottom: 0; min-width: 4px; border-radius: 8px; background: var(--jm); }
+.jm-fb-fr-b > i.deux { background: color-mix(in srgb, var(--jm) 70%, #000000); }
+.jm-fb-fr-g { display: flex; justify-content: space-between; font-size: 12px; color: var(--pale); }
+/* 0.1.4 : la carte de l'entreprise, en haut de son onglet (le site, ce que dit l'annuaire, d'où ça vient) */
 .jm-rangs { display: flex; flex-direction: column; }
 .jm-rang { display: grid; grid-template-columns: 150px 1fr; gap: 12px; padding: 11px 0; border-bottom: 1px solid color-mix(in srgb, var(--ligne) 55%, transparent); }
 .jm-rang:last-child { border-bottom: 0; }
-.jm-rang.plein { grid-template-columns: 1fr; }
 .jm-rang-t { margin: 0; font-size: 15px; line-height: 1.65; color: var(--texte); white-space: pre-line; overflow-wrap: anywhere; }
-.jm-rang-t > .jm-exig { margin-left: 8px; }
 .jm-rang-n { font-size: 13px; color: var(--pale); padding-top: 1px; }
 .jm-rang-v { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
 .jm-rang-v > b { font-size: 15px; font-weight: 600; line-height: 1.5; color: var(--texte); white-space: pre-line; overflow-wrap: anywhere; }
-.jm-exig { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 6px; font-size: 11.5px; font-weight: 700; font-style: normal; vertical-align: 1px; white-space: nowrap; }
-.jm-rang-v > b > .jm-exig:first-child { margin-left: 0; }
-.jm-exig.exige { background: color-mix(in srgb, var(--rouge) 15%, transparent); color: var(--rouge); }
-.jm-exig.souhaite { background: color-mix(in srgb, var(--orange) 14%, transparent); color: var(--orange); }
-/* 0.1.4 : la carte de l'entreprise, en haut de son onglet (le site, ce que dit l'annuaire, d'où ça vient) */
 .jm-fe { display: flex; flex-direction: column; }
 .jm-fe-site { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--ligne) 80%, transparent);
   background: color-mix(in srgb, var(--jm) 5%, transparent); margin-bottom: 6px; }
@@ -475,18 +503,20 @@ button.jm-cal-d.oui:hover, button.jm-cal-d.oui:focus { background: color-mix(in 
 .jm-fe-site > .jm-bt { flex: none; }
 .jm-fe-att { margin-top: 10px; }
 .jm-fe-note { margin-top: 10px; line-height: 1.5; }
-.jm-fe + .jm-rangs { margin-top: 12px; padding-top: 4px; border-top: 1px solid color-mix(in srgb, var(--ligne) 60%, transparent); }
 @media (max-width: 560px) { .jm-fe-site { flex-wrap: wrap; } .jm-fe-site > .jm-bt { width: 100%; } }
 .jm-puces { display: flex; flex-wrap: wrap; gap: 6px; }
 .jm-puces span { padding: 4px 11px; border-radius: 99px; background: var(--carte2); border: 1px solid var(--ligne); font-size: 13px; color: var(--texte); overflow-wrap: anywhere; }
 /* (le diplôme et l'expérience lus, alignés sur les rangs ; leur phrase citée avec un trait or à gauche) */
 .jm-fo-p .jm-lu-l { grid-template-columns: 150px 1fr; column-gap: 12px; }
 .jm-fo-p .jm-lu-l q { margin-top: 3px; padding-left: 9px; border-left: 2px solid color-mix(in srgb, var(--jm) 75%, transparent); font-style: normal; }
+/* (un panneau étroit, sous ~700 px : une seule colonne de cartes) */
+@container (max-width: 680px) { .jm-fb-grille { grid-template-columns: 1fr; } }
 @container (max-width: 460px) {
-  .jm-rang, .jm-fo-p .jm-lu-l { grid-template-columns: 1fr; gap: 4px; }
+  .jm-rang, .jm-fo-p .jm-lu-l, .jm-fb-frise { grid-template-columns: 1fr; gap: 4px; }
   .jm-fo-p .jm-lu-n { grid-row: auto; }
+  .jm-fb-frise > span:empty { display: none; }
 }
-@media (prefers-reduced-motion: reduce) { .jm-fo-p.entre { animation: none; } .jm-fo-o::after { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .jm-fo-p.entre { animation: none; } .jm-fo-o { transition: none; } }
 
 /* Mes recherches */
 .jm-rc.choisie { border-color: color-mix(in srgb, var(--jm) 40%, transparent); }

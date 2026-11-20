@@ -150,34 +150,104 @@ const TITRES_ENTREPRISE: [&str; 8] = [
     "informations sur l'entreprise",
 ];
 
-/// Le début de la partie « Entreprise » dans le bloc de l'offre (un titre court qui la nomme).
+/// Les débuts de ligne de la partie « L'employeur » qui ne sont jamais le nom de l'entreprise (remis en minuscules,
+/// sans accents) : « Secteur d'activité ... », « Effectif ... », « Site internet ... », les liens vers ses offres.
+const LIBELLES_EMPLOYEUR: [&str; 7] = [
+    "secteur d'activite",
+    "effectif",
+    "site internet",
+    "voir toutes les offres",
+    "voir les offres",
+    "decouvrir l'employeur",
+    "decouvrir l'entreprise",
+];
+
+/// Le texte lu du bloc de l'offre, au plus (la partie « L'employeur » est à la fin, même d'une longue offre).
+const TEXTE_BLOC_MAX: usize = 400_000;
+
+/// Le texte `t` est-il un titre de la partie « Entreprise » (« L'employeur », « L’EMPLOYEUR : », « Entreprise ») ?
+fn titre_entreprise(t: &str) -> bool {
+    let t = simple(t);
+    let t = t.trim().trim_end_matches(':').trim();
+    TITRES_ENTREPRISE.contains(&t)
+}
+
+/// Le texte `t` (remis en minuscules, sans accents) commence-t-il par un libellé de la partie « L'employeur » ?
+fn libelle_employeur(t: &str) -> bool {
+    let t = simple(t);
+    LIBELLES_EMPLOYEUR.iter().any(|l| t.trim_start().starts_with(l))
+}
+
+/// Le début de la partie « Entreprise » dans le bloc de l'offre (le dernier élément dont tout le texte est un titre
+/// qui la nomme : cette partie est à la fin de l'offre).
 fn partie_entreprise(d: &Document, debut: usize, fin: usize) -> Option<usize> {
-    (debut..fin.min(d.len())).find(|i| {
-        matches!(
-            d.nom(*i),
-            Some("h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "strong" | "b" | "dt" | "legend" | "p" | "span")
-        ) && {
-            let t = simple(&d.texte(*i));
-            let t = t.trim().trim_end_matches(':').trim();
-            TITRES_ENTREPRISE.contains(&t)
+    (debut..fin.min(d.len()))
+        .rev()
+        .find(|i| d.nom(*i).is_some_and(|n| !matches!(n, "a" | "button" | "option")) && titre_entreprise(&d.texte(*i)))
+}
+
+/// Les lignes du texte du bloc de l'offre (l'élément `bloc`) après le dernier titre de la partie « Entreprise »
+/// (40 au plus, sans les lignes vides) ; rien s'il n'y a pas ce titre.
+fn lignes_employeur(d: &Document, bloc: usize) -> Option<Vec<String>> {
+    let t = d.texte_lignes(bloc, TEXTE_BLOC_MAX);
+    let l: Vec<&str> = t.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let k = l.iter().rposition(|x| titre_entreprise(x))?;
+    Some(l[k + 1..].iter().take(40).map(|x| x.to_string()).collect())
+}
+
+/// Le nom de l'entreprise dans la ligne `t` qui suit le titre : court (80 caractères et 8 mots au plus), pas une
+/// phrase, ni un titre ni un libellé (« Secteur d'activité ... ») ; ce qui suit un libellé sur la même ligne est
+/// retiré (« CONSTATIMMO Secteur d'activité ... »).
+fn nom_valable(t: &str) -> Option<String> {
+    let t = t.trim();
+    if t.chars().count() > 400 || libelle_employeur(t) {
+        return None;
+    }
+    let coupe = t
+        .char_indices()
+        .filter(|(_, c)| c.is_whitespace())
+        .map(|(p, _)| p)
+        .find(|p| libelle_employeur(&t[*p..]))
+        .unwrap_or(t.len());
+    let t = t[..coupe].trim();
+    let court = !t.is_empty() && t.chars().count() <= 80 && t.split_whitespace().count() <= 8;
+    let phrase = t.ends_with(['.', '!', '?', ':']) || t.contains("://");
+    (court && !phrase && !titre_entreprise(t)).then(|| t.to_string())
+}
+
+/// Le site donné en texte dans la partie « L'employeur » : « Site internet https://... » (ou l'adresse seule sur la
+/// ligne suivante), s'il convient ([`site_ou_rien`]).
+fn site_lignes(lignes: &[String], page: &Adresse) -> Option<String> {
+    lignes.iter().enumerate().find_map(|(k, l)| {
+        let mots: Vec<&str> = l.split_whitespace().collect();
+        if mots.len() < 2 || simple(mots[0]) != "site" || simple(mots[1]).trim_end_matches(':') != "internet" {
+            return None;
         }
+        let mut reste: Vec<&str> = mots[2..].to_vec();
+        if reste.iter().all(|m| *m == ":") {
+            reste = lignes.get(k + 1).map(|x| x.split_whitespace().take(1).collect()).unwrap_or_default();
+        }
+        reste.iter().map(|m| m.trim_end_matches([',', ';', ')', '.'])).filter(|m| *m != ":").find_map(|m| {
+            let u = if simple(m).starts_with("www.") { format!("https://{m}") } else { m.to_string() };
+            site_ou_rien(&u, page)
+        })
     })
 }
 
-/// France Travail : le nom de l'entreprise, s'il suit le titre de la partie « Entreprise » du bloc de l'offre (le
-/// premier élément avec du texte après ce titre, court : 80 caractères et 8 mots au plus, pas une phrase) ; rien
-/// sinon (une description, une offre sans nom d'entreprise).
+/// France Travail : le nom de l'entreprise, sur la ligne qui suit le titre de la partie « L'employeur » (ou
+/// « Entreprise ») du bloc de l'offre (voir [`nom_valable`]) ; rien sinon (une description, un libellé comme
+/// « Secteur d'activité ... » : une offre sans nom d'entreprise). Sans ce titre sur une ligne à lui, le premier
+/// élément avec du texte après l'élément titre.
 pub(crate) fn nom_france_travail(d: &Document, debut: usize, fin: usize) -> Option<String> {
+    if let Some(l) = lignes_employeur(d, debut) {
+        return l.first().and_then(|x| nom_valable(x));
+    }
     let e = partie_entreprise(d, debut, fin)?;
     let j = (d.fin(e)..fin.min(d.len())).find(|j| d.nom(*j).is_some() && !d.texte(*j).trim().is_empty())?;
     if !matches!(d.nom(j), Some("h2" | "h3" | "h4" | "h5" | "h6" | "p" | "strong" | "b" | "span" | "dd" | "div")) {
         return None;
     }
-    let t = d.texte(j);
-    let t = t.trim();
-    let court = t.chars().count() <= 80 && t.split_whitespace().count() <= 8;
-    let phrase = t.ends_with(['.', '!', '?', ':']) || t.contains("://");
-    (court && !phrase && TITRES_ENTREPRISE.iter().all(|x| simple(t).trim() != *x)).then(|| t.to_string())
+    nom_valable(&d.texte(j))
 }
 
 /// Le site de l'entreprise que donne la page (voir le module) ; vide sinon.
@@ -200,10 +270,14 @@ pub(crate) fn site_entreprise(
             return u;
         }
     }
-    // 3. France Travail : la partie « Entreprise » du bloc de l'offre, sinon le bloc
+    // 3. France Travail : la partie « L'employeur » du bloc de l'offre (« Site internet ... » en texte, sinon un lien),
+    //    sinon le bloc
     if site == Site::FranceTravail
         && let Some(i) = d.trouver("#webco-descriptif-offre")
     {
+        if let Some(u) = lignes_employeur(d, i).and_then(|l| site_lignes(&l, page)) {
+            return u;
+        }
         let f = d.fin(i);
         if let Some(e) = partie_entreprise(d, i, f)
             && let Some(u) = lien_entre(d, e, f, page)
