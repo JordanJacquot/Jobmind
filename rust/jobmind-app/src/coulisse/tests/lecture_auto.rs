@@ -414,3 +414,35 @@ fn les_gestes_des_offres_retirees_sont_connus() {
     let c = Coulisse { source: Some(Site::FranceTravail), ..Coulisse::default() };
     assert!(c.vue(jour())["liste"].is_null());
 }
+
+/// 0.1.5 : la liste d'un site est oubliée quand Jordan passe à un autre site (ou à ses offres gardées) et quand il
+/// quitte Jobmind : ses offres, l'offre ouverte et la lecture en cours avec. Il relance lui-même la recherche.
+#[test]
+fn listes_oubliees_au_changement_de_site_et_au_depart() {
+    let (b, rid) = base();
+    let (mut c, mut n, t0) = liste_ft(&b, rid);
+    // (une offre lue par la lecture automatique, et la suivante en cours de chargement)
+    let (t, f) = jusqu_au_chargement(&mut c, t0, 10).unwrap();
+    lire_tout(&mut c, &b, &mut n, &f);
+    assert_eq!(c.offres_lues.len(), 1);
+    let (_, _) = jusqu_au_chargement(&mut c, t, 10).unwrap();
+    assert!(c.attente.is_some());
+    // Un autre site choisi : plus rien de France Travail
+    let f = c.geste(Some(&b), SOURCE, &json!({ "site": "indeed" }), m(9, 5));
+    assert!(f.change);
+    assert!(c.liste_de(Site::FranceTravail).is_none());
+    assert!(c.offres_lues.is_empty() && c.fiche.is_none() && c.attente.is_none() && c.attendue.is_none());
+    assert_eq!(c.lecture_auto(t + SECONDE * 30, true), Fait::default());
+    // Revenu sur France Travail : aucune liste, il faut chercher
+    c.geste(Some(&b), SOURCE, &json!({ "site": "francetravail" }), m(9, 6));
+    assert!(c.vue(jour())["liste"].is_null(), "{}", c.vue(jour())["liste"]);
+    // Jobmind quittée : la liste lue est oubliée, une seule fois
+    let (mut c, _, _) = liste_ft(&b, rid);
+    assert!(c.oublier_listes(None));
+    assert!(c.listes.is_empty());
+    assert!(!c.oublier_listes(None));
+    // (la liste du site gardé reste quand on lui passe ce site)
+    let (mut c, _, _) = liste_ft(&b, rid);
+    assert!(!c.oublier_listes(Some(Site::FranceTravail)));
+    assert!(c.liste_de(Site::FranceTravail).is_some());
+}

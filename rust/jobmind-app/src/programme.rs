@@ -170,6 +170,8 @@ struct Etat {
     attente_vue: Option<(u64, Instant)>,
     /// La connexion en cours (son numéro, depuis quand) : le mot de passe oublié après CONNEXION_MAX
     connexion_vue: Option<(u64, Instant)>,
+    /// 0.1.5 : la page était visible au pas d'avant (son passage à « cachée » oublie les listes des sites)
+    etait_visible: bool,
     /// La vue des sites est montrée dans la petite fenêtre (sinon : en coulisse, hors de la fenêtre)
     montree: bool,
     /// La place donnée en dernier à la vue des sites (en pixels logiques)
@@ -549,6 +551,7 @@ pub fn lancer() -> ! {
             lecture_en_cours: None,
             attente_vue: None,
             connexion_vue: None,
+            etait_visible: false,
             montree: false,
             place_sites: None,
             donnees_appli: l.dossier_donnees.clone(),
@@ -2542,7 +2545,24 @@ impl Etat {
         }
         // (0.1.4 : la lecture automatique des offres de la liste affichée ; en pause quand la page de Jobmind est
         // cachée, comme « Écran : caché, en pause » au journal)
-        let visible = app.state::<Page>().visible() != Some(false);
+        let vu = app.state::<Page>().visible();
+        let visible = vu != Some(false);
+        // (0.1.5 : Jordan quitte Jobmind : les listes des sites sont oubliées ; à son retour, aucune ancienne offre de
+        // site, il relance lui-même la recherche)
+        if self.etait_visible && vu == Some(false) {
+            self.faire(app, |e, _| {
+                if e.coulisse.oublier_listes(None) {
+                    crate::suivi::Fait {
+                        journal: Some("Sites : listes des sites oubliées (Jobmind quittée)".into()),
+                        change: true,
+                        ..crate::suivi::Fait::default()
+                    }
+                } else {
+                    crate::suivi::Fait::default()
+                }
+            });
+        }
+        self.etait_visible = vu == Some(true);
         let f = self.coulisse.lecture_auto(ici, visible);
         if f != crate::suivi::Fait::default() {
             self.faire(app, |_, _| f);

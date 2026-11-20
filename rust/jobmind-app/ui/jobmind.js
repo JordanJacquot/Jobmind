@@ -1023,7 +1023,7 @@
   function ficheSiteHTML(f, s) {
     const { esc } = O, t = tC();
     let h = `<div class="jm-d jm-of${O.anime ? ' entree' : ''}"><div class="jm-d-tete"><div class="jm-d-titres"><h1>${esc(texteSur(f.titre))}</h1><div class="jm-d-sous">${esc(texteSur(f.sous))}</div></div></div>`;
-    h += `<div class="jm-o-src"><span>${esc(texteSur(f.source))}</span></div>`;
+    h += `<div class="jm-o-src"><span>${esc(texteSur(f.source) + infosEnLigne(f))}</span></div>`;
     if (texteSur(f.candidats)) h += `<p class="jm-o-double jm-o-cand">${icone('profil')}<span>${esc(texteSur(f.candidats))}</span></p>`;
     // (étape 8 : « L'offre » et « Ma candidature »)
     const p = prDe(f);
@@ -1031,8 +1031,7 @@
       h += pilulesOffreHTML(f, p);
       if (ofPil === 'cand') return `${h}${candidatureHTML(p)}</div>`;
     }
-    h += `<div class="jm-infos">${liste(f.infos).map((i) => `<div><span>${esc(texteSur(i?.nom))}</span><b>${esc(texteSur(i?.valeur))}</b></div>`).join('')}</div>`;
-    h += brefHTML(f.bref);   // (0.1.5 : les cases « En bref », en haut de la fiche)
+    h += brefHTML(f.bref);   // (0.1.5 : les cases « En bref », en haut de la fiche ; les infos sont sur la ligne de la source)
     // (0.1.5 : les onglets juste sous les cases, puis les boutons ; l'offre reconnue par son site et son adresse)
     const texte = texteSur(f.texte);
     const texteH = texte ? `<div class="jm-o-texte" data-brut>${esc(texte)}</div>` : `<p class="jm-panneau-vide">${esc(t('texte_vide'))}</p>`;
@@ -1364,6 +1363,11 @@
       const d = hote.querySelector('.jm-dossier'), l = hote.querySelector('.jm-liste');
       if (d) d.scrollTop = hautD;
       if (l) l.scrollTop = hautL;
+    }
+    if (foRemonter) {
+      foRemonter = false;
+      const z = zoneFiche();
+      if (z) z.scrollTop = 0;
     }
     if (menuOuvert) placerMenu();
     const k = focusK || kActif;
@@ -2400,11 +2404,21 @@
     savoir_faire: 'Savoir faire', qualites: 'Qualités', semaine: 'Ta semaine', salaire: 'Salaire', en_plus: 'En plus', temps: 'Temps de travail',
     contrat: 'Contrat', annonce: "Ce qu'en dit l'annonce", secteur: 'Secteur', effectif: 'Effectif' };
   let foVue = null;       // l'offre dont l'onglet est retenu ('o:12' gardée, 's:site:...' lue sur un site)
+  let foRemonter = false; // 0.1.5 : une autre offre vient de s'ouvrir, sa fiche revient en haut après le dessin
   let foOng = null;       // son onglet choisi (rien : le premier)
   let foAnime = false;    // le panneau vient de changer (il entre en douceur)
   // (un mot : celui de la table de Rust s'il existe, sinon celui envoyé, sinon le nôtre)
   const foMot = (t, k, nom) => t(`og_${k}`) || texteSur(nom) || FO_NOMS[k] || '';
   const textesFb = (l) => liste(l).map((x) => texteSur(x).trim()).filter(Boolean);
+
+  // 0.1.5 : les infos de l'en-tête (télétravail, date...) sur la petite ligne de la source, pour que les onglets restent
+  // visibles sans descendre : « · Publiée le 17 nov. · Télétravail : Possible » ; une info « Non précisé » est omise
+  function infosEnLigne(f) {
+    const morceaux = liste(f.infos).map((i) => [texteSur(i?.nom), texteSur(i?.valeur)])
+      .filter(([nom, v]) => nom && v && !/^non précisée?$/i.test(v))
+      .map(([nom, v]) => (nom === 'Publiée' ? `${nom} ${v}` : `${nom} : ${v}`));
+    return morceaux.length ? ` · ${morceaux.join(' · ')}` : '';
+  }
 
   // Les cases « En bref » : 0 à 5 (salaire, temps, horaires, contrat...), seulement ce qui est connu
   function brefHTML(b) {
@@ -2532,7 +2546,8 @@
   // La barre d'onglets et le panneau choisi ; `cle` dit quelle offre, `texteH` le panneau « Texte complet » déjà dessiné
   function ongletsFicheHTML(f, cle, t, texteH) {
     const { esc } = O;
-    if (cle !== foVue) { foVue = cle; foOng = null; foAnime = false; }
+    // (0.1.5 : une autre offre ouverte s'affiche depuis son haut : son titre et ses cases, jamais descendue)
+    if (cle !== foVue) { foVue = cle; foOng = null; foAnime = false; foRemonter = true; }
     const ongs = [];
     if (f.rangee && typeof f.rangee === 'object' && !Array.isArray(f.rangee)) {
       const r = rangeeSure(f.rangee);
@@ -2562,6 +2577,21 @@
     if (el.getAttribute('aria-selected') === 'true') return;
     foOng = id; foAnime = !reduit(); O.son?.tic?.();
     dessinerTout(`fo:${id}`);
+    // (0.1.5 : la fiche descend toute seule pour mettre les onglets en haut, si leur contenu commence trop bas pour
+    // être lu sans descendre : moins de la moitié de la zone visible pour lui)
+    requestAnimationFrame(() => {
+      const ong = hote.querySelector('.jm-fo-ong'), m = zoneFiche();
+      if (!ong || !m) return;
+      const haut = ong.getBoundingClientRect().top - m.getBoundingClientRect().top;
+      if (haut > m.clientHeight * 0.5) m.scrollTo({ top: m.scrollTop + haut - 8, behavior: reduit() ? 'auto' : 'smooth' });
+    });
+  }
+
+  // La zone qui défile autour de la fiche ouverte (celle qui contient la barre d'onglets)
+  function zoneFiche() {
+    let m = hote.querySelector('.jm-fo-ong')?.parentElement;
+    while (m && !(m.scrollHeight > m.clientHeight && /auto|scroll/.test(getComputedStyle(m).overflowY))) m = m.parentElement;
+    return m || null;
   }
 
   // Dans « L'offre » : préparer, ou la candidature déjà prête
@@ -3074,7 +3104,7 @@
     const rond = (perso, k, ic, aide, on) => `<button type="button" class="jm-rond f${on ? ' on' : ''}" data-perso="${perso}" data-k="${k}" title="${esc(aide)}" aria-label="${esc(aide)}" aria-pressed="${!!on}">${icone(ic)}</button>`;
     let h = `<div class="jm-d jm-of${O.anime ? ' entree' : ''}"><div class="jm-d-tete"><div class="jm-d-titres"><h1>${esc(texteSur(f.titre))}</h1><div class="jm-d-sous">${esc(texteSur(f.sous))}</div></div>
       <div class="jm-o-actions">${rond('of-favori', 'ov:favori', 'etoile', t('favori'), f.favori === true)}${rond('of-tard', 'ov:tard', 'horloge', t('plus_tard'), f.plus_tard === true)}</div></div>`;
-    h += `<div class="jm-o-src"><span>${esc(texteSur(f.sources))}</span>`;
+    h += `<div class="jm-o-src"><span>${esc(texteSur(f.sources) + infosEnLigne(f))}</span>`;
     h += '</div>';
     if (f.double === true) h += `<p class="jm-o-double">${icone('copie')}<span>${esc(t('doublon'))}</span></p>`;
     // (étape 5 : « 34 candidats sur LinkedIn, vu le 18 nov. »)
@@ -3092,8 +3122,7 @@
       h += pilulesOffreHTML(f, p);
       if (ofPil === 'cand') return `${h}${candidatureHTML(p)}</div>`;
     }
-    h += `<div class="jm-infos">${liste(f.infos).map((i) => `<div><span>${esc(texteSur(i?.nom))}</span><b>${esc(texteSur(i?.valeur))}</b></div>`).join('')}</div>`;
-    h += brefHTML(f.bref);   // (0.1.5 : les cases « En bref », en haut de la fiche)
+    h += brefHTML(f.bref);   // (0.1.5 : les cases « En bref », en haut de la fiche ; les infos sont sur la ligne de la source)
     // (0.1.5 : les onglets juste sous les cases, comme la maquette choisie par Jordan : ils restent visibles sans
     // descendre ; « Texte complet » en dernier ; la candidature et les boutons viennent après)
     const texte = texteSur(f.texte);

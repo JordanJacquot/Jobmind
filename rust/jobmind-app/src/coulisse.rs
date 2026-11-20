@@ -815,6 +815,32 @@ impl Coulisse {
         }
     }
 
+    /// 0.1.5 : oublie les listes lues des sites (sauf celle de `sauf`), leurs offres ouvertes et lues, et leur lecture
+    /// en cours : Jordan relance lui-même « Chercher sur le site » (demandé le 20/11 : à un changement de site et à
+    /// chaque retour dans Jobmind, aucune ancienne liste). Une candidature en cours sur un site n'est jamais coupée :
+    /// rien n'est oublié pendant ce temps. Vrai si quelque chose a été oublié.
+    pub fn oublier_listes(&mut self, sauf: Option<Site>) -> bool {
+        if self.po_occupe() {
+            return false;
+        }
+        let garder = |s: Site| Some(s) == sauf;
+        let avant = (self.listes.len(), self.offres_lues.len(), self.fiche.is_some(), self.attente.is_some());
+        self.listes.retain(|l| garder(l.site));
+        self.offres_lues.retain(|f| garder(f.site));
+        if self.fiche.as_ref().is_some_and(|f| !garder(f.site)) {
+            self.fiche = None;
+        }
+        let de_liste = |b: &But| matches!(b, But::Liste | But::Offre(_) | But::Lecture(_));
+        if self.attente.as_ref().is_some_and(|a| de_liste(&a.but) && !garder(a.site)) {
+            self.attente = None;
+            self.attendue = None;
+        }
+        if self.apres_reconnexion.as_ref().is_some_and(|(b, _)| de_liste(b)) {
+            self.apres_reconnexion = None;
+        }
+        avant != (self.listes.len(), self.offres_lues.len(), self.fiche.is_some(), self.attente.is_some())
+    }
+
     /// Un geste de la page : vérifié, puis les ordres pour la vue des sites.
     pub fn geste(&mut self, base: Option<&Base>, id: &str, v: &Value, maintenant: Moment) -> Fait {
         match id {
@@ -824,6 +850,8 @@ impl Coulisse {
                     return Fait::default();
                 }
                 self.source = s;
+                // (0.1.5 : la liste du site d'avant ne reste pas : revenir sur lui demande une nouvelle recherche)
+                self.oublier_listes(s);
                 Fait {
                     journal: Some(format!("Sites : source {}", s.map_or("mes offres", Site::code))),
                     change: true,
