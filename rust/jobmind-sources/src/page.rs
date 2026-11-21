@@ -567,7 +567,10 @@ const R_LINKEDIN: Regles = Regles {
         ".description__job-criteria-list",
     ],
     salaire: &[".job-details-jobs-unified-top-card__job-insight .salary", ".compensation__salary"],
+    // (le premier : la page d'une offre vue en vrai le 21/11/2026, connecté ; ses classes changent à chaque
+    // version, seul ce repère tient ; le titre et l'entreprise viennent du titre de l'onglet)
     description: &[
+        "[data-testid=\"expandable-text-box\"]",
         "#job-details",
         ".jobs-description__content",
         ".jobs-description-content__text",
@@ -586,12 +589,16 @@ const R_LINKEDIN: Regles = Regles {
 };
 
 const R_INDEED: Regles = Regles {
+    // (les premiers de chaque liste : la page d'une offre vue en vrai le 21/11/2026, « vj-job-title »,
+    // « company-info-metadata », « simple-job-description-html » ; le lieu vient du titre de l'onglet)
     titre: &[
+        "[data-testid=\"vj-job-title\"]",
         "[data-testid=\"jobsearch-JobInfoHeader-title\"]",
         "h1.jobsearch-JobInfoHeader-title",
         ".jobsearch-JobInfoHeader-title",
     ],
     entreprise: &[
+        "[data-testid=\"company-info-metadata\"] a",
         "[data-testid=\"inlineHeader-companyName\"]",
         "[data-company-name=\"true\"]",
         ".jobsearch-InlineCompanyRating div",
@@ -604,7 +611,7 @@ const R_INDEED: Regles = Regles {
     ],
     contrat: &["#salaryInfoAndJobType", "[data-testid=\"jobsearch-OtherJobDetailsContainer\"]", "#jobDetailsSection"],
     salaire: &["#salaryInfoAndJobType span", "[data-testid=\"jobsearch-OtherJobDetailsContainer\"] span"],
-    description: &["#jobDescriptionText", ".jobsearch-jobDescriptionText"],
+    description: &[".simple-job-description-html", "#jobDescriptionText", ".jobsearch-jobDescriptionText"],
     candidats: &[],
 };
 
@@ -809,10 +816,9 @@ fn champs_texte(d: &Document) -> Champs {
     Champs { titre, lieu, description: d.texte_principal(DESCRIPTION_MAX), ..Champs::default() }
 }
 
-/// Le secours de LinkedIn et d'Indeed : le titre de l'onglet découpé (le poste, puis l'entreprise sur LinkedIn ou
-/// le lieu sur Indeed) et le texte principal de la page. Rien si le titre n'a pas la forme du site ou si le texte
-/// ne ressemble pas à une annonce.
-fn champs_secours(d: &Document, site: Site) -> Option<Champs> {
+/// LinkedIn et Indeed : le titre de l'onglet découpé (le poste, puis l'entreprise sur LinkedIn ou le lieu sur
+/// Indeed). Rien si le titre n'a pas la forme du site.
+fn champs_onglet(d: &Document, site: Site) -> Option<Champs> {
     let onglet = d.titre();
     let morceaux = |sep: &str, fin: &str| -> Option<Vec<String>> {
         let t = onglet.trim().strip_suffix(fin)?.trim_end().strip_suffix(sep.trim())?.trim();
@@ -845,8 +851,7 @@ fn champs_secours(d: &Document, site: Site) -> Option<Champs> {
         }
         _ => return None,
     }
-    c.description = d.texte_principal(DESCRIPTION_MAX);
-    ressemble_a_une_offre(&c).then_some(c)
+    (!c.titre.is_empty()).then_some(c)
 }
 
 /// Les mots d'une annonce (au moins un), les mots du contrat (au moins un) : un texte qui ressemble à une offre.
@@ -1084,6 +1089,7 @@ pub fn lire(adresse: &str, html: &str) -> Result<PageLue, PageRefusee> {
         }
     }
     // 2. Les règles du site
+    let mut reste: Option<Champs> = None;
     let r = regles(site);
     if let Some(r) = r {
         let x = champs_regles(&d, site, r);
@@ -1093,6 +1099,8 @@ pub fn lire(adresse: &str, html: &str) -> Result<PageLue, PageRefusee> {
         }
         if lu_par.is_some() {
             c.completer(x, true);
+        } else {
+            reste = Some(x);
         }
     }
     // 3. Les microdonnées
@@ -1114,13 +1122,27 @@ pub fn lire(adresse: &str, html: &str) -> Result<PageLue, PageRefusee> {
     // 3 ter. LinkedIn et Indeed dont les règles ne trouvent plus rien, sur l'adresse d'une offre (« /jobs/view/123 »,
     // « viewjob?jk=... ») : le titre de l'onglet (« Chargé d'affaires (H/F) | Efor | LinkedIn ») et le texte de la
     // page. Secours ajouté le 21/11/2026 : les deux sites avaient changé, plus aucune offre lue.
-    if lu_par.is_none()
-        && matches!(site, Site::LinkedIn | Site::Indeed)
+    // 0.1.7 : ce que les règles ont trouvé sans le titre (le texte de l'annonce, l'entreprise) est gardé, le texte
+    // de la page ne sert que s'il manque ; une offre lue par les règles prend aussi le lieu du titre de l'onglet.
+    if matches!(site, Site::LinkedIn | Site::Indeed)
         && identifiant(site, &a).is_some()
-        && let Some(x) = champs_secours(&d, site)
+        && let Some(mut x) = champs_onglet(&d, site)
     {
-        lu_par = Some(LuPar::Texte);
-        c.completer(x, true);
+        if lu_par.is_some() {
+            c.completer(x, true);
+        } else {
+            if let Some(r) = reste.take() {
+                x.completer(r, true);
+            }
+            let par_regles = !x.description.is_empty();
+            if !par_regles {
+                x.description = d.texte_principal(DESCRIPTION_MAX);
+            }
+            if par_regles || ressemble_a_une_offre(&x) {
+                lu_par = Some(if par_regles { LuPar::Regles } else { LuPar::Texte });
+                c.completer(x, true);
+            }
+        }
     }
     // 4. Le texte de la page (un autre site seulement : les pages des sites connus qui ne sont pas une offre sont
     // pleines de mots d'offre)

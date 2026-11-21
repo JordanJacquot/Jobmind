@@ -568,8 +568,62 @@ fn liste_regles(d: &Document, site: Site, base: &Adresse, r: &ReglesListe, essai
     l
 }
 
+/// Les cartes d'offres de LinkedIn connecté depuis novembre 2026 (vues en vrai le 21/11/2026) : un lien vers la
+/// recherche avec « currentJobId=123 », et dedans des paragraphes dans l'ordre : le poste, l'entreprise, le lieu.
+/// Les classes changent à chaque version : seuls le lien et l'ordre tiennent.
+fn cartes_linkedin(d: &Document) -> Vec<Resultat> {
+    let mut l: Vec<Resultat> = Vec::new();
+    for i in d.tous("a[href]", 4000) {
+        if l.len() >= RESULTATS_MAX {
+            break;
+        }
+        let Some(id) = d
+            .attr(i, "href")
+            .and_then(|h| h.split_once("currentJobId="))
+            .map(|(_, x)| x.chars().take_while(char::is_ascii_digit).collect::<String>())
+        else {
+            continue;
+        };
+        if id.is_empty() || id.len() > 20 {
+            continue;
+        }
+        let url = format!("https://www.linkedin.com/jobs/view/{id}/");
+        if l.iter().any(|x| x.url == url) {
+            continue;
+        }
+        let fin = d.fin(i);
+        let (mut debut, mut lignes) = (i + 1, Vec::new());
+        while lignes.len() < 3
+            && let Some(p) = d.trouver_entre("p", debut, fin)
+        {
+            let t = d.texte(p);
+            if !t.is_empty() {
+                lignes.push(court(&t));
+            }
+            debut = d.fin(p).max(p + 1);
+        }
+        let mut lignes = lignes.into_iter();
+        let Some(titre) = lignes.next().filter(|t| t.chars().count() >= 3) else { continue };
+        l.push(Resultat {
+            titre,
+            entreprise: lignes.next().unwrap_or_default(),
+            lieu: lignes.next().unwrap_or_default(),
+            date: String::new(),
+            url,
+            candidats: None,
+        });
+    }
+    l
+}
+
 /// La liste d'une page par les liens qui mènent à une offre du site (quand les blocs ne répondent plus).
 fn liste_liens(d: &Document, site: Site, base: &Adresse) -> Vec<Resultat> {
+    if site == Site::LinkedIn {
+        let cartes = cartes_linkedin(d);
+        if !cartes.is_empty() {
+            return cartes;
+        }
+    }
     let mut l: Vec<Resultat> = Vec::new();
     for i in d.tous("a[href]", 4000) {
         if l.len() >= RESULTATS_MAX {

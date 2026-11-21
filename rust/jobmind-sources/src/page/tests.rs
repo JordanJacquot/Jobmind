@@ -541,3 +541,49 @@ fn secours_linkedin_et_indeed() {
         "<html><head><title>Chargé d'affaires | Efor | LinkedIn</title></head><body><p>Connexion</p></body></html>";
     assert!(lire("https://www.linkedin.com/jobs/view/4485721882/", vide).is_err());
 }
+
+/// 0.1.7 : les pages d'offre d'Indeed et de LinkedIn (connecté) dans leur forme de novembre 2026, lues par leurs
+/// repères. Pages inventées, de la même forme que les vraies pages gardées par Jobmind le 21/11/2026.
+#[test]
+fn indeed_et_linkedin_novembre_2026() {
+    let indeed = "<html><head><title>Assistant de gestion (F/H) - Phalsbourg (57) - Indeed.com</title></head><body>\
+        <div id=\"root\"><div data-testid=\"viewjob-main-content\"><div data-testid=\"desktop-job-header\">\
+        <div data-testid=\"company-info-title-row\"><h5 role=\"heading\" data-testid=\"vj-job-title\">Assistant de \
+        gestion (F/H)</h5></div><div data-testid=\"company-info-metadata\"><div><a role=\"link\" \
+        href=\"https://fr.indeed.com/cmp/Exemple\">Maison Exemple</a><div>·</div><div aria-label=\"3.1 étoile(s) sur \
+        5\">3.1</div></div><div>Phalsbourg (57)</div></div></div><div data-testid=\"viewjob-job-content\">\
+        <div data-testid=\"structured-job-summary\"><h4>Détails du poste</h4><div>Aucun salaire indiqué</div></div>\
+        <h4 data-testid=\"vj-job-description-heading\">Description du poste</h4>\
+        <div class=\"react-native-html-content simple-job-description-html\"><p>Vous gérez les commandes de la \
+        réception à la facturation.</p><ul><li>Suivre les livraisons</li><li>Répondre aux clients</li></ul></div>\
+        <button data-testid=\"vj-report-job\">Signaler l'offre</button></div></div></div></body></html>";
+    let p = lue("https://fr.indeed.com/viewjob?jk=0123456789abcdef", indeed);
+    let o = &p.offre;
+    assert_eq!(
+        (o.titre.as_str(), o.entreprise.as_str(), o.lieu.as_str()),
+        ("Assistant de gestion (F/H)", "Maison Exemple", "Phalsbourg (57)")
+    );
+    assert!(o.description.starts_with("Vous gérez les commandes"), "{}", o.description);
+    assert!(o.description.contains("Répondre aux clients") && !o.description.contains("Signaler"), "{}", o.description);
+    assert_eq!(p.lu_par, LuPar::Regles);
+    propre(&p);
+    let linkedin = "<html><head><title>(2) Magasinier (F/H) | Maison Exemple | LinkedIn</title></head><body>\
+        <div id=\"root\"><main id=\"workspace\"><div id=\"JobDetails_ManageJobBanner_4000000001\">\
+        <a aria-label=\"Entreprise, Maison Exemple.\" href=\"https://www.linkedin.com/company/exemple/life/\">Maison \
+        Exemple</a><p>Magasinier (F/H)</p><p>Sarrebourg, Grand Est, France</p><a href=\"#\">Postuler</a></div>\
+        <div><h2>Utilisez l’IA pour évaluer si votre profil correspond</h2><p>Avec Premium.</p></div>\
+        <div><h2>À propos de l’offre d’emploi</h2><span data-testid=\"expandable-text-box\"><strong>Vos \
+        missions</strong><br>Recevoir et contrôler les marchandises, ranger les réserves.<br>Votre profil : une \
+        première expérience.</span></div><div><h2>À propos de l’entreprise</h2>\
+        <span data-testid=\"expandable-text-box\">Maison Exemple est une entreprise inventée.</span></div>\
+        </main></div></body></html>";
+    let p = lue("https://www.linkedin.com/jobs/view/4000000001/", linkedin);
+    let o = &p.offre;
+    assert_eq!((o.titre.as_str(), o.entreprise.as_str()), ("Magasinier (F/H)", "Maison Exemple"));
+    assert!(o.description.starts_with("Vos missions"), "{}", o.description);
+    assert!(!o.description.contains("entreprise inventée") && !o.description.contains("Premium"), "{}", o.description);
+    assert_eq!(p.lu_par, LuPar::Regles);
+    propre(&p);
+    // (la même page à une adresse qui n'est pas celle d'une offre : toujours refusée)
+    assert!(lire("https://www.linkedin.com/feed/", linkedin).is_err());
+}

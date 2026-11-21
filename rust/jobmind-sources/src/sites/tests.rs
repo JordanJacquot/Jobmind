@@ -401,3 +401,85 @@ fn espaces_connectes_reconnus() {
     // ... mais une page qui dit « pas connecté » le reste (l'espace candidat de WTTJ sans session)
     assert_eq!(compris("https://www.welcometothejungle.com/fr/me", "").connecte, Some(false));
 }
+
+/// Essai à la main sur de vraies pages gardées par Jobmind (crate jobmind-app, illisibles) : jamais lancé tout seul,
+/// les pages ne sont pas dans le dépôt. `JOBMIND_VRAIES_PAGES` = le dossier des copies ; l'adresse est lue dans le
+/// commentaire de tête de chaque fichier.
+#[test]
+#[ignore]
+fn vraies_pages_gardees() {
+    let dossier = std::env::var("JOBMIND_VRAIES_PAGES").expect("JOBMIND_VRAIES_PAGES");
+    for f in std::fs::read_dir(dossier).unwrap().flatten() {
+        let chemin = f.path();
+        if chemin.extension().and_then(|e| e.to_str()) != Some("html") {
+            continue;
+        }
+        let html = std::fs::read_to_string(&chemin).unwrap();
+        let Some(adresse) = html.strip_prefix("<!-- Jobmind : page illisible, ").and_then(|t| t.split(" -->").next())
+        else {
+            continue;
+        };
+        let c = comprendre(adresse, &html);
+        println!("\n=== {} ({adresse})", chemin.file_name().unwrap().to_string_lossy());
+        match &c.offre {
+            Ok(p) => println!(
+                "OFFRE lue par {:?} : titre « {} », entreprise « {} », lieu « {} », contrat « {} », salaire « {} », {} \
+                 caractères : {}",
+                p.lu_par,
+                p.offre.titre,
+                p.offre.entreprise,
+                p.offre.lieu,
+                p.offre.contrat,
+                p.offre.salaire,
+                p.offre.description.chars().count(),
+                p.offre.description.chars().take(160).collect::<String>().replace('\n', " / ")
+            ),
+            Err(e) => println!("OFFRE refusée : {e:?}"),
+        }
+        println!("LISTE lue par {} : {} résultats ; {}", c.liste.lu_par, c.liste.resultats.len(), c.trace);
+        for r in c.liste.resultats.iter().take(12) {
+            println!("  - « {} » | « {} » | « {} » | {}", r.titre, r.entreprise, r.lieu, r.url);
+        }
+    }
+}
+
+/// 0.1.7 : les cartes d'offres de LinkedIn connecté (novembre 2026) : un lien « currentJobId », puis le poste,
+/// l'entreprise et le lieu. Page inventée, de la forme des vraies cartes vues le 21/11/2026.
+#[test]
+fn cartes_linkedin_novembre_2026() {
+    let carte = |id: &str, poste: &str, entreprise: &str, lieu: &str| {
+        format!(
+            "<a class=\"x1 x2\" href=\"https://www.linkedin.com/jobs/search-results/?keywords=jobs&amp;\
+             currentJobId={id}&amp;trackingId=abc\"><div><div><button aria-label=\"Plus d’options\"></button></div>\
+             <div><p><span><span aria-hidden=\"true\">{poste}</span></span></p><div><p>{entreprise}</p></div>\
+             <p>{lieu}</p><p>Promu</p></div></div></a>"
+        )
+    };
+    let html = format!(
+        "<html><head><title>Offres | LinkedIn</title></head><body><main>\
+         <a href=\"https://www.linkedin.com/jobs/view/4000000009/\">Partager un avis négatif</a>{}{}{}</main></body></html>",
+        carte("4000000001", "Magasinier (F/H)", "Maison Exemple", "Sarrebourg (Sur site)"),
+        carte("4000000002", "Cariste", "Entrepôts Exemple", "Phalsbourg"),
+        carte("4000000001", "Magasinier (F/H)", "Maison Exemple", "Sarrebourg (Sur site)"),
+    );
+    let c = comprendre("https://www.linkedin.com/jobs/search-results/?currentJobId=4000000001&keywords=jobs", &html);
+    assert_eq!(c.liste.lu_par, "liens");
+    let l: Vec<_> = c
+        .liste
+        .resultats
+        .iter()
+        .map(|r| (r.titre.as_str(), r.entreprise.as_str(), r.lieu.as_str(), r.url.as_str()))
+        .collect();
+    assert_eq!(
+        l,
+        [
+            (
+                "Magasinier (F/H)",
+                "Maison Exemple",
+                "Sarrebourg (Sur site)",
+                "https://www.linkedin.com/jobs/view/4000000001/"
+            ),
+            ("Cariste", "Entrepôts Exemple", "Phalsbourg", "https://www.linkedin.com/jobs/view/4000000002/"),
+        ]
+    );
+}

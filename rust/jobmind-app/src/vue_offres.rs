@@ -497,7 +497,9 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
     json!({
         "id": OFFRES,
         "nom": "Offres",
-        "nombre": v.nouvelles,
+        // (0.1.7 : aucun chiffre ici ; seul le nombre d'offres de la liste du site à l'écran en met un,
+        // coulisse::chiffre_onglet. Le premier état de la page montrait encore les offres gardées jamais ouvertes.)
+        "nombre": Value::Null,
         "liste": "Les offres",
         "vide": "Aucune offre gardée.",
         "rubriques": [],
@@ -708,7 +710,8 @@ mod tests {
         let v = exemple();
         let e = onglet(&v, j(18));
         let o = &e["offres"];
-        assert_eq!(e["nombre"], 1);
+        // (aucun chiffre sur l'onglet tant qu'aucune liste d'un site n'est à l'écran, même au premier état)
+        assert!(e["nombre"].is_null());
         assert_eq!(o["compte"], "2 offres gardées");
         assert_eq!(o["recherche_sous"], "agent de quai, autour de Metz (30 km)");
         let l = o["lignes"].as_array().unwrap();

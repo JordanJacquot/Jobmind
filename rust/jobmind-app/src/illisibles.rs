@@ -20,14 +20,20 @@ pub fn nom_copie(c: &Comprise) -> Option<String> {
     if c.site == Site::Autre || c.ecran != Ecran::Normale {
         return None;
     }
-    let sorte = if matches!(c.offre, Err(PageRefusee::PasUneOffre(_))) && c.liste.resultats.is_empty() {
-        // (une offre que les règles ne lisent pas : sa page a un titre, mais ni données ni blocs reconnus)
-        if !c.trace.contains("pas_une_offre") && !adresse_d_offre(&c.adresse) {
+    let sorte = if adresse_d_offre(&c.adresse) {
+        // (une offre que ni les données ni les règles ne lisent, ou lue seulement par le texte de la page)
+        let mal_lue = match &c.offre {
+            Err(PageRefusee::PasUneOffre(_)) => true,
+            Ok(p) => p.lu_par == jobmind_sources::page::LuPar::Texte,
+            Err(_) => false,
+        };
+        if !mal_lue {
             return None;
         }
         "offre"
-    } else if c.liste.lu_par == "liens" {
-        // (une liste lue seulement par ses liens : les blocs du site ne sont plus reconnus)
+    } else if c.liste.lu_par == "liens" && adresse_de_liste(&c.adresse) {
+        // (une liste lue seulement par ses liens : les blocs du site ne sont plus reconnus. 0.1.7 : jamais la page
+        // d'une offre, qui remplaçait la copie de la liste dans la 0.1.6)
         "liste"
     } else {
         return None;
@@ -37,7 +43,13 @@ pub fn nom_copie(c: &Comprise) -> Option<String> {
 
 /// L'adresse d'une offre sur un site connu.
 fn adresse_d_offre(u: &str) -> bool {
-    ["/jobs/view/", "viewjob", "/offres/recherche/detail/", "/companies/"].iter().any(|m| u.contains(m))
+    ["/jobs/view/", "viewjob", "/offres/recherche/detail/"].iter().any(|m| u.contains(m))
+        || (u.contains("/companies/") && u.contains("/jobs/"))
+}
+
+/// L'adresse d'une page de résultats sur un site connu.
+fn adresse_de_liste(u: &str) -> bool {
+    ["/jobs/search", "indeed.com/jobs", "/fr/jobs", "/offres/recherche?"].iter().any(|m| u.contains(m))
 }
 
 /// Garde la copie d'une page mal lue (son adresse en tête, en commentaire). Rend son chemin, rien sinon.
