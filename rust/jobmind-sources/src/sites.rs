@@ -568,22 +568,31 @@ fn liste_regles(d: &Document, site: Site, base: &Adresse, r: &ReglesListe, essai
     l
 }
 
-/// Les cartes d'offres de LinkedIn connecté depuis novembre 2026 (vues en vrai le 21/11/2026) : un lien vers la
-/// recherche avec « currentJobId=123 », et dedans des paragraphes dans l'ordre : le poste, l'entreprise, le lieu.
-/// Les classes changent à chaque version : seuls le lien et l'ordre tiennent.
+/// Les cartes d'offres de LinkedIn connecté depuis novembre 2026 (vues en vrai le 21/11/2026). Dans la page des
+/// résultats : un bloc « componentkey="job-card-component-ref-123" ». Dans « Plus d'offres d'emploi » : un lien
+/// vers la recherche avec « currentJobId=123 ». Dedans, des paragraphes dans l'ordre : le poste (dit deux fois : une
+/// fois pour les lecteurs d'écran, avec « (offre d'emploi vérifiée) », une fois dans un « aria-hidden »),
+/// l'entreprise, le lieu. Les classes changent à chaque version : seuls ces repères et l'ordre tiennent.
 fn cartes_linkedin(d: &Document) -> Vec<Resultat> {
+    let chiffres = |x: &str| x.chars().take_while(char::is_ascii_digit).collect::<String>();
+    // (les cartes des résultats d'abord ; sans elles, les liens)
+    let mut cartes: Vec<(usize, String)> = d
+        .tous("div[role=\"button\"]", 4000)
+        .into_iter()
+        .filter_map(|i| Some((i, chiffres(d.attr(i, "componentkey")?.strip_prefix("job-card-component-ref-")?))))
+        .collect();
+    if cartes.is_empty() {
+        cartes = d
+            .tous("a[href]", 4000)
+            .into_iter()
+            .filter_map(|i| Some((i, chiffres(d.attr(i, "href")?.split_once("currentJobId=")?.1))))
+            .collect();
+    }
     let mut l: Vec<Resultat> = Vec::new();
-    for i in d.tous("a[href]", 4000) {
+    for (i, id) in cartes {
         if l.len() >= RESULTATS_MAX {
             break;
         }
-        let Some(id) = d
-            .attr(i, "href")
-            .and_then(|h| h.split_once("currentJobId="))
-            .map(|(_, x)| x.chars().take_while(char::is_ascii_digit).collect::<String>())
-        else {
-            continue;
-        };
         if id.is_empty() || id.len() > 20 {
             continue;
         }
@@ -596,11 +605,16 @@ fn cartes_linkedin(d: &Document) -> Vec<Resultat> {
         while lignes.len() < 3
             && let Some(p) = d.trouver_entre("p", debut, fin)
         {
-            let t = d.texte(p);
+            let fin_p = d.fin(p).max(p + 1);
+            let visible = d
+                .trouver_entre("span[aria-hidden=\"true\"]", p + 1, fin_p)
+                .map(|x| d.texte(x))
+                .filter(|t| !t.is_empty());
+            let t = visible.unwrap_or_else(|| d.texte(p));
             if !t.is_empty() {
                 lignes.push(court(&t));
             }
-            debut = d.fin(p).max(p + 1);
+            debut = fin_p;
         }
         let mut lignes = lignes.into_iter();
         let Some(titre) = lignes.next().filter(|t| t.chars().count() >= 3) else { continue };

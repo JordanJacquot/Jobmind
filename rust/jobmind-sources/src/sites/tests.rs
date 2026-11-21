@@ -483,3 +483,49 @@ fn cartes_linkedin_novembre_2026() {
         ]
     );
 }
+
+/// 0.1.7 : la page des résultats de LinkedIn connecté (novembre 2026) : un bloc « job-card-component-ref-123 » par
+/// offre, le poste dit deux fois (lecteurs d'écran, puis « aria-hidden »). Page inventée, de la forme de la vraie
+/// page gardée par Jobmind le 21/11/2026.
+#[test]
+fn resultats_linkedin_novembre_2026() {
+    let carte = |id: &str, poste: &str, entreprise: &str, lieu: &str| {
+        format!(
+            "<div role=\"button\" componentkey=\"job-card-component-ref-{id}\"><div \
+             componentkey=\"job-card-component-ref-{id}\"><div><figure aria-hidden=\"true\"></figure><div><p>\
+             <span>{poste} (offre d’emploi vérifiée)</span><span aria-hidden=\"true\">{poste}<span> </span>\
+             <span aria-hidden=\"true\"></span></span></p><div><p>{entreprise}</p></div><p>{lieu}</p></div>\
+             <button aria-label=\"Ignorer l’offre d’emploi {poste}\"></button><p>Publication il y a 6 jours</p>\
+             </div></div></div><hr role=\"presentation\">"
+        )
+    };
+    let html = format!(
+        "<html><head><title>Magasinier (F/H) | Maison Exemple | LinkedIn</title></head><body><main id=\"workspace\">\
+         <div role=\"button\" aria-label=\"Lieu : Sarrebourg (80 km)\">Sarrebourg (80 km)</div>\
+         <div data-testid=\"lazy-column\">{}{}</div>\
+         <a href=\"https://www.linkedin.com/jobs/view/4000000001/\">Plus</a>\
+         <a href=\"https://www.linkedin.com/jobs/search-results/?currentJobId=4000000003\"><p>Autre offre</p></a>\
+         </main></body></html>",
+        carte("4000000001", "Magasinier (F/H)", "Maison Exemple", "Sarrebourg"),
+        carte("4000000002", "Vendeur polyvalent (H/F)", "Boutique Exemple", "Phalsbourg (Sur site)"),
+    );
+    let c = comprendre("https://www.linkedin.com/jobs/search-results/?currentJobId=4000000001&keywords=jobs", &html);
+    let l: Vec<_> = c
+        .liste
+        .resultats
+        .iter()
+        .map(|r| (r.titre.as_str(), r.entreprise.as_str(), r.lieu.as_str(), r.url.as_str()))
+        .collect();
+    assert_eq!(
+        l,
+        [
+            ("Magasinier (F/H)", "Maison Exemple", "Sarrebourg", "https://www.linkedin.com/jobs/view/4000000001/"),
+            (
+                "Vendeur polyvalent (H/F)",
+                "Boutique Exemple",
+                "Phalsbourg (Sur site)",
+                "https://www.linkedin.com/jobs/view/4000000002/"
+            ),
+        ]
+    );
+}

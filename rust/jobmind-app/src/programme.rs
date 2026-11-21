@@ -170,8 +170,10 @@ struct Etat {
     attente_vue: Option<(u64, Instant)>,
     /// La connexion en cours (son numéro, depuis quand) : le mot de passe oublié après CONNEXION_MAX
     connexion_vue: Option<(u64, Instant)>,
-    /// 0.1.5 : la page était visible au pas d'avant (son passage à « cachée » oublie les listes des sites)
-    etait_visible: bool,
+    /// 0.1.8 : Jordan est revenu au menu de Mindset (bouton « Menu ») : les listes des sites sont oubliées au pas
+    /// suivant. Réduire la fenêtre ne les oublie plus (la 0.1.5 les oubliait dès que la page était cachée) ;
+    /// « Fermer » arrête Jobmind, qui repart sans liste.
+    menu_demande: bool,
     /// La vue des sites est montrée dans la petite fenêtre (sinon : en coulisse, hors de la fenêtre)
     montree: bool,
     /// La place donnée en dernier à la vue des sites (en pixels logiques)
@@ -551,7 +553,7 @@ pub fn lancer() -> ! {
             lecture_en_cours: None,
             attente_vue: None,
             connexion_vue: None,
-            etait_visible: false,
+            menu_demande: false,
             montree: false,
             place_sites: None,
             donnees_appli: l.dossier_donnees.clone(),
@@ -1518,6 +1520,7 @@ impl Etat {
     fn recevoir(&mut self, m: MessagePage) {
         let ligne = match m {
             MessagePage::Menu if self.vie.dans_mindset() => {
+                self.menu_demande = true;
                 crate::pont::demander_menu(&self.dossier_mindset, &mut self.systeme, &mut self.disque)
             }
             // (les villes proposées pendant la frappe : la réponse part tout de suite, rien au journal à chaque lettre)
@@ -2567,12 +2570,13 @@ impl Etat {
         let vu = app.state::<Page>().visible();
         let visible = vu != Some(false);
         // (0.1.5 : Jordan quitte Jobmind : les listes des sites sont oubliées ; à son retour, aucune ancienne offre de
-        // site, il relance lui-même la recherche)
-        if self.etait_visible && vu == Some(false) {
+        // site, il relance lui-même la recherche. 0.1.8 : seulement au retour au menu de Mindset, plus quand la
+        // fenêtre est réduite : rouverte, elle montre la même chose.)
+        if std::mem::take(&mut self.menu_demande) {
             self.faire(app, |e, _| {
                 if e.coulisse.oublier_listes(None) {
                     crate::suivi::Fait {
-                        journal: Some("Sites : listes des sites oubliées (Jobmind quittée)".into()),
+                        journal: Some("Sites : listes des sites oubliées (retour au menu de Mindset)".into()),
                         change: true,
                         ..crate::suivi::Fait::default()
                     }
@@ -2581,7 +2585,6 @@ impl Etat {
                 }
             });
         }
-        self.etait_visible = vu == Some(true);
         let f = self.coulisse.lecture_auto(ici, visible);
         if f != crate::suivi::Fait::default() {
             self.faire(app, |_, _| f);
