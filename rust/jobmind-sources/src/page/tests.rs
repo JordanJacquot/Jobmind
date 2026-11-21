@@ -507,3 +507,37 @@ fn france_travail_l_employeur() {
     assert_eq!(p.offre.entreprise, "Transports Exemple");
     assert_eq!(p.site_entreprise, "https://www.transports-exemple.fr/");
 }
+
+/// 21/11/2026 : LinkedIn et Indeed dans une forme que les règles ne connaissent pas, sur l'adresse d'une offre : lues
+/// par le titre de l'onglet et le texte de la page. Pages inventées.
+#[test]
+fn secours_linkedin_et_indeed() {
+    let annonce = "<main><div><h2>À propos de l'offre</h2><p>Nous recrutons un chargé d'affaires H/F pour notre \
+                   agence de Sarrebourg. Vos missions : suivre les chantiers, préparer les devis, accompagner les \
+                   clients. Votre profil : une première expérience dans le bâtiment. Contrat CDI à temps plein, \
+                   salaire selon expérience, horaires de journée.</p></div></main>";
+    let html = |onglet: &str| {
+        format!(
+            "<html><head><title>{onglet}</title></head><body><nav>Accueil Emplois \
+                                       Messagerie</nav>{annonce}</body></html>"
+        )
+    };
+    let p =
+        lue("https://www.linkedin.com/jobs/view/4485721882/", &html("(3) Chargé d'affaires (H/F) | Efor | LinkedIn"));
+    assert_eq!((p.offre.titre.as_str(), p.offre.entreprise.as_str()), ("Chargé d'affaires (H/F)", "Efor"));
+    assert!(p.offre.description.contains("Vos missions"), "{}", p.offre.description);
+    assert_eq!(p.lu_par, LuPar::Texte);
+    propre(&p);
+    let p = lue(
+        "https://fr.indeed.com/viewjob?jk=7e71e8960ce83d75",
+        &html("Assistant administratif H/F - Héming (57) - Indeed.com"),
+    );
+    assert_eq!((p.offre.titre.as_str(), p.offre.lieu.as_str()), ("Assistant administratif H/F", "Héming (57)"));
+    propre(&p);
+    // (pas l'adresse d'une offre, ou un titre d'une autre forme, ou un texte sans annonce : toujours refusée)
+    assert!(lire("https://www.linkedin.com/feed/", &html("Chargé d'affaires (H/F) | Efor | LinkedIn")).is_err());
+    assert!(lire("https://www.linkedin.com/jobs/view/4485721882/", &html("LinkedIn")).is_err());
+    let vide =
+        "<html><head><title>Chargé d'affaires | Efor | LinkedIn</title></head><body><p>Connexion</p></body></html>";
+    assert!(lire("https://www.linkedin.com/jobs/view/4485721882/", vide).is_err());
+}

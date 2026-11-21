@@ -809,6 +809,46 @@ fn champs_texte(d: &Document) -> Champs {
     Champs { titre, lieu, description: d.texte_principal(DESCRIPTION_MAX), ..Champs::default() }
 }
 
+/// Le secours de LinkedIn et d'Indeed : le titre de l'onglet découpé (le poste, puis l'entreprise sur LinkedIn ou
+/// le lieu sur Indeed) et le texte principal de la page. Rien si le titre n'a pas la forme du site ou si le texte
+/// ne ressemble pas à une annonce.
+fn champs_secours(d: &Document, site: Site) -> Option<Champs> {
+    let onglet = d.titre();
+    let morceaux = |sep: &str, fin: &str| -> Option<Vec<String>> {
+        let t = onglet.trim().strip_suffix(fin)?.trim_end().strip_suffix(sep.trim())?.trim();
+        Some(t.split(sep).map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect())
+    };
+    let mut c = Champs::default();
+    match site {
+        // « Poste | Entreprise | LinkedIn »
+        Site::LinkedIn => {
+            let m = morceaux(" | ", "LinkedIn")?;
+            // (« (3) Poste » : le nombre de notifications devant)
+            let t = m.first()?;
+            c.titre = match t.strip_prefix('(').and_then(|x| x.split_once(") ")) {
+                Some((n, reste)) if !n.is_empty() && n.chars().all(|x| x.is_ascii_digit()) => reste.to_string(),
+                _ => t.clone(),
+            };
+            c.entreprise = m.get(1).cloned().unwrap_or_default();
+        }
+        // « Poste - Lieu - Indeed.com » (le poste peut contenir un « - »)
+        Site::Indeed => {
+            let m = morceaux(" - ", "Indeed.com")?;
+            match m.len() {
+                0 => return None,
+                1 => c.titre = m[0].clone(),
+                n => {
+                    c.titre = m[..n - 1].join(" - ");
+                    c.lieu = m[n - 1].clone();
+                }
+            }
+        }
+        _ => return None,
+    }
+    c.description = d.texte_principal(DESCRIPTION_MAX);
+    ressemble_a_une_offre(&c).then_some(c)
+}
+
 /// Les mots d'une annonce (au moins un), les mots du contrat (au moins un) : un texte qui ressemble à une offre.
 const MOTS_ANNONCE: [&str; 10] = [
     "postuler",
@@ -1069,6 +1109,17 @@ pub fn lire(adresse: &str, html: &str) -> Result<PageLue, PageRefusee> {
         && let Some(x) = champs_france_travail(&d, &id)
     {
         lu_par = Some(LuPar::Regles);
+        c.completer(x, true);
+    }
+    // 3 ter. LinkedIn et Indeed dont les règles ne trouvent plus rien, sur l'adresse d'une offre (« /jobs/view/123 »,
+    // « viewjob?jk=... ») : le titre de l'onglet (« Chargé d'affaires (H/F) | Efor | LinkedIn ») et le texte de la
+    // page. Secours ajouté le 21/11/2026 : les deux sites avaient changé, plus aucune offre lue.
+    if lu_par.is_none()
+        && matches!(site, Site::LinkedIn | Site::Indeed)
+        && identifiant(site, &a).is_some()
+        && let Some(x) = champs_secours(&d, site)
+    {
+        lu_par = Some(LuPar::Texte);
         c.completer(x, true);
     }
     // 4. Le texte de la page (un autre site seulement : les pages des sites connus qui ne sont pas une offre sont

@@ -1303,6 +1303,12 @@ fn lecture_rendue(app: &AppHandle, no: u64, rendu: String) {
     drop(rendu);
     let a = app.clone();
     let vers_site = ETAT.with(|e| e.try_borrow().ok().and_then(|e| e.as_ref().map(Etat::vers_site)));
+    // (0.1.6 : une page mal lue gardée dans les données, pour corriger la lecture : crate::illisibles)
+    let donnees = ETAT.with(|e| {
+        e.try_borrow()
+            .ok()
+            .and_then(|e| e.as_ref()?.donnees.try_borrow().ok()?.as_ref().map(|d| d.dossier().to_path_buf()))
+    });
     let r = std::thread::Builder::new().name("lecture-page".into()).spawn(move || {
         let Some((brute, h, visible)) = lu else {
             rapporter_lecture(&a, no, None, String::new());
@@ -1313,6 +1319,9 @@ fn lecture_rendue(app: &AppHandle, no: u64, rendu: String) {
             None => brute.clone(),
         };
         let comprise = jobmind_sources::sites::comprendre(&u, &h);
+        if let Some(d) = &donnees {
+            crate::illisibles::garder(d, &comprise, &h);
+        }
         // (étape 11 : le formulaire de candidature de la page, s'il y en a un)
         let formulaire = Some(jobmind_sources::formulaire::lire(&u, &h));
         drop(h);
