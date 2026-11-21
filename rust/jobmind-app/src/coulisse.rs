@@ -58,6 +58,7 @@ pub const DOSSIER: &str = "panneau-sites";
 /// Étape 11 : une candidature sur un site occupe la vue des sites.
 const OCCUPE_PO: &str = "Une candidature est en cours sur un site : termine-la ou ferme-la d'abord.";
 /// Welcome to the Jungle cherche d'abord par métier, puis par lieu (sites::metier_obligatoire)
+const PLUS_DE_PAGE: &str = "Il n'y a pas d'autre page d'offres pour cette recherche : la page d'avant reste affichée.";
 const SANS_METIER: &str =
     "Welcome to the Jungle cherche d'abord par métier : écris un métier dans ta recherche, puis relance.";
 
@@ -338,6 +339,9 @@ pub struct ListeSite {
     pub ouvert: Option<usize>,
     /// 0.1.4 : la lecture automatique des offres de cette page
     pub lecture: Auto,
+    /// 0.1.6 : pendant « Page suivante », la page d'avant et ses offres, remises si la suivante est vide, illisible ou
+    /// pareille (avant, la liste était vidée au clic : rien derrière, plus aucune offre, remarque de Jordan 21/11/2026)
+    pub precedente: Option<(u32, Vec<Resultat>)>,
 }
 
 /// La lecture automatique des offres d'une page de résultats (0.1.4).
@@ -1011,6 +1015,7 @@ impl Coulisse {
             suivante: false,
             ouvert: None,
             lecture: Auto::default(),
+            precedente: None,
         });
         if self.fiche.as_ref().is_some_and(|f| f.site == s) {
             self.fiche = None;
@@ -1019,6 +1024,17 @@ impl Coulisse {
         Fait {
             journal: Some(format!("Sites : recherche « {} » sur {} (page 1)", r.nom, s.code())), ..ordres(o, true)
         }
+    }
+
+    /// La page d'avant remise après une page suivante vide, pareille ou illisible ; plus de « Page suivante » (vrai :
+    /// il y avait une page d'avant).
+    fn revenir_page(&mut self, s: Site) -> bool {
+        let Some(l) = self.liste_de_mut(s) else { return false };
+        let Some((page, resultats)) = l.precedente.take() else { return false };
+        l.page = page;
+        l.resultats = resultats;
+        l.suivante = false;
+        true
     }
 
     /// « Page suivante » : la page d'après, sur ce clic seulement.
@@ -1036,8 +1052,8 @@ impl Coulisse {
         let page = l.page + 1;
         let Some(adresse) = sites::adresse_recherche(s, &l.mots, &l.lieu, page) else { return Fait::default() };
         if let Some(l) = self.liste_de_mut(s) {
+            l.precedente = Some((l.page, std::mem::take(&mut l.resultats)));
             l.page = page;
-            l.resultats.clear();
             l.ouvert = None;
             l.suivante = false;
             l.lecture = Auto::default();
@@ -1648,6 +1664,24 @@ impl Coulisse {
         }
         match a.but {
             But::Liste => {
+                // (0.1.6 : une page suivante qui ne montre que des offres de la page d'avant : il n'y a rien derrière)
+                let pareille = !c.liste.resultats.is_empty()
+                    && self.liste_de(a.site).and_then(|l| l.precedente.as_ref()).is_some_and(|(_, avant)| {
+                        c.liste.resultats.iter().all(|r| avant.iter().any(|x| x.url == r.url))
+                    });
+                if (pareille || c.aucun_resultat) && self.revenir_page(a.site) {
+                    self.attente = None;
+                    self.dire(a.site, annonce(PLUS_DE_PAGE, "attention", None));
+                    return Fait {
+                        journal: Some(format!(
+                            "Sites : pas d'autre page sur {} ({}), la page d'avant reste",
+                            a.site.code(),
+                            if pareille { "mêmes offres" } else { "aucun résultat" }
+                        )),
+                        change: true,
+                        ..Fait::default()
+                    };
+                }
                 if !c.liste.resultats.is_empty() {
                     self.attente = None;
                     let n = c.liste.resultats.len();
@@ -1656,6 +1690,7 @@ impl Coulisse {
                     if let Some(x) = self.liste_de_mut(a.site) {
                         x.resultats = c.liste.resultats;
                         x.suivante = c.liste.suivante;
+                        x.precedente = None;
                         // (0.1.4 : la lecture automatique de ses offres commence après la pause)
                         x.lecture = Auto::default();
                     }
@@ -1769,6 +1804,10 @@ impl Coulisse {
             && let Some(l) = self.liste_de_mut(a.site)
         {
             l.ouvert = None;
+        }
+        // (0.1.6 : la page suivante illisible : la page d'avant revient, ses offres restent à l'écran)
+        if a.but == But::Liste {
+            self.revenir_page(a.site);
         }
         Fait {
             journal: Some(format!(

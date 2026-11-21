@@ -447,6 +447,49 @@ fn listes_oubliees_au_changement_de_site_et_au_depart() {
     assert!(c.liste_de(Site::FranceTravail).is_some());
 }
 
+/// 0.1.6 : « Page suivante » sans rien derrière (la même page revenue, ou une page illisible) : la page d'avant
+/// reste à l'écran, sans bouton « Page suivante » (avant, la liste était vidée au clic, remarque de Jordan 21/11/2026).
+#[test]
+fn page_suivante_sans_rien_derriere() {
+    let (b, rid) = base();
+    // 1. Le site remontre les offres de la page 1
+    let (mut c, mut n, _) = liste_ft(&b, rid);
+    let page1 = n.html.clone();
+    assert!(c.liste_de(Site::FranceTravail).unwrap().suivante);
+    let f = c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 4));
+    // (pendant le chargement, les offres de la page 1 sont mises de côté)
+    assert!(c.liste_de(Site::FranceTravail).unwrap().precedente.as_ref().is_some_and(|(p, r)| *p == 1 && r.len() == 6));
+    n.aller(&charge(&f));
+    n.html = page1;
+    let p = c.page_chargee(&n.adresse);
+    let f = c.lu(Some(&b), lire_no(&p), n.lecture(), m(9, 5));
+    assert!(f.journal.as_deref().unwrap().contains("pas d'autre page sur francetravail (mêmes offres)"), "{f:?}");
+    let l = c.liste_de(Site::FranceTravail).unwrap();
+    assert_eq!((l.page, l.resultats.len(), l.suivante, l.precedente.is_none()), (1, 6, false, true));
+    let v = c.vue(jour());
+    assert_eq!(v["annonce"]["texte"], PLUS_DE_PAGE);
+    assert_eq!(v["liste"]["suivante"], false);
+    assert!(c.attente.is_none());
+    // 2. Une page suivante illisible : relue, puis la page d'avant revient
+    let (mut c, mut n, _) = liste_ft(&b, rid);
+    let f = c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 4));
+    n.aller(&charge(&f));
+    n.html = "<html><body><h1>Une page inconnue</h1><p>Rien à lire ici.</p></body></html>".into();
+    let mut f = c.page_chargee(&n.adresse);
+    for _ in 0..=RELECTURES {
+        f = c.lu(Some(&b), lire_no(&f), n.lecture(), m(9, 5));
+    }
+    assert!(f.journal.as_deref().unwrap().contains("LECTURE CASSÉE"), "{f:?}");
+    let l = c.liste_de(Site::FranceTravail).unwrap();
+    assert_eq!((l.page, l.resultats.len(), l.suivante), (1, 6, false));
+    // 3. Une vraie page 2 : elle remplace la page 1
+    let (mut c, mut n, _) = liste_ft(&b, rid);
+    let f = c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 4));
+    charger_et_lire(&mut c, Some(&b), &mut n, &f);
+    let l = c.liste_de(Site::FranceTravail).unwrap();
+    assert_eq!((l.page, l.resultats.len(), l.precedente.is_none()), (2, 3, true));
+}
+
 /// 0.1.6 : le chiffre de l'onglet Offres compte les offres du site à l'écran ; rien sans liste.
 #[test]
 fn chiffre_de_l_onglet_offres() {
