@@ -446,3 +446,42 @@ fn listes_oubliees_au_changement_de_site_et_au_depart() {
     assert!(!c.oublier_listes(Some(Site::FranceTravail)));
     assert!(c.liste_de(Site::FranceTravail).is_some());
 }
+
+/// 0.1.6 : le chiffre de l'onglet Offres compte les offres du site à l'écran ; rien sans liste.
+#[test]
+fn chiffre_de_l_onglet_offres() {
+    let (b, rid) = base();
+    let c = Coulisse { source: Some(Site::FranceTravail), ..Coulisse::default() };
+    assert_eq!(chiffre_onglet(&c.vue(jour())), Value::Null);
+    let (mut c, _, _) = liste_ft(&b, rid);
+    assert_eq!(chiffre_onglet(&c.vue(jour())), json!(6));
+    // (une offre retirée, même montrée en gris, ne compte pas)
+    let lignes = json!({ "liste": { "lignes": [{ "retiree": false }, { "retiree": true }] } });
+    assert_eq!(chiffre_onglet(&lignes), json!(1));
+    // Un autre site : la liste est oubliée, plus de chiffre
+    c.geste(Some(&b), SOURCE, &json!({ "site": "indeed" }), m(9, 5));
+    assert_eq!(chiffre_onglet(&c.vue(jour())), Value::Null);
+}
+
+/// 0.1.6 : Welcome to the Jungle cherche d'abord par métier ; « Tous les métiers autour de Sarrebourg » n'y donne
+/// aucune offre (vu en vrai le 21/11/2026) : Jobmind ne lance pas la lecture et demande un métier.
+#[test]
+fn welcome_to_the_jungle_demande_un_metier() {
+    let (b, _) = Base::en_memoire(m(9, 0)).unwrap();
+    let n = NouvelleRecherche {
+        nom: "Tous les métiers autour de Sarrebourg".into(),
+        mots: String::new(),
+        lieu: Lieu::Ville { nom: "Sarrebourg".into(), rayon: 20 },
+    };
+    let rid = base_offres::ajouter_recherche(b.connexion(), &n, m(9, 0)).unwrap();
+    let mut c = Coulisse { source: Some(Site::Wttj), ..Coulisse::default() };
+    let f = c.geste(Some(&b), CHERCHER, &json!({ "site": "wttj", "recherche": rid }), m(9, 0));
+    assert_eq!(f.message.as_deref(), Some(SANS_METIER));
+    assert!(f.change && f.journal.as_deref().unwrap().contains("sans métier refusée (wttj)"), "{f:?}");
+    assert!(c.attente.is_none() && c.liste_de(Site::Wttj).is_none());
+    assert_eq!(c.vue(jour())["annonce"]["texte"], SANS_METIER);
+    // (les autres sites gardent « tous les métiers du coin »)
+    let mut c = Coulisse { source: Some(Site::FranceTravail), ..Coulisse::default() };
+    let f = c.geste(Some(&b), CHERCHER, &json!({ "site": "francetravail", "recherche": rid }), m(9, 0));
+    assert!(f.message.is_none() && c.attente.is_some(), "{f:?}");
+}

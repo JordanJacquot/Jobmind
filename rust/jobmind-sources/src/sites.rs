@@ -119,11 +119,22 @@ fn miles(km: u32) -> u32 {
     [5, 10, 25, 50, 100].into_iter().find(|x| f64::from(*x) >= m - 0.5).unwrap_or(100)
 }
 
+/// Les sites qui cherchent d'abord par métier, puis par lieu : sans métier, leur page de résultats reste vide
+/// (Welcome to the Jungle avec « Tous les métiers autour de Sarrebourg » : aucune offre, vu en vrai le 21/11/2026).
+pub fn metier_obligatoire(site: Site) -> bool {
+    site == Site::Wttj
+}
+
+/// Une recherche sans métier sur un site qui en demande un.
+pub fn sans_metier(site: Site, mots: &str) -> bool {
+    metier_obligatoire(site) && propre_recherche(mots, MOTS_MAX).is_empty()
+}
+
 /// L'adresse de la page `page` (1, 2...) des résultats de ce site pour ces mots et ce lieu. Rien pour un autre site,
-/// une page 0 ou une recherche vide (ni mots ni lieu).
+/// une page 0, une recherche vide (ni mots ni lieu), ou sans métier sur un site qui en demande un.
 pub fn adresse_recherche(site: Site, mots: &str, lieu: &LieuSite, page: u32) -> Option<String> {
     let mots = propre_recherche(mots, MOTS_MAX);
-    if page == 0 || page > 40 || (mots.is_empty() && *lieu == LieuSite::Partout) {
+    if page == 0 || page > 40 || (mots.is_empty() && (*lieu == LieuSite::Partout || metier_obligatoire(site))) {
         return None;
     }
     let ou = |t: &str| propre_recherche(t, 80);

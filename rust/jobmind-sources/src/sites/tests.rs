@@ -100,7 +100,8 @@ fn adresses_de_recherche() {
     assert_eq!(adresse_recherche(Site::LinkedIn, "cariste", &metz, 0), None);
     assert_eq!(adresse_recherche(Site::LinkedIn, "   ", &LieuSite::Partout, 1), None);
     assert!(adresse_recherche(Site::LinkedIn, "", &metz, 1).is_some());
-    // Sans mots, avec un lieu (tous les métiers du coin, demande de Jordan, 19/11/2026) : les quatre sites
+    // Sans mots, avec un lieu (tous les métiers du coin, demande de Jordan, 19/11/2026) : trois sites sur quatre ;
+    // Welcome to the Jungle cherche d'abord par métier (sans métier, sa page reste vide, vu en vrai le 21/11/2026)
     let sarrebourg = ville("Sarrebourg", 20);
     assert_eq!(
         adresse_recherche(Site::LinkedIn, "", &sarrebourg, 1).unwrap(),
@@ -110,9 +111,15 @@ fn adresses_de_recherche() {
         adresse_recherche(Site::Indeed, " ", &sarrebourg, 1).unwrap(),
         "https://fr.indeed.com/jobs?q=&l=Sarrebourg&radius=20"
     );
+    assert_eq!(adresse_recherche(Site::Wttj, "", &sarrebourg, 1), None);
+    assert_eq!(adresse_recherche(Site::Wttj, " ", &sarrebourg, 2), None);
+    assert!(sans_metier(Site::Wttj, "  ") && !sans_metier(Site::Wttj, "cariste"));
+    assert!(
+        !sans_metier(Site::LinkedIn, "") && !sans_metier(Site::Indeed, "") && !sans_metier(Site::FranceTravail, "")
+    );
     assert_eq!(
-        adresse_recherche(Site::Wttj, "", &sarrebourg, 1).unwrap(),
-        "https://www.welcometothejungle.com/fr/jobs?query=&refinementList%5Boffices.country_code%5D%5B%5D=FR&aroundQuery=Sarrebourg&page=1"
+        adresse_recherche(Site::Wttj, "cariste", &sarrebourg, 1).unwrap(),
+        "https://www.welcometothejungle.com/fr/jobs?query=cariste&refinementList%5Boffices.country_code%5D%5B%5D=FR&aroundQuery=Sarrebourg&page=1"
     );
     // (France Travail : le code INSEE de la commune et le rayon, sans « motsCles », comme le vrai site)
     assert_eq!(

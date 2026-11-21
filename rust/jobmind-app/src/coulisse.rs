@@ -57,6 +57,9 @@ pub const DOSSIER: &str = "panneau-sites";
 
 /// Étape 11 : une candidature sur un site occupe la vue des sites.
 const OCCUPE_PO: &str = "Une candidature est en cours sur un site : termine-la ou ferme-la d'abord.";
+/// Welcome to the Jungle cherche d'abord par métier, puis par lieu (sites::metier_obligatoire)
+const SANS_METIER: &str =
+    "Welcome to the Jungle cherche d'abord par métier : écris un métier dans ta recherche, puis relance.";
 
 /// L'écart minimal entre deux chargements de la vue des sites (le programme attend s'il le faut).
 pub const ECART_MS: u64 = 3000;
@@ -983,6 +986,10 @@ impl Coulisse {
             return Fait { change: true, ..Fait::default() };
         };
         let lieu = lieu_site(&r.lieu);
+        if sites::sans_metier(s, &r.mots) {
+            self.dire(s, annonce(SANS_METIER, "attention", None));
+            return Fait::refus(SANS_METIER, format!("Sites : recherche sans métier refusée ({})", s.code()));
+        }
         let Some(adresse) = sites::adresse_recherche(s, &r.mots, &lieu, 1) else {
             self.dire(s, annonce("Cette recherche est vide : écris un poste, ou choisis un lieu.", "attention", None));
             return Fait { change: true, ..Fait::default() };
@@ -2231,6 +2238,16 @@ impl Coulisse {
 
 fn annonce_vue(a: &Annonce) -> Value {
     json!({ "texte": a.texte, "genre": a.genre, "bouton": a.bouton, "offre": a.offre })
+}
+
+/// Le chiffre de l'onglet Offres : les offres du site affichées dans la liste (pas les retirées montrées en gris),
+/// rien sans liste ou sans offre. Avant la 0.1.6, c'était le nombre d'offres gardées jamais ouvertes : un « 47 » fixe
+/// alors qu'aucune offre n'était à l'écran, ou que la recherche en montrait 20 (remarque de Jordan, 21/11/2026).
+pub fn chiffre_onglet(vue_coulisse: &Value) -> Value {
+    let n = vue_coulisse["liste"]["lignes"]
+        .as_array()
+        .map_or(0, |l| l.iter().filter(|x| x["retiree"] != Value::Bool(true)).count());
+    if n == 0 { Value::Null } else { json!(n) }
 }
 
 /// L'offre d'un site, comme l'onglet Offres la montre.

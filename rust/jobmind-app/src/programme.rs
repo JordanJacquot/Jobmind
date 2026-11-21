@@ -1600,7 +1600,17 @@ impl Etat {
             self.coulisse.filtres = (self.offres.filtres.sans_diplome, self.offres.filtres.debutant);
             // (0.1.4 : une offre gardée retirée de ma liste dans l'autre liste compte aussi pour les sites)
             self.coulisse.relire_retirees(d.base.as_ref());
-            perso.insert("coulisse".into(), self.coulisse.vue(self.jour));
+            let vue_coulisse = self.coulisse.vue(self.jour);
+            // (0.1.6 : le chiffre de l'onglet Offres compte les offres du site à l'écran)
+            let chiffre = coulisse::chiffre_onglet(&vue_coulisse);
+            if let Some(o) = perso
+                .get_mut("onglets")
+                .and_then(Value::as_array_mut)
+                .and_then(|t| t.iter_mut().find(|o| o["id"] == crate::ecran::OFFRES))
+            {
+                o["nombre"] = chiffre;
+            }
+            perso.insert("coulisse".into(), vue_coulisse);
             // (étape 8 : la candidature préparée de l'offre ouverte)
             let (p, raison) = self.preparation.vue(d.base.as_ref(), Some(&self.cles), self.offres.ouverte, self.jour);
             if let Some(r) = raison {
