@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use jobmind_core::Jour;
 use jobmind_core::lieux;
-use jobmind_core::recherche::{Contrat, GenreLieu, Lieu, RAYON_DEFAUT, Recherche, Teletravail};
+use jobmind_core::recherche::{Contrat, Criteres, GenreLieu, Lieu, RAYON_DEFAUT, Recherche, Teletravail};
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::moment::Moment;
@@ -350,4 +350,96 @@ pub fn enregistrer_recherche(c: &Connection, r: &Recherche, maintenant: Moment) 
         ],
     )?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// 0.1.8 : les critères communs, et le profil qui suit le tableau des recherches
+// ---------------------------------------------------------------------------------------------------------------
+
+/// Les critères communs à toutes les recherches (rien d'enregistré, ou une ligne illisible : ceux de départ).
+pub fn lire_criteres(c: &Connection) -> rusqlite::Result<Criteres> {
+    let ligne = c
+        .query_row(
+            "SELECT contrats, teletravail, sans_diplome, debutant, salaire_min FROM profil WHERE id = 1",
+            [],
+            |r| {
+                Ok((
+                    r.get::<_, Option<String>>(0)?.unwrap_or_default(),
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)? == 1,
+                    r.get::<_, i64>(3)? == 1,
+                    r.get::<_, Option<i64>>(4)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((contrats, tele, sans_diplome, debutant, salaire)) = ligne else { return Ok(Criteres::default()) };
+    let mut contrats: Vec<Contrat> = contrats.split(',').filter_map(|c| Contrat::depuis_code(c.trim())).collect();
+    contrats.sort();
+    contrats.dedup();
+    Ok(Criteres {
+        contrats,
+        teletravail: Teletravail::depuis_code(&tele).unwrap_or(Teletravail::PeuImporte),
+        sans_diplome,
+        debutant,
+        salaire_min: salaire.and_then(|s| u32::try_from(s).ok()),
+    })
+}
+
+/// Enregistre les critères communs, sans toucher aux postes ni au lieu (la ligne du profil créée si elle n'existe pas).
+pub fn enregistrer_criteres(c: &Connection, k: &Criteres, maintenant: Moment) -> rusqlite::Result<()> {
+    let contrats: Vec<&str> = k.contrats.iter().map(|c| c.code()).collect();
+    c.execute(
+        "INSERT INTO profil (id, contrats, teletravail, sans_diplome, debutant, salaire_min, change_le) \
+         VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6) \
+         ON CONFLICT (id) DO UPDATE SET contrats = ?1, teletravail = ?2, sans_diplome = ?3, debutant = ?4, \
+         salaire_min = ?5, change_le = ?6",
+        params![
+            contrats.join(","),
+            k.teletravail.code(),
+            k.sans_diplome as i64,
+            k.debutant as i64,
+            k.salaire_min.map(i64::from),
+            maintenant.iso()
+        ],
+    )?;
+    Ok(())
+}
+
+/// Le profil suit le tableau des recherches : ses postes et son lieu (jobmind_core::recherches::pour_profil), sans
+/// toucher aux critères. Rien à suivre (plus aucune recherche) : « Ce que je cherche » redevient vide. Rend vrai si
+/// quelque chose a changé.
+pub fn suivre_recherches(
+    c: &Connection,
+    suivi: Option<(&[String], &Lieu)>,
+    maintenant: Moment,
+) -> rusqlite::Result<bool> {
+    let avant = lire_recherche(c)?;
+    let Some((postes, lieu)) = suivi else {
+        if avant.is_none() {
+            return Ok(false);
+        }
+        c.execute(
+            "UPDATE profil SET metiers = '', recherche_le = NULL, change_le = ?1 WHERE id = 1",
+            [maintenant.iso()],
+        )?;
+        return Ok(true);
+    };
+    if avant.as_ref().is_some_and(|r| r.postes == postes && &r.lieu == lieu) {
+        return Ok(false);
+    }
+    let (ville, rayon, dep, region) = match lieu {
+        Lieu::Ville { nom, rayon } => (nom.as_str(), *rayon as i64, "", ""),
+        Lieu::Departement(d) => ("", RAYON_DEFAUT as i64, d.code, ""),
+        Lieu::Region(x) => ("", RAYON_DEFAUT as i64, "", x.code),
+        Lieu::Partout => ("", RAYON_DEFAUT as i64, "", ""),
+    };
+    c.execute(
+        "INSERT INTO profil (id, metiers, lieu, ville, rayon_km, departement, region, recherche_le, change_le) \
+         VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7) \
+         ON CONFLICT (id) DO UPDATE SET metiers = ?1, lieu = ?2, ville = ?3, rayon_km = ?4, departement = ?5, \
+         region = ?6, recherche_le = ?7, change_le = ?7",
+        params![postes.join("\n"), lieu.genre().code(), ville, rayon, dep, region, maintenant.iso()],
+    )?;
+    Ok(true)
 }

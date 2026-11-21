@@ -4,7 +4,7 @@
 
 use crate::candidature::{trop_long, une_ligne};
 use crate::lieux;
-use crate::recherche::{GenreLieu, Lieu, RAYON_MAX, Recherche, SANS_POSTE_NI_LIEU, VILLE_MAX};
+use crate::recherche::{GenreLieu, Lieu, POSTE_MAX, POSTES_MAX, RAYON_MAX, Recherche, SANS_POSTE_NI_LIEU, VILLE_MAX};
 
 /// Au plus ce nombre de recherches gardées.
 pub const NOMBRE_MAX: usize = 20;
@@ -122,6 +122,26 @@ pub fn lieu_pour_source(l: &Lieu) -> (String, u32) {
     }
 }
 
+/// 0.1.8 : ce que « Ce que je cherche » retient du tableau des recherches, pour trier les offres et préparer les
+/// candidatures : les postes de toutes les recherches (sans doublon, [`POSTES_MAX`] au plus, chacun coupé à
+/// [`POSTE_MAX`]) et le lieu de la première. Aucune recherche : rien.
+pub fn pour_profil(recherches: &[(String, Lieu)]) -> Option<(Vec<String>, Lieu)> {
+    let lieu = recherches.first()?.1.clone();
+    let mut postes: Vec<String> = Vec::new();
+    for (mots, _) in recherches {
+        let p: String = une_ligne(mots).chars().take(POSTE_MAX).collect();
+        let p = p.trim().to_string();
+        if !p.is_empty() && postes.len() < POSTES_MAX && !postes.iter().any(|x| x.to_lowercase() == p.to_lowercase()) {
+            postes.push(p);
+        }
+    }
+    // (ni poste ni lieu : ce n'est pas une recherche, comme dans [`verifier`])
+    if postes.is_empty() && lieu == Lieu::Partout {
+        return None;
+    }
+    Some((postes, lieu))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,5 +237,25 @@ mod tests {
         assert_eq!(l.len(), 1);
         assert_eq!((l[0].nom.as_str(), l[0].mots.as_str()), ("Tous les métiers autour de Sarrebourg", ""));
         assert_eq!(l[0].lieu, Lieu::Ville { nom: "Sarrebourg".into(), rayon: 20 });
+    }
+
+    /// 0.1.8 : le profil retient les postes de toutes les recherches et le lieu de la première.
+    #[test]
+    fn ce_que_le_profil_retient() {
+        let metz = Lieu::Ville { nom: "Metz".into(), rayon: 30 };
+        let l = vec![
+            ("Helpdesk".to_string(), metz.clone()),
+            (String::new(), Lieu::Partout),
+            (" helpdesk ".to_string(), Lieu::Partout),
+            ("technicien  informatique".to_string(), Lieu::Partout),
+        ];
+        let (postes, lieu) = pour_profil(&l).unwrap();
+        assert_eq!(postes, ["Helpdesk", "technicien informatique"]);
+        assert_eq!(lieu, metz);
+        // Sans mots, autour d'une ville : tous les métiers du lieu
+        assert_eq!(pour_profil(&[(String::new(), metz.clone())]), Some((Vec::new(), metz)));
+        // Contre-épreuve : aucune recherche, ou ni poste ni lieu
+        assert_eq!(pour_profil(&[]), None);
+        assert_eq!(pour_profil(&[(" ".to_string(), Lieu::Partout)]), None);
     }
 }

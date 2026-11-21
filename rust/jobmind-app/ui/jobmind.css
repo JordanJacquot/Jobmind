@@ -1054,3 +1054,11 @@ button.jm-bilan.f:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(-
   .jm-off-etat.cours > i { animation: none; }
   .jm-lec-j > i { transition: none; }
 }
+
+/* 0.1.8 : « Ce que je cherche » : le tableau des recherches, puis les critères communs */
+.jm-rch-h { margin: 26px 0 0; font-size: 17px; font-weight: 600; }
+.jm-rch-tab > .jm-outils { margin-top: 12px; }
+.jm-rch-tab > .jm-rch-sous { margin-top: 12px; }
+.jm-rch-crit .jm-grille { margin-top: 12px; }
+/* (0.1.8 : un métier proposé, et en petit sa famille de métiers) */
+.jm-metier-f { display: block; margin-top: 1px; font-size: 12px; font-weight: 400; color: var(--pale); white-space: normal; }

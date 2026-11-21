@@ -171,3 +171,57 @@ fn les_fichiers_de_cv_copies() {
     }
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// 0.1.8 : les critères se gardent seuls, et le profil suit le tableau des recherches sans les perdre.
+#[test]
+fn criteres_et_profil_qui_suit_les_recherches() {
+    use jobmind_core::recherche::{Contrat, Criteres, Lieu, Teletravail};
+    let (b, _) = Base::en_memoire(m(9)).unwrap();
+    let c = b.connexion();
+    assert_eq!(profil::lire_criteres(c).unwrap(), Criteres::default());
+    // Des critères sans aucune recherche : gardés, mais « Ce que je cherche » reste vide
+    let k = Criteres {
+        contrats: vec![Contrat::Cdi, Contrat::Interim],
+        teletravail: Teletravail::Possible,
+        sans_diplome: true,
+        debutant: false,
+        salaire_min: Some(1800),
+    };
+    profil::enregistrer_criteres(c, &k, m(9)).unwrap();
+    assert_eq!(profil::lire_criteres(c).unwrap(), k);
+    assert_eq!(profil::lire_recherche(c).unwrap(), None);
+    // Le tableau a une recherche : le profil la suit, avec les critères
+    let metz = Lieu::Ville { nom: "Metz".into(), rayon: 20 };
+    let postes = vec!["Technicien helpdesk".to_string()];
+    assert!(profil::suivre_recherches(c, Some((&postes, &metz)), m(10)).unwrap());
+    let r = profil::lire_recherche(c).unwrap().unwrap();
+    assert_eq!((r.postes.clone(), r.lieu.clone()), (postes.clone(), metz.clone()));
+    assert_eq!(
+        (r.contrats.clone(), r.teletravail, r.sans_diplome, r.salaire_min),
+        (k.contrats.clone(), k.teletravail, true, Some(1800))
+    );
+    // Rien de changé : rien d'écrit
+    assert!(!profil::suivre_recherches(c, Some((&postes, &metz)), m(11)).unwrap());
+    // Les critères changent : les postes et le lieu restent
+    let k2 = Criteres { contrats: Vec::new(), salaire_min: None, ..k.clone() };
+    profil::enregistrer_criteres(c, &k2, m(11)).unwrap();
+    let r = profil::lire_recherche(c).unwrap().unwrap();
+    assert_eq!((r.postes, r.lieu, r.contrats.len(), r.salaire_min), (postes, metz, 0, None));
+    // Plus aucune recherche : « Ce que je cherche » redevient vide, les critères restent
+    assert!(profil::suivre_recherches(c, None, m(12)).unwrap());
+    assert_eq!(profil::lire_recherche(c).unwrap(), None);
+    assert_eq!(profil::lire_criteres(c).unwrap(), k2);
+    assert!(!profil::suivre_recherches(c, None, m(12)).unwrap());
+    // Sans ligne de profil du tout : la première recherche la crée
+    let (b, _) = Base::en_memoire(m(9)).unwrap();
+    let c = b.connexion();
+    assert!(
+        profil::suivre_recherches(
+            c,
+            Some((&[] as &[String], &Lieu::Ville { nom: "Sarrebourg".into(), rayon: 30 })),
+            m(9)
+        )
+        .unwrap()
+    );
+    assert!(profil::lire_recherche(c).unwrap().unwrap().postes.is_empty());
+}

@@ -846,7 +846,9 @@
   // posée dans la case, puis son événement « input » part comme si Jordan l'avait tapée.
   let villesMinuteur = 0;
   let villePosee = null;    // le texte que la page vient de poser dans la case (pas de nouvelle demande pour lui)
-  const estCaseVille = (el) => el?.tagName === 'INPUT' && el.dataset?.champ === 'ville' && !!el.dataset.k && !!hote?.contains(el);
+  // (0.1.8 : la case du poste d'une recherche, data-champ="mots", a la même liste : Rust y propose les noms de métier,
+  // 'metiers', et répond par le même ordre avec genre: 'metiers' ; chaque ligne montre en petit sa famille de métiers)
+  const estCaseVille = (el) => el?.tagName === 'INPUT' && ['ville', 'mots'].includes(el.dataset?.champ) && !!el.dataset.k && !!hote?.contains(el);
   const villesM = () => hote?.querySelector('.jm-villes-m') || null;
   const caseDeVilles = (m) => (m && hote ? hote.querySelector(`input[data-k="${CSS.escape(m.dataset.pour || '')}"]`) : null);
   function fermerVilles() {
@@ -867,13 +869,15 @@
     if (texte.replace(/[\s'’()-]/g, '').length < 2) { fermerVilles(); return; }
     const k = el.dataset.k;
     villesMinuteur = setTimeout(() => {
-      if (document.activeElement === el && el.value === texte) O.action('villes', { k, texte: texte.slice(0, 80) });
+      if (document.activeElement === el && el.value === texte) O.action(el.dataset.champ === 'mots' ? 'metiers' : 'villes', { k, texte: texte.slice(0, 80) });
     }, 120);
   }
   // La réponse de Rust : la liste sous la case (seulement si la case a encore la main et le même texte)
   function montrerVilles(r) {
     const { esc } = O, el = document.activeElement;
     if (!estCaseVille(el) || el.dataset.k !== r.k || el.value !== r.texte) return;
+    const metiers = r.genre === 'metiers';
+    if (metiers !== (el.dataset.champ === 'mots')) return;
     const l = liste(r.liste).filter((x) => texteSur(x?.texte) && texteSur(x?.nom)).slice(0, 8);
     fermerVilles();
     if (!l.length) return;
@@ -884,7 +888,7 @@
     m.setAttribute('role', 'listbox');
     const nom = el.getAttribute('aria-label') || texteChoix(el.closest('label')?.querySelector('span'));
     if (nom) m.setAttribute('aria-label', nom);
-    m.innerHTML = l.map((x, i) => `<button type="button" role="option" id="jm-ville-${i}" tabindex="-1" aria-selected="false" class="jm-srcs-l jm-der-l jm-ville-l" data-i="${i}" data-texte="${esc(x.texte)}">${icone('lieu')}<span class="jm-srcs-n">${esc(x.nom)}${texteSur(x.cp) ? ` <span class="jm-ville-cp">(${esc(x.cp)})</span>` : ''}</span></button>`).join('');
+    m.innerHTML = l.map((x, i) => `<button type="button" role="option" id="jm-ville-${i}" tabindex="-1" aria-selected="false" class="jm-srcs-l jm-der-l jm-ville-l" data-i="${i}" data-texte="${esc(x.texte)}">${icone(metiers ? 'cible' : 'lieu')}<span class="jm-srcs-n">${esc(x.nom)}${texteSur(x.cp) ? ` <span class="jm-ville-cp">(${esc(x.cp)})</span>` : ''}${metiers && texteSur(x.sous) ? `<span class="jm-metier-f">${esc(x.sous)}</span>` : ''}</span></button>`).join('');
     // (la souris : survoler montre, cliquer prend ; la main ne quitte jamais la case)
     m.addEventListener('pointerdown', (e) => { e.preventDefault(); const b = e.target.closest?.('.jm-ville-l'); if (b) prendreVille(Number(b.dataset.i)); });
     m.addEventListener('pointermove', (e) => { const b = e.target.closest?.('.jm-ville-l'); if (b) marquerVille(Number(b.dataset.i)); });
@@ -1856,55 +1860,34 @@
     return `<button type="button" ${etat} class="jm-puce f${oui ? ' oui' : ''}" data-perso="${perso}" data-k="${k}"${extra}>${role === 'radio' ? '' : icone(oui ? 'coche' : 'plus')}${O.esc(texteSur(nom))}</button>`;
   }
 
+  // 0.1.8 : en haut le tableau des recherches (les mêmes que dans l'onglet Offres : un nom, un poste, un lieu ;
+  // « Ajouter une recherche », « Modifier », « Supprimer »), en dessous les critères qui valent pour toutes.
   function rechercheHTML(d) {
-    const { esc } = O, t = tx(d), r = rchDe(d);
-    const choixListe = (champ, k, l, val, sur) => `<select class="f" data-perso="p-champ" data-zone="rc" data-champ="${champ}" data-k="${k}" aria-label="${esc(t(champ))}">
-        <option value="">${esc(t('choisir'))}</option>${liste(l).filter((x) => sur(x?.id)).map((x) => `<option value="${x.id}"${x.id === val ? ' selected' : ''}>${esc(texteSur(x.nom))}</option>`).join('')}</select>`;
-    const lieux = liste(d.lieux).filter((x) => codeSurP(x?.id));
-    let ou = '';
-    if (r.lieu === 'ville') {
-      ou = `<label class="jm-champ"><span>${esc(t('ville'))}</span><input class="f" ${pChamp('rc', 'ville', 'rc:ville', r.ville, ` maxlength="${P_LONGUEURS.ville}" autocomplete="off" spellcheck="false" placeholder="${esc(t('i_ville'))}"`)}></label>
-        <div class="jm-champ"><span>${esc(t('rayon'))}</span><div class="jm-puces" role="radiogroup" aria-label="${esc(t('rayon'))}">${liste(d.rayons).filter(Number.isInteger).map((n) => puce('rc-rayon', `rc:r-${n}`, `${n} ${t('km')}`, n === r.rayon, ` data-v="${n}"`)).join('')}</div></div>`;
-    } else if (r.lieu === 'departement') {
-      ou = `<label class="jm-champ large"><span>${esc(t('departement'))}</span>${choixListe('departement', 'rc:dep', d.departements, r.departement, deptSur)}</label>`;
-    } else if (r.lieu === 'region') {
-      ou = `<label class="jm-champ large"><span>${esc(t('region'))}</span>${choixListe('region', 'rc:reg', d.regions, r.region, codeSurP)}</label>`;
-    }
-    const contrats = liste(d.liste_contrats).filter((x) => codeSurP(x?.id));
-    const teles = liste(d.liste_teletravail).filter((x) => codeSurP(x?.id));
-    return `<form class="jm-p${anime()}" novalidate><h1>${esc(texteSur(d.titre))}</h1><p class="jm-intro">${esc(texteSur(d.intro))}</p>
-      ${d.enregistree === true ? `<p class="jm-deja">${icone('coche')}<span>${esc(t('deja'))}</span></p>` : ''}
-      <div class="jm-grille">
-        <label class="jm-champ large"><span>${esc(t('postes'))}</span><textarea class="f petit" data-perso="p-champ" data-zone="rc" data-champ="postes" data-k="rc:postes" maxlength="${P_LONGUEURS.postes}" spellcheck="true" placeholder="${esc(t('i_postes'))}">${esc(r.postes)}</textarea><small class="jm-aide">${esc(t('postes_aide'))}</small></label>
-        <div class="jm-champ large"><span>${esc(t('lieu'))}</span><div class="jm-puces" role="radiogroup" aria-label="${esc(t('lieu'))}">${lieux.map((x, i) => puce('rc-lieu', `rc:l${i}`, x.nom, x.id === r.lieu, ` data-id="${x.id}"`)).join('')}</div></div>
-        ${ou}
-        <div class="jm-champ large"><span>${esc(t('contrats'))}</span><div class="jm-puces">${contrats.map((x, i) => puce('rc-contrat', `rc:c${i}`, x.nom, r.contrats.includes(x.id), ` data-id="${x.id}"`, 'bascule')).join('')}</div><small class="jm-aide">${esc(t('contrats_aide'))}</small></div>
-        <div class="jm-champ large"><span>${esc(t('teletravail'))}</span><div class="jm-puces" role="radiogroup" aria-label="${esc(t('teletravail'))}">${teles.map((x, i) => puce('rc-tele', `rc:t${i}`, x.nom, x.id === r.teletravail, ` data-id="${x.id}"`)).join('')}</div></div>
+    const { esc } = O, t = tx(d), r = rchDe(d), x = offresDe();
+    const contrats = liste(d.liste_contrats).filter((c) => codeSurP(c?.id));
+    const teles = liste(d.liste_teletravail).filter((c) => codeSurP(c?.id));
+    return `<div class="jm-p${anime()}"><h1>${esc(texteSur(d.titre))}</h1><p class="jm-intro">${esc(texteSur(d.intro))}</p>
+      <h2 class="jm-rch-h">${esc(t('recherches'))}</h2>
+      ${x ? gestionHTML(x, t('sans_recherche')) : ''}
+      <h2 class="jm-rch-h">${esc(t('criteres'))}</h2>
+      <form class="jm-rch-crit" novalidate><div class="jm-grille">
+        <div class="jm-champ large"><span>${esc(t('contrats'))}</span><div class="jm-puces">${contrats.map((c, i) => puce('rc-contrat', `rc:c${i}`, c.nom, r.contrats.includes(c.id), ` data-id="${c.id}"`, 'bascule')).join('')}</div><small class="jm-aide">${esc(t('contrats_aide'))}</small></div>
+        <div class="jm-champ large"><span>${esc(t('teletravail'))}</span><div class="jm-puces" role="radiogroup" aria-label="${esc(t('teletravail'))}">${teles.map((c, i) => puce('rc-tele', `rc:t${i}`, c.nom, c.id === r.teletravail, ` data-id="${c.id}"`)).join('')}</div></div>
         <div class="jm-champ large"><span>${esc(t('avant'))}</span><div class="jm-puces">${puce('rc-case', 'rc:diplome', t('sans_diplome'), r.sans_diplome, ' data-id="sans_diplome"', 'bascule')}${puce('rc-case', 'rc:debutant', t('debutant'), r.debutant, ' data-id="debutant"', 'bascule')}</div></div>
         <label class="jm-champ"><span>${esc(t('salaire'))} <small>${esc(t('facultatif'))}</small></span><input class="f" inputmode="numeric" ${pChamp('rc', 'salaire', 'rc:salaire', r.salaire, ` maxlength="${P_LONGUEURS.salaire}" autocomplete="off" spellcheck="false" placeholder="${esc(t('i_salaire'))}"`)}><small class="jm-aide">${esc(t('salaire_aide'))}</small></label>
       </div>
       <p class="jm-err" role="alert"></p>
-      <div class="jm-btns">${bouton('rc-enregistrer', 'rc:enreg', t('enregistrer'), 'coche', 'principal')}</div></form>`;
+      <div class="jm-btns">${bouton('rc-enregistrer', 'rc:enreg', t('enregistrer_criteres'), 'coche', 'principal')}</div></form></div>`;
   }
 
   function rechercheEnregistrer() {
     if (!rch) return;
-    const err = hote.querySelector('.jm-err');
-    // (sans poste : tous les métiers du lieu choisi ; ni poste ni lieu : refusé, comme dans Rust)
-    if (!String(rch.postes || '').trim() && rch.lieu === 'partout') {
-      hote.querySelector('[data-k="rc:postes"]')?.closest('.jm-champ')?.classList.add('faux');
-      if (err) err.textContent = 'Écris un poste, ou choisis un lieu.';
-      hote.querySelector('[data-k="rc:postes"]')?.focus({ preventScroll: false });
-      O.son?.retour?.();
-      return;
-    }
     if (Date.now() < envoiJusqua) return;
     envoiJusqua = Date.now() + 800;
     O.son?.ok?.();
     O.action('recherche-enregistrer', {
-      postes: String(rch.postes).slice(0, P_LONGUEURS.postes), lieu: rch.lieu, ville: String(rch.ville).slice(0, P_LONGUEURS.ville),
-      rayon: rch.rayon, departement: rch.departement, region: rch.region, contrats: rch.contrats.slice(0, 20),
-      teletravail: rch.teletravail, sans_diplome: rch.sans_diplome, debutant: rch.debutant, salaire: String(rch.salaire).slice(0, P_LONGUEURS.salaire),
+      contrats: rch.contrats.slice(0, 20), teletravail: rch.teletravail, sans_diplome: rch.sans_diplome, debutant: rch.debutant,
+      salaire: String(rch.salaire).slice(0, P_LONGUEURS.salaire),
     });
   }
 
@@ -3179,11 +3162,14 @@
       <div class="jm-btns">${bouton('of-form-ok', 'rf:ok', t('enregistrer'), 'coche', 'principal')}${bouton('of-form-non', 'rf:non', t('annuler'), '', 'second')}</div></form>`;
   }
 
-  function gestionHTML(x) {
-    const { esc } = O, t = tO(x), g = objet(x.gestion);
+  // (0.1.8 : `vide` donné, c'est le tableau de « Ce que je cherche », dans Mon profil : ni titre ni « Fermer », et
+  // cette phrase quand il n'y a encore aucune recherche)
+  function gestionHTML(x, vide) {
+    const { esc } = O, t = tO(x), g = objet(x.gestion), profil = typeof vide === 'string';
     const l = liste(g.liste).filter((r) => numSur(r?.id));
-    let h = `<div class="jm-p${anime()}"><h1>${esc(texteSur(g.titre))}</h1><p class="jm-intro">${esc(texteSur(g.intro))}</p>
-      <div class="jm-outils">${bouton('of-nouvelle', 'og:nouvelle', t('nouvelle'), 'plus', '', g.plein === true || ofForm ? ' disabled' : '')}${g.profil === true ? bouton('of-profil', 'og:profil', t('depuis_profil'), 'cible', '', g.plein === true ? ' disabled' : '') : ''}${bouton('of-fermer', 'og:fermer', t('fermer'), 'gauche', 'discret')}${g.plein === true ? `<span>${esc(t('plein'))}</span>` : ''}</div>`;
+    let h = profil ? '<div class="jm-rch-tab">' : `<div class="jm-p${anime()}"><h1>${esc(texteSur(g.titre))}</h1><p class="jm-intro">${esc(texteSur(g.intro))}</p>`;
+    h += `<div class="jm-outils">${bouton('of-nouvelle', 'og:nouvelle', t(profil ? 'ajouter' : 'nouvelle'), 'plus', profil ? 'principal' : '', g.plein === true || ofForm ? ' disabled' : '')}${g.profil === true ? bouton('of-profil', 'og:profil', t('depuis_profil'), 'cible', '', g.plein === true ? ' disabled' : '') : ''}${profil ? '' : bouton('of-fermer', 'og:fermer', t('fermer'), 'gauche', 'discret')}${g.plein === true ? `<span>${esc(t('plein'))}</span>` : ''}</div>`;
+    if (profil && !l.length && !ofForm) h += `<p class="jm-rch-sous">${esc(vide)}</p>`;
     if (ofForm && !ofForm.id) h += rechercheFormHTML(x);
     for (const r of l) {
       if (ofForm && ofForm.id === r.id) { h += rechercheFormHTML(x); continue; }
@@ -3213,7 +3199,8 @@
     ofForm = r
       ? { id: r.id, v: { nom: texteSur(v.nom), mots: texteSur(v.mots), lieu: codeSurP(v.lieu) ? v.lieu : 'ville', ville: texteSur(v.ville), rayon: Number.isInteger(v.rayon) ? v.rayon : 30, departement: texteSur(v.departement), region: texteSur(v.region) } }
       : { id: null, v: { nom: '', mots: '', lieu: 'ville', ville: '', rayon: 30, departement: '', region: '' } };
-    ofVue = 'recherches'; ofConfirme = null;
+    if (onglet === 'offres') ofVue = 'recherches';
+    ofConfirme = null;
     O.anime = !reduit();
     dessinerTout('rf:mots');
   }
@@ -3350,6 +3337,7 @@
     if (o.recherche_offres !== undefined) {
       ofForm = null;
       if (onglet === 'offres') dessinerTout(ofVue === 'recherches' ? 'og:nouvelle' : 'or:choix');
+      else if (rubriqueOuverte('recherche')) dessinerTout('og:nouvelle');
       return true;
     }
     // (étape 8 : la lettre gardée, une nouvelle version prête ; pour les captures, « Ma candidature » montrée)
@@ -3362,10 +3350,10 @@
     if (o.envoi === 'ouvrir') { const e = enDe(); if (e) { if (onglet !== 'offres') montrer('offres'); O.action('en-ouvrir', { id: e.offre }); } return true; }
     if (typeof o.envoi_a === 'string') { const e = enDe(); if (e) { enSaisieDe(e).a = o.envoi_a.slice(0, 200); if (onglet === 'offres') dessinerTout('en:a'); } return true; }
     // (essai : une valeur tapée dans le formulaire d'une recherche gardée, comme Jordan : ses mots, son nom, sa ville)
-    if (o.rf_saisie && typeof o.rf_saisie === 'object') { const ch = o.rf_saisie.champ; if (ofForm && ['mots', 'nom', 'ville'].includes(ch) && typeof o.rf_saisie.v === 'string') { ofForm.v[ch] = o.rf_saisie.v.slice(0, 120); dessinerTout(`rf:${ch}`); } return true; }
+    if (o.rf_saisie && typeof o.rf_saisie === 'object') { const ch = o.rf_saisie.champ; if (ofForm && ['mots', 'nom', 'ville'].includes(ch) && typeof o.rf_saisie.v === 'string') { ofForm.v[ch] = o.rf_saisie.v.slice(0, 120); dessinerTout(`rf:${ch}`); if (ch === 'mots') { const el = hote.querySelector('[data-k="rf:mots"]'); if (el) { el.focus({ preventScroll: true }); demanderVilles(el); } } } return true; }
     // (essai, étape 11 : une valeur tapée dans le récapitulatif de l'envoi sur le site, comme Jordan)
     if (o.po_saisie && typeof o.po_saisie === 'object') { const p = poDe(), i = Number(o.po_saisie.i); if (p && Number.isInteger(i) && typeof o.po_saisie.v === 'string') { poSaisieDe(p).v[i] = o.po_saisie.v.slice(0, 300); dessinerTout(`po:c-${i}`); hote.querySelector(`[data-k="po:c-${i}"]`)?.scrollIntoView({ block: 'center' }); } return true; }
-    if (numSur(o.recherche_supprimee)) { ofConfirme = null; if (onglet === 'offres') dessinerTout('og:nouvelle'); return true; }
+    if (numSur(o.recherche_supprimee)) { ofConfirme = null; if (onglet === 'offres' || rubriqueOuverte('recherche')) dessinerTout('og:nouvelle'); return true; }
     // (pour les captures) une offre ouverte, Mes recherches
     if (numSur(o.offre)) {
       if (onglet !== 'offres') montrer('offres');
@@ -3435,6 +3423,8 @@
       if (vueC === 'mail') { vueC = 'dossier'; mailVu = null; dessinerTout(); return true; }
       if (vueC === 'bilan' && onglet === 'candidatures') { vueC = 'dossier'; dessinerTout('c:bilan'); return true; }
       if (rubriqueOuverte('reglages') && objet(objet(objet(rubriqueDe(ongletDe('profil'))?.dossier).bord).sauvegarde).attente) { O.son?.retour?.(); O.action('s-non'); return true; }
+      if (rubriqueOuverte('recherche') && ofConfirme) { const id = ofConfirme; ofConfirme = null; dessinerTout(`og:s-${id}`); return true; }
+      if (rubriqueOuverte('recherche') && ofForm) { ofForm = null; dessinerTout('og:nouvelle'); return true; }
       if (retourProfil()) return true;
       if (retourOffres()) return true;
       const premier = onglets()[0];

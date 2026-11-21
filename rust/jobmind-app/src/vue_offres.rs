@@ -375,8 +375,8 @@ fn vide(v: &VueOffres) -> Value {
         (
             "cible",
             "Aucune recherche pour l'instant".into(),
-            "Une recherche, c'est ce que tu cherches et où. Crée-les à partir de « Ce que je cherche », ou écris-en une.",
-            if v.profil { "profil" } else { "nouvelle" },
+            "Une recherche, c'est ce que tu cherches et où. Ajoute la première ici, ou dans « Ce que je cherche ».",
+            "nouvelle",
             "",
         )
     } else if v.gardees == 0 && v.cachees == 0 {
@@ -428,7 +428,7 @@ fn gestion(v: &VueOffres) -> Value {
                   (ou un autre site) dans « Où chercher ».",
         "liste": l,
         "plein": v.recherches.len() >= NOMBRE_MAX,
-        "profil": v.profil,
+        "profil": false,
     })
 }
 
@@ -571,6 +571,7 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
                 ("ouvrir_cles", "Ouvrir Mes clés"),
                 ("depuis_profil", "Créer depuis « Ce que je cherche »"),
                 ("nouvelle", "Nouvelle recherche"),
+                ("ajouter", "Ajouter une recherche"),
                 ("retirer", "Retirer les filtres"),
                 ("favori", "Favori"),
                 ("plus_tard", "Plus tard"),
@@ -589,9 +590,9 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
                 ("nom", "Nom"),
                 ("facultatif", "facultatif"),
                 ("i_nom", "Par exemple : Quai autour de Metz"),
-                ("mots", "Ce que je cherche"),
-                ("i_mots", "Par exemple : agent de quai"),
-                ("mots_aide", "Un métier ou quelques mots, comme sur un site d'emploi. Vide : tous les métiers du lieu."),
+                ("mots", "Poste"),
+                ("i_mots", "Par exemple : helpdesk, cariste, vendeur"),
+                ("mots_aide", "Écris un métier : Jobmind te propose les noms exacts et les métiers voisins. Vide : tous les métiers du lieu."),
                 ("lieu", "Où"),
                 ("rayon", "Jusqu'à"),
                 ("enregistrer", "Enregistrer"),
@@ -823,8 +824,9 @@ mod tests {
     fn les_panneaux_vides() {
         let rien = crate::offres::VIDE.clone();
         assert_eq!(onglet(&rien, j(18))["offres"]["vide"]["bouton"], "nouvelle");
+        // (0.1.8 : plus de « à partir de Ce que je cherche », le tableau des recherches est le même partout)
         let avec_profil = VueOffres { profil: true, ..rien.clone() };
-        assert_eq!(onglet(&avec_profil, j(18))["offres"]["vide"]["bouton"], "profil");
+        assert_eq!(onglet(&avec_profil, j(18))["offres"]["vide"]["bouton"], "nouvelle");
         let mut x = exemple();
         x.liste.clear();
         x.ouverte = None;

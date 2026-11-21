@@ -38,6 +38,8 @@ pub mod communes;
 pub mod faux;
 pub mod formulaire;
 pub mod html;
+/// Les noms de métier (ROME, données ouvertes), proposés pendant la frappe du poste d'une recherche (0.1.8).
+pub mod metiers;
 pub mod page;
 pub mod sites;
 pub mod texte;

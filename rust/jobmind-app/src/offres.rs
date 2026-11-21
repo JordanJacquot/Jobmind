@@ -395,8 +395,14 @@ impl Offres {
                 self.recherche = numero(valeur);
                 Ok(Fait { change: true, ..Fait::default() })
             }
-            RECHERCHE => self.enregistrer_recherche(base, valeur, maintenant),
-            RECHERCHE_SUPPRIMER => supprimer_recherche(base, valeur),
+            RECHERCHE => self.enregistrer_recherche(base, valeur, maintenant).and_then(|f| {
+                suivre_profil(base.connexion(), maintenant)?;
+                Ok(f)
+            }),
+            RECHERCHE_SUPPRIMER => supprimer_recherche(base, valeur).and_then(|f| {
+                suivre_profil(base.connexion(), maintenant)?;
+                Ok(f)
+            }),
             DEPUIS_PROFIL => self.depuis_profil(base, maintenant),
             POSTULE => postule(base, valeur, maintenant),
             VOIR => voir(base, valeur),
@@ -748,6 +754,44 @@ fn retirer(base: &Base, v: &Value) -> rusqlite::Result<Fait> {
         change: true,
         ..Fait::default()
     })
+}
+
+/// 0.1.8 : « Ce que je cherche » suit le tableau des recherches (les postes de toutes, le lieu de la première) : le
+/// tri des offres et les candidatures s'en servent. Rend vrai si le profil a changé.
+pub fn suivre_profil(c: &rusqlite::Connection, maintenant: Moment) -> rusqlite::Result<bool> {
+    let l: Vec<(String, Lieu)> = base_offres::lister_recherches(c)?.into_iter().map(|r| (r.mots, r.lieu)).collect();
+    let suivi = recherches::pour_profil(&l);
+    profil::suivre_recherches(c, suivi.as_ref().map(|(p, l)| (p.as_slice(), l)), maintenant)
+}
+
+/// 0.1.8, à l'ouverture de la base : avant, « Ce que je cherche » avait ses propres postes, à part des recherches
+/// (changer l'un ne changeait pas l'autre). Chaque poste du profil qui n'a pas encore sa recherche en reçoit une, puis
+/// le profil suit le tableau. Refait à chaque ouverture, cela ne change plus rien. Rend le nombre de recherches créées.
+pub fn accorder_profil(c: &rusqlite::Connection, maintenant: Moment) -> rusqlite::Result<usize> {
+    let mut ajoutees = 0;
+    if let Some(r) = profil::lire_recherche(c)? {
+        let deja = base_offres::lister_recherches(c)?;
+        let mut n = deja.len();
+        for x in depuis_profil(&r) {
+            // (un profil sans poste, « tous les métiers du lieu » : seulement s'il n'y a encore aucune recherche)
+            let existe = if x.mots.is_empty() {
+                !deja.is_empty()
+            } else {
+                deja.iter().any(|d| {
+                    let coupe: String = d.mots.chars().take(jobmind_core::recherche::POSTE_MAX).collect();
+                    coupe.trim().to_lowercase() == x.mots.to_lowercase()
+                })
+            };
+            if existe || n >= NOMBRE_MAX {
+                continue;
+            }
+            base_offres::ajouter_recherche(c, &x, maintenant)?;
+            n += 1;
+            ajoutees += 1;
+        }
+    }
+    suivre_profil(c, maintenant)?;
+    Ok(ajoutees)
 }
 
 fn supprimer_recherche(base: &Base, v: &Value) -> rusqlite::Result<Fait> {
@@ -1276,5 +1320,67 @@ mod tests {
         // Sans base
         let f = o.geste(&Contexte { base: None, cles: None }, OUVRIR, &json!({ "id": 1 }), m(9, 0));
         assert_eq!(f.message.as_deref(), Some(crate::suivi::SANS_BASE));
+    }
+
+    /// 0.1.8 : le cas de Jordan. Le profil disait « helpdesk » et la seule recherche était « Tous les métiers autour de
+    /// Sarrebourg » : à l'ouverture, « helpdesk » reçoit sa recherche ; ensuite le profil suit le tableau (une
+    /// recherche modifiée ou supprimée change tout de suite ce qui sert à trier), et rouvrir ne recrée rien.
+    #[test]
+    fn le_profil_suit_le_tableau_des_recherches() {
+        use jobmind_core::recherche::{SaisieRecherche, verifier_recherche};
+        let d = essai("offres-profil");
+        let (b, _) = Base::en_memoire(m(9, 0)).unwrap();
+        let (cles, _) = Cles::ouvrir(&d, Box::new(Faux));
+        let c = b.connexion();
+        let sarrebourg = Lieu::Ville { nom: "Sarrebourg".into(), rayon: 30 };
+        let s = |postes: &str| {
+            verifier_recherche(&SaisieRecherche {
+                postes: postes.into(),
+                lieu: "ville".into(),
+                ville: "Sarrebourg".into(),
+                rayon: 30,
+                contrats: vec!["cdi".into()],
+                teletravail: "peu_importe".into(),
+                ..Default::default()
+            })
+            .unwrap()
+        };
+        // Avant la 0.1.8 : la recherche venait du profil sans poste, puis le profil a été changé en « helpdesk »
+        profil::enregistrer_recherche(c, &s(""), m(9, 0)).unwrap();
+        assert_eq!(accorder_profil(c, m(9, 0)).unwrap(), 1);
+        profil::enregistrer_recherche(c, &s("helpdesk"), m(9, 0)).unwrap();
+        // À l'ouverture de la 0.1.8
+        assert_eq!(accorder_profil(c, m(9, 0)).unwrap(), 1);
+        let l = base_offres::lister_recherches(c).unwrap();
+        let noms: Vec<&str> = l.iter().map(|r| r.nom.as_str()).collect();
+        assert_eq!(noms, ["Tous les métiers autour de Sarrebourg", "Helpdesk"]);
+        assert_eq!(accorder_profil(c, m(9, 0)).unwrap(), 0, "rouvrir ne recrée rien");
+        let r = profil::lire_recherche(c).unwrap().unwrap();
+        assert_eq!((r.postes.clone(), r.lieu.clone(), r.contrats.len()), (vec!["helpdesk".to_string()], sarrebourg, 1));
+        // « helpdesk » modifiée en « technicien helpdesk » autour de Metz : le profil suit (le lieu reste celui de la
+        // première recherche)
+        let mut o = Offres::default();
+        let ctx = Contexte { base: Some(&b), cles: Some(&cles) };
+        let f = o.geste(
+            &ctx,
+            RECHERCHE,
+            &json!({ "id": l[1].id, "nom": "", "mots": "technicien helpdesk", "lieu": "ville", "ville": "Metz", "rayon": 20 }),
+            m(9, 0),
+        );
+        assert_eq!(f.message.as_deref(), Some("Recherche enregistrée."));
+        let r = profil::lire_recherche(c).unwrap().unwrap();
+        assert_eq!(r.postes, ["technicien helpdesk"]);
+        assert!(matches!(&r.lieu, Lieu::Ville { nom, .. } if nom == "Sarrebourg"));
+        // La première supprimée : le lieu devient celui de la suivante
+        o.geste(&ctx, RECHERCHE_SUPPRIMER, &json!({ "id": l[0].id }), m(9, 0));
+        let r = profil::lire_recherche(c).unwrap().unwrap();
+        assert!(matches!(&r.lieu, Lieu::Ville { nom, rayon: 20 } if nom == "Metz"));
+        // Contre-épreuve : la dernière supprimée, « Ce que je cherche » redevient vide, et rien n'est recréé à
+        // l'ouverture suivante ; les critères restent
+        o.geste(&ctx, RECHERCHE_SUPPRIMER, &json!({ "id": l[1].id }), m(9, 0));
+        assert_eq!(profil::lire_recherche(c).unwrap(), None);
+        assert_eq!(accorder_profil(c, m(9, 0)).unwrap(), 0);
+        assert!(base_offres::lister_recherches(c).unwrap().is_empty());
+        assert_eq!(profil::lire_criteres(c).unwrap().contrats.len(), 1);
     }
 }

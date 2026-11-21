@@ -307,6 +307,13 @@ fn base_ouverte(b: &Base, dossier: &Path, journal: &Journal) {
             .ecrire(&format!("Site : {n} envoi(s) sur un site interrompu(s) par l'arrêt de Jobmind, notés incertains")),
         Err(e) => journal.ecrire(&format!("Site : reprise impossible ({e})")),
     }
+    match crate::offres::accorder_profil(b.connexion(), heure::maintenant()) {
+        Ok(0) => {}
+        Ok(n) => {
+            journal.ecrire(&format!("Profil : {n} recherche(s) créée(s) à partir des postes de « Ce que je cherche »"))
+        }
+        Err(e) => journal.ecrire(&format!("Profil : recherches non accordées ({e})")),
+    }
     copie_du_jour(b, dossier, journal);
 }
 
@@ -1526,6 +1533,13 @@ impl Etat {
             // (les villes proposées pendant la frappe : la réponse part tout de suite, rien au journal à chaque lettre)
             MessagePage::Action { ref id, ref valeur, .. } if id == crate::villes::PROPOSER => {
                 if let (Some(app), Some(o)) = (self.app.as_ref(), crate::villes::reponse(valeur)) {
+                    app.state::<Page>().ordre(o);
+                }
+                return;
+            }
+            // (0.1.8 : les métiers proposés pendant la frappe du poste d'une recherche, de la même façon)
+            MessagePage::Action { ref id, ref valeur, .. } if id == crate::villes::PROPOSER_METIERS => {
+                if let (Some(app), Some(o)) = (self.app.as_ref(), crate::villes::reponse_metiers(valeur)) {
                     app.state::<Page>().ordre(o);
                 }
                 return;

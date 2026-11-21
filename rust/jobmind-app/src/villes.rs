@@ -28,6 +28,28 @@ pub fn reponse(v: &Value) -> Option<Value> {
     Some(json!({ "kit": "accueil", "villes": { "k": k, "texte": texte, "liste": liste } }))
 }
 
+/// 0.1.8 : le geste de la page pour la case « poste » d'une recherche : les métiers pour ce qui est tapé.
+pub const PROPOSER_METIERS: &str = "metiers";
+
+/// La réponse pour les métiers : le même ordre que pour les villes (la page a une seule liste de propositions), avec
+/// `genre: "metiers"` ; chaque ligne a le nom à poser dans la case et, en petit, sa famille de métiers quand elle dit
+/// autre chose. Les noms viennent de la table embarquée (jobmind_sources::metiers), jamais d'Internet.
+pub fn reponse_metiers(v: &Value) -> Option<Value> {
+    use jobmind_sources::metiers;
+    let k = v.get("k").and_then(Value::as_str).filter(|k| crate::pont::id_valable(k))?;
+    let texte = v.get("texte").and_then(Value::as_str)?;
+    if texte.chars().count() > TEXTE_MAX {
+        return None;
+    }
+    let liste: Vec<Value> = metiers::proposer(texte, metiers::PROPOSITIONS_MAX)
+        .iter()
+        .map(|p| {
+            let sous = if p.famille == p.nom { "" } else { p.famille.as_str() };
+            json!({ "texte": p.nom, "nom": p.nom, "sous": sous })
+        })
+        .collect();
+    Some(json!({ "kit": "accueil", "villes": { "k": k, "texte": texte, "genre": "metiers", "liste": liste } }))
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -56,5 +78,21 @@ mod tests {
         assert_eq!(reponse(&json!({ "k": "of:ville", "texte": 57 })), None);
         assert_eq!(reponse(&json!({ "k": "of:ville", "texte": "x".repeat(81) })), None);
         assert_eq!(reponse(&json!("Metz")), None);
+    }
+
+    /// 0.1.8 : « helpdesk » dans la case du poste : les noms du métier, puis ses voisins.
+    #[test]
+    fn les_metiers_proposes() {
+        let o = reponse_metiers(&json!({ "k": "rf:mots", "texte": "helpdesk" })).unwrap();
+        assert_eq!(o["villes"]["genre"], "metiers");
+        assert_eq!(o["villes"]["k"], "rf:mots");
+        assert_eq!(o["villes"]["texte"], "helpdesk");
+        assert_eq!(o["villes"]["liste"][0]["texte"], "Technicien helpdesk");
+        assert_eq!(o["villes"]["liste"][0]["sous"], "Conseiller support technique informatique");
+        assert_eq!(o["villes"]["liste"].as_array().unwrap().len(), 8);
+        // Contre-épreuve : une lettre, ou une demande mal formée
+        assert_eq!(reponse_metiers(&json!({ "k": "rf:mots", "texte": "h" })).unwrap()["villes"]["liste"], json!([]));
+        assert_eq!(reponse_metiers(&json!({ "k": "<script>", "texte": "helpdesk" })), None);
+        assert_eq!(reponse_metiers(&json!({ "k": "rf:mots", "texte": "x".repeat(81) })), None);
     }
 }

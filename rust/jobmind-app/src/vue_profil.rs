@@ -9,7 +9,7 @@ use jobmind_core::Jour;
 use jobmind_core::cle::{Cle, Service};
 use jobmind_core::lieux::{DEPARTEMENTS, REGIONS};
 use jobmind_core::profil::{CV_NOMBRE_MAX, CV_TEXTE_MAX, STYLE_NOMBRE_MAX, STYLE_TEXTE_MAX, debut, mots};
-use jobmind_core::recherche::{Contrat, GenreLieu, Lieu, RAYON_DEFAUT, RAYONS, Recherche, Teletravail};
+use jobmind_core::recherche::{Contrat, Criteres, GenreLieu, RAYONS, Recherche, Teletravail, milliers};
 use jobmind_storage::cles::EtatCle;
 use jobmind_storage::profil::{Cv, GenreCv, TexteStyle};
 use serde_json::{Value, json};
@@ -24,6 +24,8 @@ pub struct VueProfil {
     pub style: Vec<TexteStyle>,
     pub style_ouvert: Option<i64>,
     pub recherche: Option<Recherche>,
+    /// 0.1.8 : les critères communs à toutes les recherches (contrats, télétravail, diplôme, salaire)
+    pub criteres: Criteres,
     /// Étape 9 : « Mes règles » de la rubrique Mon style (crate::style, `vue`)
     pub regles: Value,
     /// Chaque partie de clé, et ce que l'écran en sait (rien : pas encore donnée)
@@ -38,6 +40,13 @@ pub static VIDE: VueProfil = VueProfil {
     style: Vec::new(),
     style_ouvert: None,
     recherche: None,
+    criteres: Criteres {
+        contrats: Vec::new(),
+        teletravail: Teletravail::PeuImporte,
+        sans_diplome: false,
+        debutant: false,
+        salaire_min: None,
+    },
     regles: Value::Null,
     cles: Vec::new(),
 };
@@ -172,36 +181,25 @@ fn rubrique_cv(v: &VueProfil, aujourdhui: Jour) -> Value {
 fn rubrique_recherche(v: &VueProfil) -> Value {
     let r = v.recherche.as_ref();
     let sous = r.map_or_else(|| "Rien de noté pour l'instant".to_string(), Recherche::resume);
-    let (lieu, ville, rayon, departement, region) = match r.map(|r| &r.lieu) {
-        Some(Lieu::Ville { nom, rayon }) => ("ville", nom.as_str(), *rayon, "", ""),
-        Some(Lieu::Departement(d)) => ("departement", "", RAYON_DEFAUT, d.code, ""),
-        Some(Lieu::Region(x)) => ("region", "", RAYON_DEFAUT, "", x.code),
-        Some(Lieu::Partout) => ("partout", "", RAYON_DEFAUT, "", ""),
-        None => ("ville", "", RAYON_DEFAUT, "", ""),
-    };
+    // (0.1.8 : les postes et les lieux sont dans le tableau des recherches, que la page prend dans l'onglet Offres)
+    let k = &v.criteres;
     let valeurs = json!({
-        "postes": r.map(|r| r.postes.join(", ")).unwrap_or_default(),
-        "lieu": lieu,
-        "ville": ville,
-        "rayon": rayon,
-        "departement": departement,
-        "region": region,
-        "contrats": r.map(|r| r.contrats.iter().map(|c| c.code()).collect::<Vec<_>>()).unwrap_or_default(),
-        "teletravail": r.map_or(Teletravail::PeuImporte, |r| r.teletravail).code(),
-        "sans_diplome": r.is_some_and(|r| r.sans_diplome),
-        "debutant": r.is_some_and(|r| r.debutant),
-        "salaire": r.and_then(|r| r.salaire_min).map(|n| n.to_string()).unwrap_or_default(),
+        "contrats": k.contrats.iter().map(|c| c.code()).collect::<Vec<_>>(),
+        "teletravail": k.teletravail.code(),
+        "sans_diplome": k.sans_diplome,
+        "debutant": k.debutant,
+        "salaire": k.salaire_min.map(|n| n.to_string()).unwrap_or_default(),
     });
-    let bilan: Vec<String> = match r {
-        Some(r) => {
-            let mut l = vec![r.lieu.texte(), r.contrats_texte()];
-            if let Some(s) = r.salaire_texte() {
-                l.push(s);
-            }
-            l
-        }
-        None => Vec::new(),
-    };
+    let mut bilan: Vec<String> = Vec::new();
+    if let Some(r) = r {
+        bilan.push(r.lieu.texte());
+    }
+    if !k.contrats.is_empty() {
+        bilan.push(k.contrats.iter().map(|c| c.nom()).collect::<Vec<_>>().join(", "));
+    }
+    if let Some(n) = k.salaire_min {
+        bilan.push(format!("{} € brut par mois au moins", milliers(n)));
+    }
     json!({
         "id": "recherche",
         "nom": "Ce que je cherche",
@@ -211,8 +209,7 @@ fn rubrique_recherche(v: &VueProfil) -> Value {
             "vue": "recherche",
             "icone": "cible",
             "titre": "Ce que je cherche",
-            "intro": "Jobmind s'en servira pour chercher les offres et les trier. Les autres offres resteront \
-                      visibles, rangées à part.",
+            "intro": "Tes recherches : un poste et un lieu pour chacune. Jobmind s'en sert pour chercher les offres et les trier.",
             "valeurs": valeurs,
             "enregistree": r.is_some(),
             "bilan": bilan,
@@ -223,9 +220,9 @@ fn rubrique_recherche(v: &VueProfil) -> Value {
             "liste_contrats": Contrat::TOUS.iter().map(|c| json!({ "id": c.code(), "nom": c.nom() })).collect::<Vec<_>>(),
             "liste_teletravail": Teletravail::TOUS.iter().map(|t| json!({ "id": t.code(), "nom": t.nom() })).collect::<Vec<_>>(),
             "textes": textes(&[
-                ("postes", "Les postes ou les mots que je cherche"),
-                ("i_postes", "Par exemple : agent de quai, cariste, vendeur"),
-                ("postes_aide", "N'importe quel métier. Sépare-les par des virgules. Vide : tous les métiers du lieu."),
+                ("recherches", "Mes recherches"),
+                ("sans_recherche", "Aucune recherche pour l'instant. Ajoute la première : un poste, et où tu le cherches."),
+                ("criteres", "Pour toutes mes recherches"),
                 ("lieu", "Où"),
                 ("ville", "Ville"),
                 ("i_ville", "Par exemple : Metz"),
@@ -246,6 +243,7 @@ fn rubrique_recherche(v: &VueProfil) -> Value {
                 ("salaire_aide", "En euros, brut par mois."),
                 ("enregistrer", "Enregistrer"),
                 ("deja", "Enregistré. Change ce que tu veux, puis « Enregistrer »."),
+                ("enregistrer_criteres", "Enregistrer mes critères"),
             ]),
         },
     })
@@ -488,6 +486,13 @@ pub(crate) mod tests {
                 },
             ],
             style_ouvert: Some(2),
+            criteres: Criteres {
+                contrats: r.contrats.clone(),
+                teletravail: r.teletravail,
+                sans_diplome: r.sans_diplome,
+                debutant: r.debutant,
+                salaire_min: r.salaire_min,
+            },
             recherche: Some(r),
             regles: Value::Null,
             cles: vec![(Cle::Claude, Some(EtatCle::Illisible))],

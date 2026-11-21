@@ -302,6 +302,43 @@ pub fn verifier_recherche(s: &SaisieRecherche) -> Result<Recherche, String> {
     if postes.is_empty() && lieu == Lieu::Partout {
         return Err(SANS_POSTE_NI_LIEU.into());
     }
+    let c = verifier_criteres(s)?;
+    Ok(Recherche {
+        postes,
+        lieu,
+        contrats: c.contrats,
+        teletravail: c.teletravail,
+        sans_diplome: c.sans_diplome,
+        debutant: c.debutant,
+        salaire_min: c.salaire_min,
+    })
+}
+
+/// Les critères de « Ce que je cherche » qui valent pour toutes les recherches (0.1.8 : les postes et les lieux sont
+/// dans le tableau des recherches, [`crate::recherches`]) : les contrats, le télétravail, le diplôme, le salaire.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Criteres {
+    pub contrats: Vec<Contrat>,
+    pub teletravail: Teletravail,
+    pub sans_diplome: bool,
+    pub debutant: bool,
+    pub salaire_min: Option<u32>,
+}
+
+impl Default for Criteres {
+    fn default() -> Self {
+        Criteres {
+            contrats: Vec::new(),
+            teletravail: Teletravail::PeuImporte,
+            sans_diplome: false,
+            debutant: false,
+            salaire_min: None,
+        }
+    }
+}
+
+/// Vérifie les critères envoyés par la page (les postes et le lieu de la saisie ne sont pas regardés).
+pub fn verifier_criteres(s: &SaisieRecherche) -> Result<Criteres, String> {
     let mut contrats = Vec::new();
     for c in &s.contrats {
         let c = Contrat::depuis_code(c).ok_or("Ce type de contrat n'existe pas.")?;
@@ -312,15 +349,7 @@ pub fn verifier_recherche(s: &SaisieRecherche) -> Result<Recherche, String> {
     contrats.sort();
     let teletravail = Teletravail::depuis_code(&s.teletravail).ok_or("Choisis ce que tu veux pour le télétravail.")?;
     let salaire_min = lire_salaire(&s.salaire)?;
-    Ok(Recherche {
-        postes,
-        lieu,
-        contrats,
-        teletravail,
-        sans_diplome: s.sans_diplome,
-        debutant: s.debutant,
-        salaire_min,
-    })
+    Ok(Criteres { contrats, teletravail, sans_diplome: s.sans_diplome, debutant: s.debutant, salaire_min })
 }
 
 impl Recherche {

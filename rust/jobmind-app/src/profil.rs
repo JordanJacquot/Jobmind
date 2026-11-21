@@ -17,7 +17,7 @@ use jobmind_core::profil::{
     CV_NOMBRE_MAX, CV_TEXTE_MAX, STYLE_NOMBRE_MAX, couper, nettoyer_texte, nom_depuis_fichier, verifier_nom_cv,
     verifier_style, verifier_texte_cv,
 };
-use jobmind_core::recherche::{SaisieRecherche, verifier_recherche};
+use jobmind_core::recherche::{SaisieRecherche, verifier_criteres};
 use jobmind_lecture::{Erreur, Format, Lu, TAILLE_MAX};
 use jobmind_storage::cles::Cles;
 use jobmind_storage::profil::{self, GenreCv, NouveauCv};
@@ -166,6 +166,7 @@ impl Profil {
                 v.style = style;
                 v.style_ouvert = self.style_ouvert;
                 v.recherche = recherche;
+                v.criteres = profil::lire_criteres(c).unwrap_or_default();
                 v.regles = crate::style::vue(Some(b));
                 (v, None)
             }
@@ -511,7 +512,8 @@ impl Profil {
     }
 }
 
-/// « Ce que je cherche » : vérifié puis enregistré.
+/// « Ce que je cherche », les critères communs (0.1.8 : les postes et les lieux sont dans le tableau des recherches,
+/// offres.rs) : vérifiés puis enregistrés.
 fn recherche(base: &Base, v: &Value, maintenant: Moment) -> rusqlite::Result<Fait> {
     let contrats: Vec<String> = v
         .get("contrats")
@@ -531,7 +533,7 @@ fn recherche(base: &Base, v: &Value, maintenant: Moment) -> rusqlite::Result<Fai
         debutant: v.get("debutant").and_then(Value::as_bool).unwrap_or(false),
         salaire: texte(v, "salaire"),
     };
-    let r = match verifier_recherche(&s) {
+    let r = match verifier_criteres(&s) {
         Ok(r) => r,
         Err(m) => {
             return Ok(Fait {
@@ -541,12 +543,12 @@ fn recherche(base: &Base, v: &Value, maintenant: Moment) -> rusqlite::Result<Fai
             });
         }
     };
-    profil::enregistrer_recherche(base.connexion(), &r, maintenant)?;
+    profil::enregistrer_criteres(base.connexion(), &r, maintenant)?;
     Ok(Fait {
-        message: Some("C'est enregistré. Jobmind s'en servira pour chercher et trier les offres.".into()),
+        message: Some("C'est enregistré. Jobmind s'en servira pour trier les offres.".into()),
         bravo: true,
         ordre: Some(json!({ "kit": "accueil", "recherche": "enregistree" })),
-        journal: Some(format!("Profil : recherche enregistrée ({} postes)", r.postes.len())),
+        journal: Some("Profil : critères enregistrés".into()),
         change: true,
         ..Fait::default()
     })
@@ -742,10 +744,13 @@ mod tests {
         let f = p.geste(&mut ctx, RECHERCHE, &saisie, m(9));
         assert!(f.bravo, "{f:?}");
         let mut faux = saisie.clone();
-        faux["departement"] = json!("99");
+        // (0.1.8 : seuls les critères sont gardés ici ; les postes et le lieu envoyés ne sont plus regardés)
+        assert_eq!(profil::lire_recherche(b.connexion()).unwrap(), None);
+        assert_eq!(profil::lire_criteres(b.connexion()).unwrap().contrats.len(), 2);
+        faux["salaire"] = json!("beaucoup");
         assert_eq!(
             p.geste(&mut ctx, RECHERCHE, &faux, m(9)).message.as_deref(),
-            Some("Choisis un département dans la liste.")
+            Some("Le salaire s'écrit en chiffres, par exemple 1 800.")
         );
         // Le style : ajouté, ouvert, supprimé
         let f = p.geste(&mut ctx, STYLE_AJOUTER, &json!({ "titre": "", "texte": "Bonjour, je vous écris pour la place au magasin. J'ai fait un an de vente à Metz." }), m(9));
