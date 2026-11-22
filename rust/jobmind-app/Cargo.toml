@@ -1,6 +1,6 @@
 [package]
 name = "jobmind-app"
-version = "0.1.8"
+version = "0.1.9"
 description = "Jobmind en Rust : le programme (Mindset.exe dans le dossier de Jobmind), sa fenêtre Tauri dans Mindset"
 edition.workspace = true
 license.workspace = true
