@@ -1,8 +1,10 @@
 # Construction d'une version de Jobmind sur GitHub, depuis le dépôt (jamais depuis un PC), puis signature Authenticode
 # gratuite par SignPath Foundation (même modèle que Mindset, Nevermind et Mindcare). Jobmind est seulement en Rust.
 #
-# Lancement : un tag v<version du Cargo.toml de rust\jobmind-app>, ou à la main (workflow_dispatch : c'est ce que
-# fait outils\zip-rust-github.ps1, appelé par outils\publier.ps1, quand GitHub n'a pas encore construit le commit).
+# Lancement : à la main seulement (workflow_dispatch : c'est ce que fait outils\zip-rust-github.ps1, appelé par
+# outils\publier.ps1, quand GitHub n'a pas encore construit le commit). Plus au tag v<version> (22/11/2026) : le tag
+# est posé APRÈS la publication, sur un commit déjà construit ; cette seconde construction ne servait à rien et
+# coûtait 13 minutes de machine à chaque version (dépôt privé, minutes comptées).
 #
 # Déroulé :
 #   1. « construire » : Rust 1.99.1 (rust-toolchain.toml), règles Tauri de la suite (verifier-tauri.ps1 du dépôt
@@ -26,9 +28,6 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 permissions:
