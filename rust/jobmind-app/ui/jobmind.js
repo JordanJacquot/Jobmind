@@ -31,7 +31,7 @@
 // - les sites en coulisse (étape 5 bis) : en haut de la liste des offres, la liste déroulante « Où chercher »
 //   (France Travail d'abord, puis LinkedIn, Indeed, Welcome to the Jungle, ou « Mes offres gardées », sans
 //   recherche : 'cs-source') ; un site choisi, « Chercher sur LinkedIn » ('cs-chercher'),
-//   ses résultats lus par Rust en coulisse ('cs-ouvrir', « Page suivante » : 'cs-suivante'), l'offre ouverte
+//   ses résultats lus par Rust en coulisse ('cs-ouvrir', « Voir plus d'offres » : 'cs-suivante'), l'offre ouverte
 //   (« Ajouter à Jobmind » : 'cs-ajouter', « Voir la page du site » : 'cs-voir') ; la carte de connexion de Jobmind
 //   ('cs-connecter') ; la petite fenêtre du site, où Rust pose la vraie page (sa place : 'cs-zone') ; Réglages :
 //   « Me déconnecter de tous les sites » ('cs-deconnecter') ;

@@ -209,14 +209,18 @@ fn liste_offre_et_ajout() {
     assert_eq!(c.vue(jour())["fiche"]["ajoutee"], id);
     // Le même résultat rouvert : rien de rechargé
     assert!(c.geste(Some(&b), OUVRIR, &json!({ "i": 1 }), m(9, 4)).coulisse.is_empty());
-    // « Page suivante » : la page 2, sur ce clic seulement
+    // « Voir plus d'offres » : la page 2, sur ce clic seulement
     let f = c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 5));
     assert!(charge(&f).ends_with("&start=25"), "{f:?}");
     charger_et_lire(&mut c, Some(&b), &mut n, &f);
     let v = c.vue(jour());
-    assert_eq!(v["liste"]["lignes"].as_array().unwrap().len(), 3);
+    // (0.1.9 : ses 3 offres s'ajoutent sous les 6 de la page 1, l'offre ouverte reste ouverte)
+    assert_eq!(v["liste"]["lignes"].as_array().unwrap().len(), 9);
+    assert_eq!(v["liste"]["lignes"][0]["titre"], "Cariste H/F");
+    assert_eq!(v["liste"]["lignes"][1]["sel"], true);
     assert_eq!(v["liste"]["suivante"], false);
-    assert_eq!(v["liste"]["sous"], "Page 2, 3 offres");
+    assert_eq!(v["liste"]["sous"], "9 offres, 2 pages");
+    assert_eq!(v["textes"]["suivante"], "Voir plus d'offres");
     assert!(c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 6)).coulisse.is_empty());
     // « Voir dans mes offres »
     let f = c.geste(Some(&b), VOIR_OFFRE, &json!({ "id": id }), m(9, 7));

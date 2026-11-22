@@ -457,8 +457,12 @@ fn page_suivante_sans_rien_derriere() {
     let page1 = n.html.clone();
     assert!(c.liste_de(Site::FranceTravail).unwrap().suivante);
     let f = c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 4));
-    // (pendant le chargement, les offres de la page 1 sont mises de côté)
-    assert!(c.liste_de(Site::FranceTravail).unwrap().precedente.as_ref().is_some_and(|(p, r)| *p == 1 && r.len() == 6));
+    // (pendant le chargement, les offres de la page 1 restent à l'écran)
+    let l = c.liste_de(Site::FranceTravail).unwrap();
+    assert_eq!((l.precedente, l.resultats.len()), (Some(1), 6));
+    let v = c.vue(jour());
+    assert_eq!(v["liste"]["lignes"].as_array().unwrap().len(), 6);
+    assert!(v["liste"]["sous"].as_str().unwrap().starts_with("Page 1, 6 offres"), "{v}");
     n.aller(&charge(&f));
     n.html = page1;
     let p = c.page_chargee(&n.adresse);
@@ -482,12 +486,16 @@ fn page_suivante_sans_rien_derriere() {
     assert!(f.journal.as_deref().unwrap().contains("LECTURE CASSÉE"), "{f:?}");
     let l = c.liste_de(Site::FranceTravail).unwrap();
     assert_eq!((l.page, l.resultats.len(), l.suivante), (1, 6, false));
-    // 3. Une vraie page 2 : elle remplace la page 1
+    // 3. Une vraie page 2 (0.1.9) : ses offres s'ajoutent à la suite, celles de la page 1 gardent leur rang
     let (mut c, mut n, _) = liste_ft(&b, rid);
+    let avant: Vec<String> = c.liste_de(Site::FranceTravail).unwrap().resultats.iter().map(|r| r.url.clone()).collect();
     let f = c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 4));
     charger_et_lire(&mut c, Some(&b), &mut n, &f);
     let l = c.liste_de(Site::FranceTravail).unwrap();
-    assert_eq!((l.page, l.resultats.len(), l.precedente.is_none()), (2, 3, true));
+    assert_eq!((l.page, l.resultats.len(), l.precedente.is_none()), (2, 9, true));
+    assert!(l.resultats.iter().zip(&avant).all(|(r, u)| &r.url == u));
+    assert!(!l.lecture.finie);
+    assert!(c.vue(jour())["liste"]["sous"].as_str().unwrap().starts_with("9 offres, 2 pages"));
 }
 
 /// 0.1.6 : le chiffre de l'onglet Offres compte les offres du site à l'écran ; rien sans liste.

@@ -5,7 +5,7 @@
 //!
 //! - l'onglet Offres choisit une source ([`SOURCE`]) : un des quatre sites (France Travail au lancement), ou « Mes
 //!   offres gardées » (l'archive, sans recherche) ; « Chercher sur LinkedIn » construit l'adresse de la page de
-//!   résultats pour la recherche choisie, la charge en coulisse, la lit et montre la liste ; « Page suivante » sur un
+//!   résultats pour la recherche choisie, la charge en coulisse, la lit et montre la liste ; « Voir plus d'offres » sur un
 //!   clic seulement ;
 //! - un résultat ouvert est chargé en coulisse et lu comme à l'étape 5 (jobmind_sources::page), puis montré comme une
 //!   offre ; « Ajouter à Jobmind » la garde dans l'archive, « Voir la page du site » ouvre la petite fenêtre ;
@@ -58,7 +58,7 @@ pub const DOSSIER: &str = "panneau-sites";
 /// Étape 11 : une candidature sur un site occupe la vue des sites.
 const OCCUPE_PO: &str = "Une candidature est en cours sur un site : termine-la ou ferme-la d'abord.";
 /// Welcome to the Jungle cherche d'abord par métier, puis par lieu (sites::metier_obligatoire)
-const PLUS_DE_PAGE: &str = "Il n'y a pas d'autre page d'offres pour cette recherche : la page d'avant reste affichée.";
+const PLUS_DE_PAGE: &str = "Il n'y a pas d'autre offre pour cette recherche : tu as tout vu.";
 const SANS_METIER: &str =
     "Welcome to the Jungle cherche d'abord par métier : écris un métier dans ta recherche, puis relance.";
 
@@ -339,9 +339,10 @@ pub struct ListeSite {
     pub ouvert: Option<usize>,
     /// 0.1.4 : la lecture automatique des offres de cette page
     pub lecture: Auto,
-    /// 0.1.6 : pendant « Page suivante », la page d'avant et ses offres, remises si la suivante est vide, illisible ou
-    /// pareille (avant, la liste était vidée au clic : rien derrière, plus aucune offre, remarque de Jordan 21/11/2026)
-    pub precedente: Option<(u32, Vec<Resultat>)>,
+    /// Pendant « Voir plus d'offres » : le numéro de la page d'avant, remis si la suivante est vide, illisible ou
+    /// pareille. 0.1.9 : les offres déjà montrées restent dans `resultats`, celles de la page suivante s'ajoutent à la
+    /// suite (avant, la liste repartait de zéro avec la page 2 seule, remarque de Jordan 22/11/2026).
+    pub precedente: Option<u32>,
 }
 
 /// La lecture automatique des offres d'une page de résultats (0.1.4).
@@ -1026,18 +1027,17 @@ impl Coulisse {
         }
     }
 
-    /// La page d'avant remise après une page suivante vide, pareille ou illisible ; plus de « Page suivante » (vrai :
-    /// il y avait une page d'avant).
+    /// Le numéro de la page d'avant remis après une page suivante vide, pareille ou illisible ; plus de « Voir plus
+    /// d'offres » (vrai : il y avait une page d'avant). Les offres n'ont pas bougé.
     fn revenir_page(&mut self, s: Site) -> bool {
         let Some(l) = self.liste_de_mut(s) else { return false };
-        let Some((page, resultats)) = l.precedente.take() else { return false };
+        let Some(page) = l.precedente.take() else { return false };
         l.page = page;
-        l.resultats = resultats;
         l.suivante = false;
         true
     }
 
-    /// « Page suivante » : la page d'après, sur ce clic seulement.
+    /// « Voir plus d'offres » : la page d'après, sur ce clic seulement ; ses offres s'ajouteront à la suite.
     fn suivante(&mut self) -> Fait {
         let Some(s) = self.source else { return Fait::default() };
         if self.po_occupe() {
@@ -1052,11 +1052,9 @@ impl Coulisse {
         let page = l.page + 1;
         let Some(adresse) = sites::adresse_recherche(s, &l.mots, &l.lieu, page) else { return Fait::default() };
         if let Some(l) = self.liste_de_mut(s) {
-            l.precedente = Some((l.page, std::mem::take(&mut l.resultats)));
+            l.precedente = Some(l.page);
             l.page = page;
-            l.ouvert = None;
             l.suivante = false;
-            l.lecture = Auto::default();
         }
         self.annonces[indice(s)] = None;
         let o = self.charger(s, But::Liste, adresse);
@@ -1664,11 +1662,12 @@ impl Coulisse {
         }
         match a.but {
             But::Liste => {
-                // (0.1.6 : une page suivante qui ne montre que des offres de la page d'avant : il n'y a rien derrière)
+                // (0.1.6 : une page suivante qui ne montre que des offres déjà dans la liste : il n'y a rien derrière)
                 let pareille = !c.liste.resultats.is_empty()
-                    && self.liste_de(a.site).and_then(|l| l.precedente.as_ref()).is_some_and(|(_, avant)| {
-                        c.liste.resultats.iter().all(|r| avant.iter().any(|x| x.url == r.url))
-                    });
+                    && self
+                        .liste_de(a.site)
+                        .filter(|l| l.precedente.is_some())
+                        .is_some_and(|l| c.liste.resultats.iter().all(|r| l.resultats.iter().any(|x| x.url == r.url)));
                 if (pareille || c.aucun_resultat) && self.revenir_page(a.site) {
                     self.attente = None;
                     self.dire(a.site, annonce(PLUS_DE_PAGE, "attention", None));
@@ -1688,10 +1687,19 @@ impl Coulisse {
                     let lu_par = c.liste.lu_par;
                     let page = self.liste_de(a.site).map_or(1, |x| x.page);
                     if let Some(x) = self.liste_de_mut(a.site) {
-                        x.resultats = c.liste.resultats;
+                        if x.precedente.take().is_some() {
+                            // (0.1.9 : la page suivante s'ajoute à la suite ; une offre déjà dans la liste n'y est
+                            // pas remise, les rangs des offres déjà montrées ne bougent pas)
+                            for r in c.liste.resultats {
+                                if !x.resultats.iter().any(|d| d.url == r.url) {
+                                    x.resultats.push(r);
+                                }
+                            }
+                        } else {
+                            x.resultats = c.liste.resultats;
+                        }
                         x.suivante = c.liste.suivante;
-                        x.precedente = None;
-                        // (0.1.4 : la lecture automatique de ses offres commence après la pause)
+                        // (0.1.4 : la lecture automatique des offres pas encore lues commence après la pause)
                         x.lecture = Auto::default();
                     }
                     self.relire_retirees(base);
@@ -2112,7 +2120,7 @@ impl Coulisse {
                 "ou_t": "Où chercher",
                 "connecte": "Connecté",
                 "chercher": "Chercher sur {site}",
-                "suivante": "Page suivante",
+                "suivante": "Voir plus d'offres",
                 "voir": "Voir la page du site",
                 "ajouter": "Ajouter à Jobmind",
                 "ajoutee": "Ajoutée à tes offres",
@@ -2222,10 +2230,13 @@ impl Coulisse {
                 "retiree": retiree,
             }));
         }
-        let mut sous = match l.resultats.len() {
-            0 => format!("Page {}", l.page),
-            1 => format!("Page {}, 1 offre", l.page),
-            n => format!("Page {}, {n} offres", l.page),
+        // (0.1.9 : les pages s'ajoutent ; pendant le chargement de la suivante, le compte reste celui des pages lues)
+        let pages = l.precedente.unwrap_or(l.page);
+        let mut sous = match (l.resultats.len(), pages) {
+            (0, p) => format!("Page {p}"),
+            (1, 1) => "Page 1, 1 offre".to_string(),
+            (n, 1) => format!("Page 1, {n} offres"),
+            (n, p) => format!("{n} offres, {p} pages"),
         };
         if pas_lues > 0 {
             sous.push_str(&format!(", {pas_lues} pas encore lue{}", if pas_lues > 1 { "s" } else { "" }));
