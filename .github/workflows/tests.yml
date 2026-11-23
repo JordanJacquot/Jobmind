@@ -2,15 +2,17 @@
 # PowerShell 5.1. Aucune fenêtre ne s'ouvre à l'écran de personne, rien n'est installé ni modifié sur la machine en
 # dehors des dossiers temporaires.
 #
-# Lancement (22/11/2026) : plus à chaque envoi (push). Le dépôt est privé, ses minutes de machine GitHub sont comptées
-# (Windows compte double) et un passage dure environ 27 minutes : le quota gratuit du mois a été vidé en trois jours.
-# Les tests tournent maintenant UNE fois par publication, sur le commit publié : outils\zip-rust-github.ps1 (appelé par
-# outils\publier.ps1) les lance s'ils n'ont pas encore tourné pour ce commit, puis attend qu'ils réussissent. On peut
-# aussi les lancer à la main : gh workflow run tests.yml --ref main. Entre deux publications, les mêmes contrôles se
-# font sur le PC (cargo test, clippy, fmt).
+# Lancement : à chaque envoi sur une branche (jamais sur un tag : le tag d'une version est posé sur un commit déjà
+# testé), à chaque demande de fusion, ou à la main (gh workflow run tests.yml --ref main). Le dépôt est public depuis le
+# 23/11/2026 : les machines de GitHub y sont gratuites. Tant qu'il était privé, le quota gratuit du mois avait été vidé
+# en trois jours (27 minutes par passage, Windows compte double) : s'il redevient privé, retirer « push » ici ;
+# outils\zip-rust-github.ps1 lance alors lui-même les tests du commit publié.
 name: Tests
 
 on:
+  push:
+    branches:
+      - '**'
   workflow_dispatch:
   pull_request:
 

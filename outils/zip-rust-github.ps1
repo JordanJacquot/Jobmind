@@ -4,8 +4,8 @@
 # commit (vérifier seulement qu'une attestation existe ne suffit pas). Sinon : erreur, et la publication est annulée
 # avant toute signature. Sans ça, la signature de Jordan couvrirait un fichier qu'on aurait pu remplacer en route.
 # Avant, les tests de GitHub de ce commit (.github\workflows\tests.yml : tests Rust, contrat de la suite avec le vrai
-# Mindset, cargo deny...) doivent avoir réussi. Ils ne tournent plus à chaque envoi (22/11/2026, minutes de machine
-# comptées sur ce dépôt privé) : s'ils n'ont jamais tourné pour ce commit, ce script les lance, une seule fois.
+# Mindset, cargo deny...) doivent avoir réussi. GitHub les lance à chaque envoi ; si une minute après aucune exécution
+# n'existe pour ce commit (tests.yml sans « push », comme quand le dépôt était privé), ce script les lance, une seule fois.
 #
 #   & '.\outils\zip-rust-github.ps1'             le chemin du Jobmind.zip vérifié ; si GitHub ne l'a pas encore construit
 #                                                pour ce commit, la construction est lancée (le commit doit déjà être
@@ -57,11 +57,13 @@ function Get-VerdictTests($Executions) {
 if (-not $SansTest) {
     $limite = (Get-Date).AddMinutes(40)
     $testsLances = $false
+    $debutTests = Get-Date
     while ($true) {
         $t = @(Get-Executions 'tests.yml')
         $v = Get-VerdictTests $t
-        # (aucune exécution pour ce commit : les tests sont lancés ici, une seule fois ; jamais en essai)
-        if ($v -eq 'absent' -and -not $Essai -and -not $testsLances) {
+        # (toujours aucune exécution pour ce commit après une minute, le temps que celle de l'envoi apparaisse : les
+        # tests sont lancés ici, une seule fois ; jamais en essai)
+        if ($v -eq 'absent' -and -not $Essai -and -not $testsLances -and ((Get-Date) - $debutTests).TotalSeconds -gt 60) {
             $brancheTests = ((Invoke-Outil git @('-C', $racine, 'rev-parse', '--abbrev-ref', 'HEAD')) -join '').Trim()
             if ($brancheTests -eq 'HEAD') { throw 'Publication annulée : aucune branche en cours (HEAD détaché).' }
             Write-Host "Tests de GitHub (tests.yml) lancés pour le commit $commit : environ 30 minutes..."
