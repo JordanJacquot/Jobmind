@@ -51,14 +51,14 @@ fn ordre_rythme_et_fin() {
     assert_eq!(v["liste"]["lecture"]["finie"], false);
     assert!(v["liste"]["lecture"]["arret"].is_null());
     assert_eq!(v["liste"]["lignes"][0]["etat"], "attente");
-    // Rien avant la pause de 4 secondes
+    // Rien avant la pause de 2 secondes
     assert_eq!(c.lecture_auto(t0, true), Fait::default());
-    assert_eq!(c.lecture_auto(t0 + SECONDE * 3, true), Fait::default());
+    assert_eq!(c.lecture_auto(t0 + SECONDE, true), Fait::default());
     let mut t = t0;
     for i in 0..6 {
-        // (la pause compte depuis la fin de la lecture d'avant : rien avant 4 secondes, puis l'offre suivante)
+        // (la pause compte depuis la fin de la lecture d'avant : rien avant 2 secondes, puis l'offre suivante)
         assert!(c.lecture_auto(t, true).coulisse.is_empty());
-        assert!(c.lecture_auto(t + SECONDE * 3, true).coulisse.is_empty(), "offre {i} trop tôt");
+        assert!(c.lecture_auto(t + SECONDE, true).coulisse.is_empty(), "offre {i} trop tôt");
         let f = c.lecture_auto(t + PAUSE_LECTURE_AUTO, true);
         assert_eq!(charge(&f), url(&c, i), "dans l'ordre");
         assert_eq!(c.attente.as_ref().unwrap().but, But::Lecture(i));
@@ -185,7 +185,7 @@ fn pause_pendant_une_connexion_une_petite_fenetre_ou_jobmind_cachee() {
     // De nouveau à l'écran : la pause recommence entière
     let t = t0 + SECONDE * 30;
     assert!(c.lecture_auto(t, true).coulisse.is_empty());
-    assert!(c.lecture_auto(t + SECONDE * 3, true).coulisse.is_empty());
+    assert!(c.lecture_auto(t + SECONDE, true).coulisse.is_empty());
     // Une petite fenêtre ouverte (une vérification) : rien
     c.petite =
         Some(Petite { raison: Raison::Captcha, site: Site::FranceTravail, offre: false, lecture: None, annonce: None });
@@ -272,7 +272,7 @@ fn arret_sur_un_captcha_une_page_illisible_ou_un_site_muet() {
     let r = c.lu(Some(&b), lire_no(&p), n.lecture(), m(9, 1));
     assert!(c.petite.is_none() && !r.coulisse.contains(&Ordre::Montrer), "{r:?}");
     assert!(c.vue(jour())["liste"]["lecture"]["arret"].as_str().unwrap().contains("vérifier que tu es une personne"));
-    // 2. Une offre illisible : relue sans recharger, puis arrêtée
+    // 2. Une offre illisible (0.1.10) : relue sans recharger, puis sautée ; la lecture continue avec la suivante
     let (mut c, mut n, t0) = liste_ft(&b, rid);
     let (_, f) = jusqu_au_chargement(&mut c, t0, 10).unwrap();
     n.aller(&charge(&f));
@@ -284,9 +284,61 @@ fn arret_sur_un_captcha_une_page_illisible_ou_un_site_muet() {
         r = c.lu(Some(&b), lire_no(&r), n.lecture(), m(9, 1));
     }
     assert!(r.coulisse.is_empty());
-    assert!(r.journal.unwrap().contains("lecture automatique arrêtée"));
+    assert!(r.journal.unwrap().contains("offre 1 de francetravail sautée, la lecture continue"));
     assert!(c.annonces[3].is_none(), "aucune annonce : Jordan n'a rien demandé");
-    assert!(c.vue(jour())["liste"]["lecture"]["arret"].as_str().unwrap().contains("n'arrive pas à lire une offre"));
+    let v = c.vue(jour());
+    assert!(v["liste"]["lecture"]["arret"].is_null(), "{v}");
+    assert_eq!(v["liste"]["lignes"][0]["etat"], "sautee");
+    assert_eq!(v["textes"]["l_sautee"], "Pas lue, clique pour l'ouvrir");
+    let (_, f) = jusqu_au_chargement(&mut c, t0, 10).unwrap();
+    assert_eq!(charge(&f), url(&c, 1), "l'offre sautée n'est pas réessayée");
+    // Une offre que le site dit disparue : sautée tout de suite, sans relecture
+    let disparue = "<html><head><title>Offre indisponible | France Travail</title></head><body><h1>Offre non disponible</h1><p>L'offre consultée n'existe pas.</p></body></html>";
+    n.aller(&charge(&f));
+    n.html = disparue.into();
+    let p = c.page_chargee(&n.adresse);
+    let r = c.lu(Some(&b), lire_no(&p), n.lecture(), m(9, 1));
+    assert!(r.coulisse.is_empty(), "{r:?}");
+    assert!(r.journal.unwrap().contains("offre 2 de francetravail sautée, la lecture continue (offre plus en ligne"));
+    // Trois offres sautées de suite : la lecture automatique s'arrête
+    let (_, f) = jusqu_au_chargement(&mut c, t0, 10).unwrap();
+    assert_eq!(charge(&f), url(&c, 2));
+    n.aller(&charge(&f));
+    n.html = disparue.into();
+    let p = c.page_chargee(&n.adresse);
+    let r = c.lu(Some(&b), lire_no(&p), n.lecture(), m(9, 1));
+    assert!(r.journal.unwrap().contains("lecture automatique arrêtée sur francetravail (3 offres illisibles de suite"));
+    assert!(c.annonces[3].is_none());
+    let v = c.vue(jour());
+    assert!(v["liste"]["lecture"]["arret"].as_str().unwrap().contains("plusieurs offres de suite"), "{v}");
+    assert!(jusqu_au_chargement(&mut c, t0, 10).is_none());
+    // Une offre lue entre deux offres sautées : le compte repart de zéro, la lecture va au bout
+    let (mut c, mut n, t0) = liste_ft(&b, rid);
+    for i in 0..6 {
+        let (_, f) = jusqu_au_chargement(&mut c, t0, 10).unwrap();
+        assert_eq!(charge(&f), url(&c, i));
+        if i % 2 == 0 {
+            n.aller(&charge(&f));
+            n.html = disparue.into();
+            let p = c.page_chargee(&n.adresse);
+            c.lu(Some(&b), lire_no(&p), n.lecture(), m(9, 1));
+        } else {
+            lire_tout(&mut c, &b, &mut n, &f);
+        }
+    }
+    c.lecture_auto(t0 + SECONDE * 20, true);
+    c.lecture_auto(t0 + SECONDE * 30, true);
+    let v = c.vue(jour());
+    assert_eq!(v["liste"]["lecture"]["finie"], true, "{v}");
+    assert!(v["liste"]["lecture"]["texte"].as_str().unwrap().contains("sauf 3 que Jobmind n'arrive pas à lire"), "{v}");
+    // Jordan clique sur une offre disparue : une phrase claire, rien de cassé
+    let f = c.geste(Some(&b), OUVRIR, &json!({ "i": 0 }), m(9, 2));
+    n.aller(&charge(&f));
+    n.html = disparue.into();
+    let p = c.page_chargee(&n.adresse);
+    let r = c.lu(Some(&b), lire_no(&p), n.lecture(), m(9, 2));
+    assert!(r.journal.unwrap().contains("pas ouverte (offre plus en ligne"));
+    assert!(format!("{:?}", c.annonces[3]).contains("n'est plus en ligne"));
     // 3. Le site ne répond pas
     let (mut c, _n, t0) = liste_ft(&b, rid);
     jusqu_au_chargement(&mut c, t0, 10).unwrap();

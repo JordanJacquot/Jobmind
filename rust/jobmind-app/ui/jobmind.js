@@ -1001,9 +1001,9 @@
       for (const r of liste(l.lignes)) {
         if (!Number.isInteger(r?.i) || r.i < 0 || r.i > 999) continue;
         const sel = r.sel === true, retiree = r.retiree === true;
-        const etat = ['lue', 'cours', 'attente'].includes(r.etat) ? r.etat : (texteSur(r.lu) ? 'lue' : '');
+        const etat = ['lue', 'cours', 'attente', 'sautee'].includes(r.etat) ? r.etat : (texteSur(r.lu) ? 'lue' : '');
         const lu = texteSur(r.lu);
-        const etatT = etat === 'lue' ? (lu || t('l_lue') || 'Lue') : etat === 'cours' ? (t('l_cours') || 'Lecture en cours...') : etat === 'attente' ? (t('l_attente') || 'Pas encore lue') : '';
+        const etatT = etat === 'lue' ? (lu || t('l_lue') || 'Lue') : etat === 'cours' ? (t('l_cours') || 'Lecture en cours...') : etat === 'attente' ? (t('l_attente') || 'Pas encore lue') : etat === 'sautee' ? (t('l_sautee') || "Pas lue, clique pour l'ouvrir") : '';
         const titre = texteSur(r.titre);
         const cote = retiree
           ? `<button type="button" class="jm-off-remettre f" data-perso="cs-remettre" data-i="${r.i}" data-k="csx:${r.i}" title="${esc(tRemettre)}" aria-label="${esc(`${tRemettre} : ${titre}`)}">${esc(tRemettre)}</button>`

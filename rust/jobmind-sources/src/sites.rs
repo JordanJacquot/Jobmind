@@ -364,9 +364,11 @@ const L_LINKEDIN: ReglesListe = ReglesListe {
     sous: &[],
 };
 
+// (0.1.10, page vue le 23/11/2026 : le titre est passé de h2 à h3, d'où « .jobTitle » sans nom de balise ; la carte
+// entière « div.cardOutline » d'abord, c'est elle qui porte aria-hidden sur la fausse carte cachée d'Indeed)
 const L_INDEED: ReglesListe = ReglesListe {
-    blocs: &["div.job_seen_beacon", "div.cardOutline", "td.resultContent"],
-    titre: &["h2.jobTitle span[title]", "h2.jobTitle", "[data-testid=\"jobTitle\"]"],
+    blocs: &["div.cardOutline", "div.job_seen_beacon", "td.resultContent"],
+    titre: &[".jobTitle span[title]", ".jobTitle", "[data-testid=\"jobTitle\"]"],
     lien: &["a[data-jk]", "h2.jobTitle a", "a[href*=\"jk=\"]"],
     entreprise: &["[data-testid=\"company-name\"]", "span.companyName", ".companyName"],
     lieu: &["[data-testid=\"text-location\"]", "div.companyLocation", ".companyLocation"],
@@ -529,6 +531,11 @@ fn liste_regles(d: &Document, site: Site, base: &Adresse, r: &ReglesListe, essai
         for i in blocs {
             if l.len() >= RESULTATS_MAX {
                 break;
+            }
+            // (0.1.10 : un bloc caché aux lecteurs d'écran n'est pas une offre : Indeed glisse dans sa liste une
+            // fausse carte invisible, dont l'adresse mène à « Page introuvable », vue le 23/11/2026)
+            if d.attr(i, "aria-hidden").is_some_and(|v| v.trim() == "true") {
+                continue;
             }
             let Some(url) = lien_de(d, i, site, base, r.lien) else { continue };
             if l.iter().any(|x| x.url == url) {

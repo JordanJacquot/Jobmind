@@ -191,6 +191,12 @@ fn listes_des_quatre_sites() {
     assert_eq!(c.liste.resultats[1].url, format!("https://www.linkedin.com/jobs/view/{}/", exemples::id_linkedin(1)));
     let c = compris(&adresse_recherche(Site::Indeed, "cariste", &metz, 1).unwrap(), "");
     assert_eq!(c.liste.resultats[2].url, format!("https://fr.indeed.com/viewjob?jk={}", exemples::jk_indeed(2)));
+    // (0.1.10 : lue par les blocs, titres en h3 ; les offres sponsorisées (lien sans identifiant) y sont aussi, la
+    // fausse carte cachée d'Indeed jamais)
+    assert_eq!(c.liste.lu_par, "regles");
+    assert_eq!(c.liste.resultats[1].url, format!("https://fr.indeed.com/viewjob?jk={}", exemples::jk_indeed(1)));
+    assert!(c.liste.resultats.iter().all(|r| !r.url.contains("cdef0123456789ab") && !r.titre.contains("Fausse")));
+    assert!(c.liste.resultats.iter().all(|r| !r.titre.is_empty() && !r.entreprise.is_empty() && !r.lieu.is_empty()));
     let c = compris(&adresse_recherche(Site::FranceTravail, "cariste", &metz, 1).unwrap(), "");
     assert_eq!(
         c.liste.resultats[3].url,

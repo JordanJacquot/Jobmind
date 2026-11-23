@@ -319,10 +319,21 @@ fn liste_indeed(n: u32, dedans: bool) -> String {
         "<header><a data-gnav-element-name=\"SignIn\" href=\"https://secure.indeed.com/account/login\">Connexion</a></header>"
     });
     h.push_str("<main><h1>Emplois</h1><div id=\"mosaic-jobResults\">");
+    // (0.1.10, comme la vraie page du 23/11/2026 : une fausse carte cachée, à ne jamais prendre pour une offre ; les
+    // titres en h3 ; les offres sponsorisées ont un lien « /pagead/clk » sans identifiant, seul data-jk le donne)
+    h.push_str(
+        "<div class=\"cardOutline\" aria-hidden=\"true\" tabindex=\"-1\"><div class=\"job_seen_beacon\"><h3 class=\"jobTitle\">\
+<a data-jk=\"cdef0123456789ab\" href=\"/viewjob?jk=cdef0123456789ab\"><span title=\"Fausse offre cachée\">Fausse offre cachée</span></a></h3></div></div>",
+    );
     for i in de_la_page(n) {
         let o = OFFRES[i];
+        let lien = if i % 2 == 1 {
+            format!("/pagead/clk?mo=r&amp;ad=inventee{i}")
+        } else {
+            format!("/rc/clk?jk={}&amp;from=serp", jk_indeed(i))
+        };
         h.push_str(&format!(
-            "<div class=\"cardOutline\"><div class=\"job_seen_beacon\"><h2 class=\"jobTitle\"><a data-jk=\"{jk}\" href=\"/rc/clk?jk={jk}&amp;from=serp\"><span title=\"{t}\">{t}</span></a></h2>\
+            "<div class=\"cardOutline\"><div class=\"job_seen_beacon\"><h3 class=\"jobTitle\"><a data-jk=\"{jk}\" href=\"{lien}\"><span title=\"{t}\">{t}</span></a></h3>\
 <div><span data-testid=\"company-name\">{e}</span><div data-testid=\"text-location\">{v} ({cp})</div></div><span class=\"date\">{dj}</span></div></div>",
             jk = jk_indeed(i),
             t = esc(o.0),

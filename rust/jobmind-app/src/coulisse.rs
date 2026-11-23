@@ -77,7 +77,11 @@ pub const VERIFIER_MS: u64 = 4000;
 /// 0.1.4 : la lecture automatique des offres d'une liste lue. Une offre à la fois, dans l'ordre, au plus une toutes
 /// les [`PAUSE_LECTURE_AUTO`] comptées depuis la fin de la lecture d'avant (en plus de [`ECART_MS`] entre deux
 /// chargements). Rien pendant une connexion, une petite fenêtre, une candidature, ou Jobmind cachée.
-pub const PAUSE_LECTURE_AUTO: Duration = Duration::from_secs(4);
+/// 0.1.10 : 2 secondes au lieu de 4 (environ 4 secondes par offre au lieu de 6, demande de Jordan le 23/11/2026).
+pub const PAUSE_LECTURE_AUTO: Duration = Duration::from_secs(2);
+/// 0.1.10 : une offre que Jobmind n'arrive pas à lire est sautée, la lecture automatique continue ; après ce nombre
+/// d'offres sautées de suite, elle s'arrête (le site ne répond plus comme attendu).
+pub const SAUTEES_DE_SUITE_MAX: u32 = 3;
 /// Après un arrêt demandé par le site (page de secours, captcha, connexion, pas de réponse), plus de lecture
 /// automatique sur ce site pendant ce temps, même pour une nouvelle liste (jamais d'essais en boucle).
 pub const PAUSE_APRES_ARRET: Duration = Duration::from_secs(15 * 60);
@@ -339,6 +343,9 @@ pub struct ListeSite {
     pub ouvert: Option<usize>,
     /// 0.1.4 : la lecture automatique des offres de cette page
     pub lecture: Auto,
+    /// 0.1.10 : les offres (par adresse) que la lecture automatique a sautées (illisibles, ou plus en ligne) : elle
+    /// ne les réessaie pas, Jordan peut cliquer dessus
+    pub sautees: Vec<String>,
     /// Pendant « Voir plus d'offres » : le numéro de la page d'avant, remis si la suivante est vide, illisible ou
     /// pareille. 0.1.9 : les offres déjà montrées restent dans `resultats`, celles de la page suivante s'ajoutent à la
     /// suite (avant, la liste repartait de zéro avec la page 2 seule, remarque de Jordan 22/11/2026).
@@ -358,6 +365,8 @@ pub struct Auto {
     pub arret: Option<String>,
     /// Les offres lues par elle
     pub faites: usize,
+    /// 0.1.10 : les offres sautées de suite (remis à zéro par une offre lue)
+    pub de_suite: u32,
 }
 
 /// Une offre d'un site, lue en coulisse.
@@ -502,12 +511,21 @@ fn passe(l: Option<&LectureOffre>, (sans_diplome, debutant): (bool, bool)) -> bo
         && (!debutant || l.experience.as_ref().is_some_and(|e| e.valeur == lecture::Experience::Debutant))
 }
 
-/// La phrase d'une lecture automatique arrêtée sur une offre que Jobmind n'arrive pas à lire.
+/// La phrase d'une lecture automatique arrêtée après plusieurs offres de suite que Jobmind n'arrive pas à lire.
 fn illisible(s: Site) -> String {
     format!(
-        "Jobmind n'arrive pas à lire une offre de {} : elle arrête de lire les offres toute seule. Clique sur une offre pour l'ouvrir.",
+        "Jobmind n'arrive pas à lire plusieurs offres de suite sur {} : elle arrête de lire les offres toute seule. Clique sur une offre pour l'ouvrir.",
         s.nom()
     )
+}
+
+/// 0.1.10 : le titre d'une page où le site dit que l'offre n'existe plus (vus le 23/11/2026 : « Offre indisponible |
+/// France Travail », « Page introuvable | Indeed »).
+fn plus_en_ligne(titre: &str) -> bool {
+    let t = titre.to_lowercase();
+    ["introuvable", "indisponible", "non disponible", "plus disponible", "not found", "no longer available"]
+        .iter()
+        .any(|m| t.contains(m))
 }
 
 /// La place de la petite fenêtre dans la page de Jobmind, en pixels de la page (avant l'échelle de la fenêtre).
@@ -671,8 +689,46 @@ impl Coulisse {
             .filter(|(_, r)| !r.url.trim().is_empty() && !self.est_retiree(&r.url))
             .map(|(i, _)| i)
             .collect();
-        let reste = tous.iter().copied().filter(|i| self.lu_de(&l.resultats[*i].url).is_none()).collect();
+        let reste = tous
+            .iter()
+            .copied()
+            .filter(|i| self.lu_de(&l.resultats[*i].url).is_none() && !l.sautees.contains(&l.resultats[*i].url))
+            .collect();
         (tous, reste)
+    }
+
+    /// 0.1.10 : la lecture automatique saute cette offre (illisible, ou plus en ligne) et continue avec la suivante ;
+    /// après [`SAUTEES_DE_SUITE_MAX`] offres sautées de suite, elle s'arrête pour cette liste.
+    fn sauter_auto(&mut self, a: &Attente, trace: &str) -> Fait {
+        let But::Lecture(i) = a.but else { return Fait::default() };
+        let mut de_suite = 0;
+        if let Some(l) = self.liste_de_mut(a.site) {
+            if let Some(u) = l.resultats.get(i).map(|r| r.url.clone())
+                && !l.sautees.contains(&u)
+            {
+                l.sautees.push(u);
+            }
+            l.lecture.de_suite += 1;
+            l.lecture.prochaine = None;
+            de_suite = l.lecture.de_suite;
+        }
+        if de_suite >= SAUTEES_DE_SUITE_MAX {
+            return self.arreter_auto(
+                a.site,
+                illisible(a.site),
+                None,
+                &format!("{de_suite} offres illisibles de suite ; {trace}"),
+            );
+        }
+        Fait {
+            journal: Some(format!(
+                "Sites : offre {} de {} sautée, la lecture continue ({trace})",
+                i + 1,
+                a.site.code()
+            )),
+            change: true,
+            ..Fait::default()
+        }
     }
 
     /// Le pas de la lecture automatique (appelé souvent par le programme, avec l'heure et la visibilité de Jobmind) :
@@ -1016,6 +1072,7 @@ impl Coulisse {
             suivante: false,
             ouvert: None,
             lecture: Auto::default(),
+            sautees: Vec::new(),
             precedente: None,
         });
         if self.fiche.as_ref().is_some_and(|f| f.site == s) {
@@ -1350,9 +1407,9 @@ impl Coulisse {
             return ordres(vec![o], false);
         }
         let Some(a) = self.attente.take() else { return Fait::default() };
-        // (une lecture automatique : elle s'arrête pour cette page, sans déranger Jordan)
+        // (une lecture automatique : l'offre est sautée, sans déranger Jordan)
         if let But::Lecture(_) = a.but {
-            return self.arreter_auto(a.site, illisible(a.site), None, &format!("lecture perdue, {raison}"));
+            return self.sauter_auto(&a, &format!("lecture perdue, {raison}"));
         }
         self.connexion = None;
         self.dire(
@@ -1701,6 +1758,7 @@ impl Coulisse {
                         x.suivante = c.liste.suivante;
                         // (0.1.4 : la lecture automatique des offres pas encore lues commence après la pause)
                         x.lecture = Auto::default();
+                        x.sautees.retain(|u| x.resultats.iter().any(|r| r.url == *u));
                     }
                     self.relire_retirees(base);
                     return Fait {
@@ -1762,6 +1820,7 @@ impl Coulisse {
                         // pour toute la page, au début et à la fin)
                         if let Some(x) = self.liste_de_mut(a.site) {
                             x.lecture.faites += 1;
+                            x.lecture.de_suite = 0;
                             x.lecture.prochaine = None;
                         }
                         return Fait { change: true, ..Fait::default() };
@@ -1774,7 +1833,31 @@ impl Coulisse {
                     );
                     self.etape = 100;
                     self.fiche = Some(fiche);
+                    // (0.1.10 : une offre sautée que Jordan ouvre lui-même et qui se lit n'est plus « pas lue »)
+                    if let Some(x) = self.liste_de_mut(a.site) {
+                        x.sautees.retain(|u| *u != url);
+                    }
                     Fait { journal: Some(j), change: true, ..Fait::default() }
+                }
+                // (0.1.10 : le site dit lui-même que l'offre n'existe plus : inutile de relire la page)
+                Err(e) if plus_en_ligne(&c.titre) => {
+                    let trace = format!("offre plus en ligne ; {} ; {}", e.code(), c.trace);
+                    self.attente = None;
+                    if let But::Lecture(_) = a.but {
+                        return self.sauter_auto(&a, &trace);
+                    }
+                    self.dire(
+                        a.site,
+                        annonce(format!("Cette offre n'est plus en ligne sur {}.", a.site.nom()), "attention", None),
+                    );
+                    if let Some(l) = self.liste_de_mut(a.site) {
+                        l.ouvert = None;
+                    }
+                    Fait {
+                        journal: Some(format!("Sites : offre {} de {} pas ouverte ({trace})", i + 1, a.site.code())),
+                        change: true,
+                        ..Fait::default()
+                    }
                 }
                 Err(e) => {
                     let trace = format!("{} ; {}", e.code(), c.trace);
@@ -1800,9 +1883,9 @@ impl Coulisse {
             return ordres(vec![o], ouvre);
         }
         self.attente = None;
-        // (une lecture automatique : elle s'arrête pour cette page, sans annonce)
+        // (une lecture automatique : l'offre est sautée, sans annonce ; 0.1.10 : la lecture continue)
         if let But::Lecture(_) = a.but {
-            return self.arreter_auto(a.site, illisible(a.site), None, &format!("offre illisible ; {trace}"));
+            return self.sauter_auto(&a, &format!("offre illisible ; {trace}"));
         }
         self.dire(
             a.site,
@@ -2160,6 +2243,7 @@ impl Coulisse {
                 ("l_lue", "Lue"),
                 ("l_cours", "Lecture en cours..."),
                 ("l_attente", "Pas encore lue"),
+                ("l_sautee", "Pas lue, clique pour l'ouvrir"),
                 ("revoir_retirees", "Revoir les offres retirées"),
                 ("cacher_retirees", "Cacher les offres retirées"),
                 ("ouvre_offre", "Jobmind ouvre l'offre"),
@@ -2216,6 +2300,8 @@ impl Coulisse {
                 "lue"
             } else if en_cours == Some(i) {
                 "cours"
+            } else if l.sautees.contains(&r.url) {
+                "sautee"
             } else {
                 "attente"
             };
@@ -2252,8 +2338,20 @@ impl Coulisse {
             let (total, lues) = (tous.len(), tous.len() - reste.len());
             let finie = reste.is_empty();
             let arret = if finie { None } else { l.lecture.arret.clone() };
+            // (0.1.10 : les offres sautées, encore dans la liste et toujours pas lues)
+            let sautees = tous
+                .iter()
+                .filter(|i| l.sautees.contains(&l.resultats[**i].url) && self.lu_de(&l.resultats[**i].url).is_none())
+                .count();
             let texte = match &arret {
                 Some(a) => a.clone(),
+                None if finie && sautees == 1 => {
+                    "Les offres sont lues, sauf une que Jobmind n'arrive pas à lire : clique dessus pour l'ouvrir"
+                        .to_string()
+                }
+                None if finie && sautees > 1 => format!(
+                    "Les offres sont lues, sauf {sautees} que Jobmind n'arrive pas à lire : clique dessus pour les ouvrir"
+                ),
                 None if finie => "Toutes les offres de la page sont lues".to_string(),
                 None => format!("Jobmind lit les offres : {lues} sur {total}"),
             };
