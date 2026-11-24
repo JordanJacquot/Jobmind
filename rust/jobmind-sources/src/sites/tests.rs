@@ -137,6 +137,11 @@ fn adresses_de_recherche() {
     assert_eq!(insee_region("ile_de_france"), Some("11"));
     assert_eq!(insee_region("nulle_part"), None);
     for s in Site::CONNUS {
+        // (0.1.11 : HelloWork et Meteojob se lisent sans connexion)
+        if matches!(s, Site::HelloWork | Site::Meteojob) {
+            assert!(adresse_connexion(s).is_none());
+            continue;
+        }
         assert!(adresse_connexion(s).is_some_and(|a| a.starts_with("https://")));
     }
 }
@@ -205,6 +210,61 @@ fn listes_des_quatre_sites() {
     assert_eq!(c.liste.resultats[3].lieu, "57 - Metz");
     let c = compris(&adresse_recherche(Site::Wttj, "cariste", &metz, 1).unwrap(), "");
     assert_eq!(c.liste.resultats[5].url, format!("https://www.welcometothejungle.com{}", exemples::chemin_wttj(5)));
+}
+
+/// 0.1.11 : HelloWork et Meteojob : l'adresse de la recherche, la liste lue par ses liens, la page suivante.
+#[test]
+fn hellowork_et_meteojob() {
+    let sarrebourg = ville("Sarrebourg", 30);
+    assert_eq!(
+        adresse_recherche(Site::HelloWork, "agent d'entretien", &sarrebourg, 1).unwrap(),
+        "https://www.hellowork.com/fr-fr/emploi/recherche.html?k=agent%20d%27entretien&l=Sarrebourg&ray=30"
+    );
+    assert_eq!(
+        adresse_recherche(Site::HelloWork, "", &sarrebourg, 2).unwrap(),
+        "https://www.hellowork.com/fr-fr/emploi/recherche.html?k=&l=Sarrebourg&ray=30&p=2"
+    );
+    assert_eq!(
+        adresse_recherche(Site::HelloWork, "cariste", &LieuSite::Partout, 1).unwrap(),
+        "https://www.hellowork.com/fr-fr/emploi/recherche.html?k=cariste"
+    );
+    assert_eq!(
+        adresse_recherche(Site::Meteojob, "cariste", &sarrebourg, 1).unwrap(),
+        "https://www.meteojob.com/jobs?what=cariste&where=Sarrebourg"
+    );
+    assert_eq!(
+        adresse_recherche(Site::Meteojob, "cariste", &sarrebourg, 3).unwrap(),
+        "https://www.meteojob.com/jobs?what=cariste&where=Sarrebourg&page=3"
+    );
+    for (site, premiere) in [
+        (Site::HelloWork, format!("https://www.hellowork.com/fr-fr/emplois/{}.html", exemples::id_hellowork(0))),
+        (Site::Meteojob, format!("https://www.meteojob.com/jobs/{}", exemples::id_meteojob(0))),
+    ] {
+        let c = compris(&adresse_recherche(site, "cariste", &sarrebourg, 1).unwrap(), "");
+        assert_eq!(c.ecran, Ecran::Normale, "{}", c.trace);
+        assert_eq!((c.liste.resultats.len(), c.liste.lu_par, c.liste.suivante), (6, "liens", true), "{site:?}");
+        assert_eq!(c.liste.resultats[0].url, premiere);
+        assert_eq!(c.liste.resultats[0].titre, "Cariste H/F");
+        assert_eq!(c.connecte, None, "{site:?} : pas de connexion");
+        let c = compris(&adresse_recherche(site, "cariste", &sarrebourg, 2).unwrap(), "");
+        assert_eq!((c.liste.resultats.len(), c.liste.suivante), (3, false), "{site:?}");
+    }
+    // Les adresses d'offres reconnues, remises au propre ; les autres pages du site ne sont pas des offres
+    use crate::page::cle_offre;
+    assert_eq!(
+        cle_offre("https://www.hellowork.com/fr-fr/emplois/63496404.html?utm_source=x"),
+        Some((Site::HelloWork, "63496404".into()))
+    );
+    assert_eq!(cle_offre("https://www.meteojob.com/jobs/57335379/"), Some((Site::Meteojob, "57335379".into())));
+    for autre in [
+        "https://www.hellowork.com/fr-fr/emploi/recherche.html?k=cariste",
+        "https://www.hellowork.com/fr-fr/emplois/abc.html",
+        "https://www.meteojob.com/jobs?what=cariste",
+        "https://www.meteojob.com/jobs/abc",
+    ] {
+        let a = crate::page::Adresse::lire(autre).unwrap();
+        assert!(crate::page::identifiant(Site::depuis_hote(&a.hote), &a).is_none(), "{autre}");
+    }
 }
 
 #[test]

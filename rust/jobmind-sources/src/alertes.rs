@@ -357,6 +357,8 @@ fn chemin_d_offre(site: Site, a: &Adresse) -> bool {
         }
         Site::Wttj => c.contains("/companies/") && c.contains("/jobs/"),
         Site::FranceTravail => c.contains("/detail/") || c.contains("/offres/emploi"),
+        Site::HelloWork => c.contains("/emplois/"),
+        Site::Meteojob => c.starts_with("/jobs/") || c.contains("/offre-d-emploi"),
         Site::Autre => false,
     }
 }

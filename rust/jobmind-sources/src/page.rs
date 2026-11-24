@@ -39,12 +39,18 @@ pub enum Site {
     Indeed,
     Wttj,
     FranceTravail,
+    /// 0.1.11 : HelloWork et Meteojob (demande de Jordan le 24/11/2026). Recherche et lecture des offres, sans
+    /// connexion ; leurs offres sont lues par leurs données structurées (JobPosting).
+    HelloWork,
+    Meteojob,
     /// Un autre site
     Autre,
 }
 
 impl Site {
-    pub const CONNUS: [Site; 4] = [Site::LinkedIn, Site::Indeed, Site::Wttj, Site::FranceTravail];
+    /// (les nouveaux sites s'ajoutent à la fin : le rang d'un site sert d'indice dans l'appli)
+    pub const CONNUS: [Site; 6] =
+        [Site::LinkedIn, Site::Indeed, Site::Wttj, Site::FranceTravail, Site::HelloWork, Site::Meteojob];
 
     /// Le code de la source dans la base (migration 5).
     pub fn code(self) -> &'static str {
@@ -53,6 +59,8 @@ impl Site {
             Site::Indeed => "indeed",
             Site::Wttj => "wttj",
             Site::FranceTravail => "francetravail",
+            Site::HelloWork => "hellowork",
+            Site::Meteojob => "meteojob",
             Site::Autre => "site",
         }
     }
@@ -64,6 +72,8 @@ impl Site {
             Site::Indeed => "Indeed",
             Site::Wttj => "Welcome to the Jungle",
             Site::FranceTravail => "France Travail",
+            Site::HelloWork => "HelloWork",
+            Site::Meteojob => "Meteojob",
             Site::Autre => "un autre site",
         }
     }
@@ -80,6 +90,10 @@ impl Site {
             Site::Wttj
         } else if sous("francetravail.fr") || sous("pole-emploi.fr") {
             Site::FranceTravail
+        } else if sous("hellowork.com") {
+            Site::HelloWork
+        } else if sous("meteojob.com") {
+            Site::Meteojob
         } else {
             Site::Autre
         }
@@ -657,7 +671,8 @@ fn regles(site: Site) -> Option<&'static Regles> {
         Site::Indeed => Some(&R_INDEED),
         Site::Wttj => Some(&R_WTTJ),
         Site::FranceTravail => Some(&R_FRANCE_TRAVAIL),
-        Site::Autre => None,
+        // (pas de règles : les données structurées de la page, sinon son texte)
+        Site::HelloWork | Site::Meteojob | Site::Autre => None,
     }
 }
 
@@ -1052,6 +1067,31 @@ pub(crate) fn identifiant(site: Site, a: &Adresse) -> Option<(String, String)> {
             let id = simple_id(apres.split('/').next().unwrap_or_default(), 30)?;
             Some((id.clone(), format!("https://candidat.francetravail.fr/offres/recherche/detail/{id}")))
         }
+        // (« /fr-fr/emplois/63496404.html »)
+        Site::HelloWork => {
+            let (_, apres) = a.chemin.split_once("/emplois/")?;
+            let id = apres.strip_suffix(".html").filter(|x| !x.is_empty() && x.len() <= 20)?;
+            if !id.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            Some((id.to_string(), format!("https://www.hellowork.com/fr-fr/emplois/{id}.html")))
+        }
+        // (« /jobs/57335379 » ; l'ancienne forme « /candidat/offres/offre-d-emploi-cariste-metz-57335379 » garde
+        // son adresse)
+        Site::Meteojob => {
+            if let Some(apres) = a.chemin.strip_prefix("/jobs/") {
+                let id = apres.trim_end_matches('/');
+                if id.is_empty() || id.len() > 20 || !id.bytes().all(|b| b.is_ascii_digit()) {
+                    return None;
+                }
+                return Some((id.to_string(), format!("https://www.meteojob.com/jobs/{id}")));
+            }
+            if !a.chemin.contains("/offre-d-emploi") {
+                return None;
+            }
+            let id = chiffres_fin(&a.chemin)?;
+            Some((id, a.propre()))
+        }
         Site::Autre => None,
     }
 }
@@ -1146,7 +1186,8 @@ pub fn lire(adresse: &str, html: &str) -> Result<PageLue, PageRefusee> {
     }
     // 4. Le texte de la page (un autre site seulement : les pages des sites connus qui ne sont pas une offre sont
     // pleines de mots d'offre)
-    if site == Site::Autre {
+    // (0.1.11 : HelloWork et Meteojob aussi, mais seulement sur l'adresse d'une offre, en secours de leurs données)
+    if site == Site::Autre || (matches!(site, Site::HelloWork | Site::Meteojob) && identifiant(site, &a).is_some()) {
         let x = champs_texte(&d);
         if lu_par.is_none() && ressemble_a_une_offre(&x) {
             lu_par = Some(LuPar::Texte);

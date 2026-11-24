@@ -26,8 +26,8 @@ fn cles_de(s: Site) -> Option<(Cle, Cle)> {
 }
 
 /// Les sites dont l'identifiant et le mot de passe sont gardés et lisibles sur ce PC (dans l'ordre de `Site::CONNUS`).
-pub fn gardes(cles: &Cles) -> [bool; 4] {
-    let mut g = [false; 4];
+pub fn gardes(cles: &Cles) -> [bool; 6] {
+    let mut g = [false; 6];
     for (i, s) in Site::CONNUS.iter().enumerate() {
         g[i] = cles_de(*s).is_some_and(|(m, p)| {
             matches!(cles.etat(m), Some(EtatCle::Gardee(_))) && matches!(cles.etat(p), Some(EtatCle::Gardee(_)))
@@ -38,7 +38,7 @@ pub fn gardes(cles: &Cles) -> [bool; 4] {
 
 impl Coulisse {
     /// Au lancement : les sites dont les identifiants sont gardés ([`gardes`]).
-    pub fn avec_gardes(gardes: [bool; 4]) -> Coulisse {
+    pub fn avec_gardes(gardes: [bool; 6]) -> Coulisse {
         // (« Où chercher » s'ouvre sur France Travail, la source de référence depuis le retrait d'Adzuna)
         Coulisse { gardes, source: Some(Site::FranceTravail), ..Coulisse::default() }
     }

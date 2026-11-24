@@ -620,7 +620,7 @@
   // gardées » (sans recherche). Au lancement, Rust la met sur France Travail. Les flèches choisissent dans la liste, Entrée (A) prend le choix, Échap (B) la referme sans rien changer.
   // (le data-k de chaque choix garde le rang de Rust : « cs:s0 » mes offres gardées, « cs:s1 » LinkedIn, etc.)
   let srcMenu = false;
-  const ORDRE_SITES = ['francetravail', 'linkedin', 'indeed', 'wttj'];
+  const ORDRE_SITES = ['francetravail', 'linkedin', 'indeed', 'hellowork', 'meteojob', 'wttj'];
   function sourcesListe() {
     const t = tC(), sites = liste(cs().sites).filter((s) => codeSurP(s?.id));
     if (!sites.length) return [];
@@ -987,7 +987,7 @@
     const oui = s.connecte === true;
     // (une annonce qui propose déjà « Me connecter » remplace la ligne d'état tant qu'elle est là : une seule carte)
     const remplace = !oui && texteSur(c.annonce?.texte) && c.annonce.bouton === 'connexion';
-    if (!remplace) h += `<div class="jm-cx-etat${oui ? ' ok' : ''}"><i class="jm-point${oui ? ' ok' : ''}" aria-hidden="true"></i><span>${esc(texteSur(s.etat))}</span>${oui ? '' : bouton('cs-connexion', 'cs:connecter', t('connecter'), 'cadenas', 'discret', ` data-id="${s.id}"`)}</div>`;
+    if (!remplace && s.connexion !== false) h += `<div class="jm-cx-etat${oui ? ' ok' : ''}"><i class="jm-point${oui ? ' ok' : ''}" aria-hidden="true"></i><span>${esc(texteSur(s.etat))}</span>${oui ? '' : bouton('cs-connexion', 'cs:connecter', t('connecter'), 'cadenas', 'discret', ` data-id="${s.id}"`)}</div>`;
     h += gardeHTML(s, 'cs:oublier');
     h += basculesHTML(to);
     h += '</div>';

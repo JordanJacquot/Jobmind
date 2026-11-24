@@ -186,7 +186,7 @@ fn liste_offre_et_ajout() {
     assert_eq!(v["textes"]["mes_offres"], "Mes offres gardées");
     assert!(!v.to_string().contains("Adzuna"));
     // (au lancement de Jobmind, « Où chercher » s'ouvre sur France Travail)
-    let depart = Coulisse::avec_gardes([false; 4]);
+    let depart = Coulisse::avec_gardes([false; 6]);
     assert_eq!(depart.source, Some(Site::FranceTravail));
     assert_eq!(depart.vue(jour())["source"], "francetravail");
     sans_tiret_long(&v);
@@ -514,7 +514,7 @@ fn temps_depasses_et_lectures_perdues() {
     c.connecte[0] = Some(true);
     let f = c.geste(None, DECONNECTER, &Value::Null, m(9, 3));
     assert_eq!(f.coulisse, vec![Ordre::Cacher, Ordre::Effacer]);
-    assert_eq!(c.connecte, [Some(false); 4]);
+    assert_eq!(c.connecte, [Some(false); 6]);
 }
 
 #[test]

@@ -185,7 +185,7 @@ struct Etat {
     faux: Option<(jobmind_sources::faux::FauxServeur, ModeSites)>,
     /// Construction d'essai : les connexions déjà vues (pour vérifier une fois ce que le faux serveur a reçu)
     #[cfg(feature = "essai")]
-    connexions_vues: [Option<bool>; 4],
+    connexions_vues: [Option<bool>; 6],
     /// Le jour de la liste montrée : un nouveau jour, elle est refaite
     jour: Jour,
     /// Tauri, une fois la fenêtre créée : l'état renvoyé à la page après un geste
@@ -492,7 +492,7 @@ pub fn lancer() -> ! {
     }
     // (étape 5 bis : les sites, dès le premier état de la page)
     if let Some(perso) = depart.pointer_mut("/accueil/perso").and_then(Value::as_object_mut) {
-        perso.insert("coulisse".into(), Coulisse::avec_gardes([false; 4]).vue(jour));
+        perso.insert("coulisse".into(), Coulisse::avec_gardes([false; 6]).vue(jour));
     }
     *donnees.borrow_mut() = Some(d);
 
@@ -567,7 +567,7 @@ pub fn lancer() -> ! {
             #[cfg(feature = "essai")]
             faux,
             #[cfg(feature = "essai")]
-            connexions_vues: [None; 4],
+            connexions_vues: [None; 6],
             jour,
             app: None,
             releve: Instant::now(),

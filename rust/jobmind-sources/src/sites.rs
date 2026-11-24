@@ -109,6 +109,8 @@ pub fn par_page(site: Site) -> u32 {
         Site::Indeed => 10,
         Site::Wttj => 30,
         Site::FranceTravail => 20,
+        Site::HelloWork => 30,
+        Site::Meteojob => 50,
         Site::Autre => 20,
     }
 }
@@ -223,6 +225,42 @@ pub fn adresse_recherche(site: Site, mots: &str, lieu: &LieuSite, page: u32) -> 
             u.push_str(&format!("&range={}-{}", n * p, n * p + p - 1));
             u
         }
+        // (0.1.11. « recherche.html?k=cariste&l=Sarrebourg&p=2 » : k les mots, l le lieu, p la page ; ray, le rayon en
+        // km. Adresses prises dans des documentations publiques le 24/11/2026, pas encore vues en vrai.)
+        Site::HelloWork => {
+            let (l, rayon) = match lieu {
+                LieuSite::Ville { nom, rayon_km } => (ou(&crate::communes::nom_seul(nom)), Some((*rayon_km).min(100))),
+                LieuSite::Departement { nom, .. } | LieuSite::Region { nom, .. } => (ou(nom), None),
+                LieuSite::Partout => (String::new(), None),
+            };
+            let mut u = format!("https://www.hellowork.com/fr-fr/emploi/recherche.html?k={m}");
+            if !l.is_empty() {
+                u.push_str(&format!("&l={}", encoder(&l)));
+            }
+            if let Some(r) = rayon {
+                u.push_str(&format!("&ray={r}"));
+            }
+            if n > 0 {
+                u.push_str(&format!("&p={page}"));
+            }
+            u
+        }
+        // (0.1.11. « /jobs?what=cariste&where=Sarrebourg&page=2 » ; pas de rayon connu. Même source, même réserve.)
+        Site::Meteojob => {
+            let l = match lieu {
+                LieuSite::Ville { nom, .. } => ou(&crate::communes::nom_seul(nom)),
+                LieuSite::Departement { nom, .. } | LieuSite::Region { nom, .. } => ou(nom),
+                LieuSite::Partout => String::new(),
+            };
+            let mut u = format!("https://www.meteojob.com/jobs?what={m}");
+            if !l.is_empty() {
+                u.push_str(&format!("&where={}", encoder(&l)));
+            }
+            if n > 0 {
+                u.push_str(&format!("&page={page}"));
+            }
+            u
+        }
         Site::Autre => return None,
     })
 }
@@ -234,7 +272,8 @@ pub fn adresse_connexion(site: Site) -> Option<&'static str> {
         Site::Indeed => "https://secure.indeed.com/auth?hl=fr_FR&co=FR",
         Site::Wttj => "https://www.welcometothejungle.com/fr/signin",
         Site::FranceTravail => "https://candidat.francetravail.fr/espacepersonnel/",
-        Site::Autre => return None,
+        // (0.1.11 : HelloWork et Meteojob se lisent sans connexion ; Jobmind n'y connecte pas Jordan)
+        Site::HelloWork | Site::Meteojob | Site::Autre => return None,
     })
 }
 
@@ -402,7 +441,8 @@ fn regles_liste(site: Site) -> Option<&'static ReglesListe> {
         Site::Indeed => Some(&L_INDEED),
         Site::Wttj => Some(&L_WTTJ),
         Site::FranceTravail => Some(&L_FRANCE_TRAVAIL),
-        Site::Autre => None,
+        // (pas encore de règles : la liste est lue par ses liens vers les offres)
+        Site::HelloWork | Site::Meteojob | Site::Autre => None,
     }
 }
 
@@ -425,7 +465,7 @@ fn signes_connexion(site: Site) -> (&'static [&'static str], &'static [&'static 
             &["a[href*=\"deconnexion\"]", "#nav-connect .compte", "[data-connecte=\"true\"]"],
             &["a[href*=\"/connexion\"]", "a.btn-connexion", "[data-connecte=\"false\"]"],
         ),
-        Site::Autre => (&[], &[]),
+        Site::HelloWork | Site::Meteojob | Site::Autre => (&[], &[]),
     }
 }
 
@@ -845,7 +885,7 @@ fn espace_connecte(site: Site, a: &Adresse, titre: &str) -> bool {
         Site::Indeed => {
             h == "myjobs.indeed.com" || h == "profile.indeed.com" || (sous("indeed.com") && commence("/myjobs"))
         }
-        Site::Autre => false,
+        Site::HelloWork | Site::Meteojob | Site::Autre => false,
     }
 }
 

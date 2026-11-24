@@ -65,7 +65,7 @@ fn garder_apres_succes_puis_reconnexion_automatique_une_fois() {
     let (b, rid) = base();
     let mut journal = Vec::new();
     let (mut cles, mut c, mut n) = lancer(&d);
-    assert_eq!(c.gardes, [false; 4]);
+    assert_eq!(c.gardes, [false; 6]);
     assert_eq!(c.vue(jour())["sites"][0]["garde"], false);
     // « Me connecter » par la carte de Jobmind
     let f = c.connecter("linkedin", MAIL_ESSAI, Secret::new(MDP_ESSAI.into()));
@@ -83,7 +83,7 @@ fn garder_apres_succes_puis_reconnexion_automatique_une_fois() {
     // Gardés, chiffrés
     let f = suite(&mut c, &mut cles, &mut journal);
     assert!(f.change && f.journal.as_deref().unwrap().contains("connexion à linkedin gardée sur ce PC (chiffrée)"));
-    assert_eq!(c.gardes, [true, false, false, false]);
+    assert_eq!(c.gardes, [true, false, false, false, false, false]);
     assert_eq!(cles.etat(Cle::LinkedinMdp), Some(&EtatCle::Gardee(String::new())), "aucun aperçu du mot de passe");
     assert_eq!(cles.lire(Cle::LinkedinMdp).as_deref(), Some(MDP_ESSAI));
     let v = c.vue(jour());
@@ -94,7 +94,7 @@ fn garder_apres_succes_puis_reconnexion_automatique_une_fois() {
 
     // Jobmind relancée : le site a oublié la session ; la liste montre « pas connecté »
     let (mut cles, mut c, mut n) = lancer(&d);
-    assert_eq!(c.gardes, [true, false, false, false]);
+    assert_eq!(c.gardes, [true, false, false, false, false, false]);
     let f = c.geste(Some(&b), CHERCHER, &json!({ "site": "linkedin", "recherche": rid }), m(10, 0));
     let f = charger_et_lire(&mut c, Some(&b), &mut n, &f);
     assert!(f.journal.unwrap().contains("liste lue de linkedin"));
@@ -137,7 +137,7 @@ fn page_de_connexion_reconnexion_puis_page_reprise() {
     let (mut cles, _, _) = lancer(&d);
     cles.garder_plusieurs(&[(Cle::FranceTravailMail, MAIL_ESSAI), (Cle::FranceTravailMdp, MDP_ESSAI)]).unwrap();
     let (mut cles, mut c, mut n) = lancer(&d);
-    assert_eq!(c.gardes, [false, false, false, true]);
+    assert_eq!(c.gardes, [false, false, false, true, false, false]);
     let mut journal = Vec::new();
     let f = c.geste(Some(&b), CHERCHER, &json!({ "site": "francetravail", "recherche": rid }), m(9, 0));
     let liste = charge(&f);
@@ -229,7 +229,7 @@ fn rien_de_garde_sans_succes_et_apres_une_verification() {
     let p = c.page_chargee(&n.adresse);
     assert!(c.lu(None, lire_no(&p), n.lecture(), m(9, 1)).journal.unwrap().contains("refusée par le site"));
     assert_eq!(suite(&mut c, &mut cles, &mut journal), Fait::default());
-    assert!(!Cles::chemin_dans(&d).exists() && c.gardes == [false; 4]);
+    assert!(!Cles::chemin_dans(&d).exists() && c.gardes == [false; 6]);
     // Tapés, puis un captcha : la petite fenêtre ; fermée : oubliés ; faite et connecté : gardés
     for fermer in [true, false] {
         let f = c.connecter("linkedin", MAIL_ESSAI, Secret::new(MDP_ESSAI.into()));
@@ -272,7 +272,7 @@ fn oublier_ma_connexion_et_tout_deconnecter() {
     cles.garder(Cle::Claude, "sk-ant-api03-Inventee-1111").unwrap();
     let (mut cles, mut c, _) = lancer(&d);
     let mut journal = Vec::new();
-    assert_eq!(c.gardes, [false, true, true, false]);
+    assert_eq!(c.gardes, [false, true, true, false, false, false]);
     // (un site sans identifiants gardés, un code inconnu : rien)
     assert_eq!(c.geste(None, OUBLIER, &json!({ "site": "linkedin" }), m(9, 0)), Fait::default());
     assert_eq!(c.geste(None, OUBLIER, &json!({ "site": "myspace" }), m(9, 0)), Fait::default());
@@ -280,18 +280,18 @@ fn oublier_ma_connexion_et_tout_deconnecter() {
     assert!(f.change && f.message.unwrap().contains("Jobmind a oublié ta connexion à Indeed"));
     let f = suite(&mut c, &mut cles, &mut journal);
     assert!(f.journal.unwrap().contains("connexion gardée de indeed oubliée"));
-    assert_eq!(c.gardes, [false, false, true, false]);
+    assert_eq!(c.gardes, [false, false, true, false, false, false]);
     assert_eq!(cles.etat(Cle::IndeedMdp), None);
     assert!(cles.lire(Cle::WttjMdp).is_some() && cles.lire(Cle::Claude).is_some());
     // Rouverte : toujours oubliés
     let (mut cles, mut c, _) = lancer(&d);
-    assert_eq!(c.gardes, [false, false, true, false]);
+    assert_eq!(c.gardes, [false, false, true, false, false, false]);
     // « Me déconnecter de tous les sites » : tous oubliés
     let f = c.geste(None, DECONNECTER, &Value::Null, m(9, 2));
     assert!(f.coulisse.contains(&Ordre::Effacer));
     let f = suite(&mut c, &mut cles, &mut journal);
     assert!(f.journal.unwrap().contains("connexion gardée de wttj oubliée"));
-    assert_eq!(c.gardes, [false; 4]);
+    assert_eq!(c.gardes, [false; 6]);
     assert_eq!(cles.etat(Cle::WttjMail), None);
     assert!(cles.lire(Cle::Claude).is_some());
     rien_en_clair(&journal, &c, &d, MDP_ESSAI);

@@ -43,13 +43,24 @@ pub fn nom_copie(c: &Comprise) -> Option<String> {
 
 /// L'adresse d'une offre sur un site connu.
 fn adresse_d_offre(u: &str) -> bool {
-    ["/jobs/view/", "viewjob", "/offres/recherche/detail/"].iter().any(|m| u.contains(m))
+    ["/jobs/view/", "viewjob", "/offres/recherche/detail/", "hellowork.com/fr-fr/emplois/", "meteojob.com/jobs/"]
+        .iter()
+        .any(|m| u.contains(m))
         || (u.contains("/companies/") && u.contains("/jobs/"))
 }
 
 /// L'adresse d'une page de résultats sur un site connu.
 fn adresse_de_liste(u: &str) -> bool {
-    ["/jobs/search", "indeed.com/jobs", "/fr/jobs", "/offres/recherche?"].iter().any(|m| u.contains(m))
+    [
+        "/jobs/search",
+        "indeed.com/jobs",
+        "/fr/jobs",
+        "/offres/recherche?",
+        "/emploi/recherche.html",
+        "meteojob.com/jobs?",
+    ]
+    .iter()
+    .any(|m| u.contains(m))
 }
 
 /// Garde la copie d'une page mal lue (son adresse en tête, en commentaire). Rend son chemin, rien sinon.

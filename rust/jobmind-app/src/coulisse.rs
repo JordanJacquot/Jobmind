@@ -400,9 +400,9 @@ pub struct Coulisse {
     pub petite: Option<Petite>,
     pub connexion: Option<Connexion>,
     /// Connecté à chaque site (dans l'ordre de `Site::CONNUS`), d'après la dernière page lue
-    pub connecte: [Option<bool>; 4],
+    pub connecte: [Option<bool>; 6],
     /// La phrase de chaque site (dans l'ordre de `Site::CONNUS`)
-    pub annonces: [Option<Annonce>; 4],
+    pub annonces: [Option<Annonce>; 6],
     /// La place de la petite fenêtre dans la page
     pub zone: Option<Zone>,
     /// La lecture attendue (son numéro)
@@ -421,9 +421,9 @@ pub struct Coulisse {
     bandeau: bool,
     /// « Garder le mot de passe » (crate::coulisse::garde) : les sites dont Jobmind garde l'identifiant et le mot de
     /// passe, chiffrés (dans l'ordre de `Site::CONNUS`, relus des clés après chaque geste)
-    pub gardes: [bool; 4],
+    pub gardes: [bool; 6],
     /// La reconnexion automatique déjà essayée depuis le lancement : une seule par site
-    pub essais_auto: [bool; 4],
+    pub essais_auto: [bool; 6],
     /// Une reconnexion automatique demandée (les identifiants gardés sont lus par garde::suite)
     pub reconnecter: Option<Site>,
     /// Ce que la page de connexion a interrompu (une liste, une offre) : rechargé après la reconnexion automatique
@@ -447,7 +447,7 @@ pub struct Coulisse {
     pub etape: u8,
     /// Les sites où la lecture automatique a été arrêtée par le site : jusqu'à quand (rien : à dater au prochain pas),
     /// et pourquoi (« sa page de secours »), dans l'ordre de `Site::CONNUS`
-    pub bloque: [Option<(Option<Instant>, String)>; 4],
+    pub bloque: [Option<(Option<Instant>, String)>; 6],
     /// 0.1.4 : ce que l'annuaire officiel dit de l'entreprise de l'offre ouverte (posé par le programme avant la vue)
     pub annuaire: Option<crate::entreprise::Connu>,
 }
@@ -987,13 +987,13 @@ impl Coulisse {
                 self.attente = None;
                 self.attendue = None;
                 self.connexion = None;
-                self.connecte = [Some(false); 4];
+                self.connecte = [Some(false); 6];
                 self.annonces = Default::default();
                 // (les identifiants gardés aussi : sinon Jobmind se reconnecterait tout seul)
                 self.verifies = None;
                 self.reconnecter = None;
                 self.a_oublier = Site::CONNUS.to_vec();
-                self.gardes = [false; 4];
+                self.gardes = [false; 6];
                 Fait {
                     journal: Some("Sites : déconnexion de tous les sites demandée".into()),
                     ..ordres(vec![Ordre::Cacher, Ordre::Effacer], true)
@@ -2117,6 +2117,8 @@ impl Coulisse {
                 },
                 // (« Garder le mot de passe » : seulement le fait qu'ils sont gardés, jamais les identifiants)
                 "garde": self.gardes[indice(s)],
+                // (0.1.11 : HelloWork et Meteojob se lisent sans connexion : pas de ligne « Me connecter »)
+                "connexion": sites::adresse_connexion(s).is_some(),
             })
         };
         let source = self.source;

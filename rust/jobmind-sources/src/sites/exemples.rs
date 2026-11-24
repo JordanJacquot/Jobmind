@@ -147,6 +147,16 @@ pub fn id_france_travail(i: usize) -> String {
     format!("203ESS{i}")
 }
 
+/// Le numéro HelloWork de l'offre `i` (inventé).
+pub fn id_hellowork(i: usize) -> String {
+    format!("{}", 63_400_100 + i * 37)
+}
+
+/// Le numéro Meteojob de l'offre `i` (inventé).
+pub fn id_meteojob(i: usize) -> String {
+    format!("{}", 57_335_300 + i * 53)
+}
+
 /// Un texte en minuscules ASCII et tirets (« Plasturgie de l'Orne » : « plasturgie-de-l-orne »).
 fn bout(t: &str) -> String {
     let mut s = String::new();
@@ -408,6 +418,40 @@ fn liste_france_travail(n: u32, dedans: bool) -> String {
 }
 
 /// Une page de résultats qu'aucune règle ne sait plus lire (le site a changé sa page).
+/// 0.1.11 : une liste de HelloWork ou de Meteojob, inventée (leurs vraies pages ne sont pas encore vues) : un lien par
+/// offre, à l'adresse d'une offre du site, et un lien vers la page suivante.
+fn liste_simple(site: &str, n: u32) -> String {
+    let mut h = String::from("<main><h1>Offres d'emploi</h1><ul>");
+    for i in de_la_page(n) {
+        let o = OFFRES[i];
+        let lien = if site == "hellowork" {
+            format!("/fr-fr/emplois/{}.html", id_hellowork(i))
+        } else {
+            format!("/jobs/{}", id_meteojob(i))
+        };
+        h.push_str(&format!(
+            "<li><a href=\"{lien}\">{}</a><p>{}</p><p>{} - {}</p></li>",
+            esc(o.0),
+            esc(o.1),
+            esc(o.2),
+            &o.3[..2]
+        ));
+    }
+    h.push_str("</ul>");
+    if n <= 1 {
+        h.push_str(if site == "hellowork" {
+            "<nav><a rel=\"next\" href=\"?p=2\">Suivant</a></nav>"
+        } else {
+            "<nav><a rel=\"next\" href=\"?page=2\">Suivant</a></nav>"
+        });
+    }
+    h.push_str("</main>");
+    page(
+        if site == "hellowork" { "Offres d'emploi cariste | HelloWork" } else { "Offres d'emploi cariste | Meteojob" },
+        &h,
+    )
+}
+
 fn liste_cassee() -> String {
     let mut h = String::from("<main><h1>Nouvelle recherche</h1><div class=\"resultats-2027\">");
     for o in OFFRES.iter().take(6) {
@@ -707,7 +751,7 @@ fn accueil(site: &str, dedans: bool) -> String {
 /// `page`, France Travail : `range`).
 fn numero_page(q: &str) -> u32 {
     let start = parametre(q, "start").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
-    let p = parametre(q, "page").and_then(|s| s.parse::<u32>().ok()).unwrap_or(1);
+    let p = parametre(q, "page").or_else(|| parametre(q, "p")).and_then(|s| s.parse::<u32>().ok()).unwrap_or(1);
     let range =
         parametre(q, "range").and_then(|r| r.split('-').next().and_then(|x| x.parse::<u32>().ok())).unwrap_or(0);
     if start > 0 || p > 1 || range > 0 { 2 } else { 1 }
@@ -741,6 +785,7 @@ pub fn repondre(r: &Requete, mode: &Mutex<ModeSites>) -> Option<RepFaux> {
                         "linkedin" => liste_linkedin(n, dedans),
                         "indeed" => liste_indeed(n, dedans),
                         "wttj" => liste_wttj(n, dedans),
+                        "hellowork" | "meteojob" => liste_simple(site, n),
                         _ => liste_france_travail(n, dedans),
                     },
                 ))
@@ -781,6 +826,9 @@ pub fn repondre(r: &Requete, mode: &Mutex<ModeSites>) -> Option<RepFaux> {
                 Some(RepFaux::html(200, indeed_mdp(&corps("__email"), true)))
             }
         }
+        // HelloWork et Meteojob (0.1.11 : sans connexion)
+        "www.hellowork.com/fr-fr/emploi/recherche.html" => liste("hellowork"),
+        "www.meteojob.com/jobs" => liste("meteojob"),
         // Welcome to the Jungle
         "www.welcometothejungle.com/fr/jobs" => liste("wttj"),
         "www.welcometothejungle.com/fr/signin" if post => {
@@ -847,6 +895,11 @@ fn offre_de(chemin: &str, q: &str, r: &Requete) -> Option<RepFaux> {
             return Some(RepFaux::html(200, offre_france_travail(i, texte)));
         }
         i
+    } else if let Some(id) = chemin.strip_prefix("www.hellowork.com/fr-fr/emplois/") {
+        let id = id.strip_suffix(".html")?;
+        (0..OFFRES.len()).find(|i| id_hellowork(*i) == id)?
+    } else if let Some(id) = chemin.strip_prefix("www.meteojob.com/jobs/") {
+        (0..OFFRES.len()).find(|i| id_meteojob(*i) == id)?
     } else {
         let c = chemin.strip_prefix("www.welcometothejungle.com")?;
         (0..OFFRES.len()).find(|i| chemin_wttj(*i) == c)?
