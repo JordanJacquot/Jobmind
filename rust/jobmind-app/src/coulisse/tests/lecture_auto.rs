@@ -7,6 +7,10 @@ use std::time::{Duration, Instant};
 use super::*;
 
 const SECONDE: Duration = Duration::from_secs(1);
+/// Trop tôt pour la lecture automatique (sa pause sur France Travail est d'une demi-seconde depuis la 0.1.13).
+const TOT: Duration = Duration::from_millis(300);
+/// La pause de la lecture automatique sur France Travail.
+const PAUSE: Duration = PAUSE_LECTURE_AUTO_FT;
 
 /// Une liste de France Travail lue (6 offres imitées), et le début du faux temps.
 fn liste_ft(b: &Base, rid: i64) -> (Coulisse, Navigateur, Instant) {
@@ -53,13 +57,13 @@ fn ordre_rythme_et_fin() {
     assert_eq!(v["liste"]["lignes"][0]["etat"], "attente");
     // Rien avant la pause de 2 secondes
     assert_eq!(c.lecture_auto(t0, true), Fait::default());
-    assert_eq!(c.lecture_auto(t0 + SECONDE, true), Fait::default());
+    assert_eq!(c.lecture_auto(t0 + TOT, true), Fait::default());
     let mut t = t0;
     for i in 0..6 {
         // (la pause compte depuis la fin de la lecture d'avant : rien avant 2 secondes, puis l'offre suivante)
         assert!(c.lecture_auto(t, true).coulisse.is_empty());
-        assert!(c.lecture_auto(t + SECONDE, true).coulisse.is_empty(), "offre {i} trop tôt");
-        let f = c.lecture_auto(t + PAUSE_LECTURE_AUTO, true);
+        assert!(c.lecture_auto(t + TOT, true).coulisse.is_empty(), "offre {i} trop tôt");
+        let f = c.lecture_auto(t + PAUSE, true);
         assert_eq!(charge(&f), url(&c, i), "dans l'ordre");
         assert_eq!(c.attente.as_ref().unwrap().but, But::Lecture(i));
         assert_eq!(f.journal.is_some(), i == 0, "une seule ligne au début : {f:?}");
@@ -185,7 +189,7 @@ fn pause_pendant_une_connexion_une_petite_fenetre_ou_jobmind_cachee() {
     // De nouveau à l'écran : la pause recommence entière
     let t = t0 + SECONDE * 30;
     assert!(c.lecture_auto(t, true).coulisse.is_empty());
-    assert!(c.lecture_auto(t + SECONDE, true).coulisse.is_empty());
+    assert!(c.lecture_auto(t + TOT, true).coulisse.is_empty());
     // Une petite fenêtre ouverte (une vérification) : rien
     c.petite =
         Some(Petite { raison: Raison::Captcha, site: Site::FranceTravail, offre: false, lecture: None, annonce: None });
@@ -206,7 +210,7 @@ fn pause_pendant_une_connexion_une_petite_fenetre_ou_jobmind_cachee() {
     c.source = Some(Site::FranceTravail);
     let t = t + SECONDE * 50;
     assert!(c.lecture_auto(t, true).coulisse.is_empty());
-    assert_eq!(charge(&c.lecture_auto(t + PAUSE_LECTURE_AUTO, true)), url(&c, 0));
+    assert_eq!(charge(&c.lecture_auto(t + PAUSE, true)), url(&c, 0));
 }
 
 #[test]
@@ -645,4 +649,109 @@ fn welcome_to_the_jungle_demande_un_metier() {
     let mut c = Coulisse { source: Some(Site::FranceTravail), ..Coulisse::default() };
     let f = c.geste(Some(&b), CHERCHER, &json!({ "site": "francetravail", "recherche": rid }), m(9, 0));
     assert!(f.message.is_none() && c.attente.is_some(), "{f:?}");
+}
+
+/// 0.1.13 : « Lire toutes les offres » : Jobmind lit les offres de la page, respire, charge la page suivante toute
+/// seule, l'ajoute au bout de la liste, et continue jusqu'à la dernière.
+#[test]
+fn lire_toutes_les_offres() {
+    let (b, rid) = base();
+    let (mut c, mut n, t0) = liste_ft(&b, rid);
+    let v = c.vue(jour());
+    assert_eq!(v["liste"]["tout_possible"], true);
+    assert_eq!(v["liste"]["tout"], false);
+    assert_eq!(v["liste"]["fusion"], false);
+    let f = c.geste(Some(&b), TOUT, &Value::Null, m(9, 1));
+    assert!(f.change && f.coulisse.is_empty(), "{f:?}");
+    assert_eq!(
+        f.journal.as_deref(),
+        Some("Sites : lecture de toutes les offres demandée sur francetravail (6 offres déjà dans la liste)")
+    );
+    let v = c.vue(jour());
+    assert_eq!(v["liste"]["tout"], true);
+    assert_eq!(v["liste"]["fusion"], true);
+    assert_eq!(v["liste"]["tout_possible"], false);
+    assert_eq!(v["liste"]["suivante"], false, "plus de page à tourner à la main");
+    assert_eq!(v["liste"]["lecture"]["texte"], "Jobmind lit toutes les offres : 0 sur 9");
+    assert_eq!(v["liste"]["lecture"]["total"], 9);
+    assert_eq!(v["liste"]["lecture"]["finie"], false);
+    let (mut t, mut pages, mut lues, mut avant) = (t0, 0, 0, t0);
+    while let Some((x, f)) = jusqu_au_chargement(&mut c, t, 10) {
+        if c.attente.as_ref().unwrap().but == But::Liste {
+            pages += 1;
+            assert_eq!(f.journal.as_deref(), Some("Sites : page 2 de francetravail (lecture de toutes les offres)"));
+            assert!(x.duration_since(avant) >= PAUSE_PAGE_TOUT, "une respiration avant la page suivante");
+            assert_eq!(c.vue(jour())["liste"]["lecture"]["finie"], false, "pas finie entre deux pages");
+        } else {
+            lues += 1;
+        }
+        lire_tout(&mut c, &b, &mut n, &f);
+        avant = x;
+        t = x + SECONDE;
+        assert!(pages <= 1 && lues <= 9, "{pages} pages, {lues} offres");
+    }
+    assert_eq!((pages, lues), (1, 9));
+    let l = c.liste_de(Site::FranceTravail).unwrap();
+    assert!(!l.tout && l.fusion && l.lecture.finie && l.resultats.len() == 9, "{l:?}");
+    let v = c.vue(jour());
+    assert_eq!(v["liste"]["sous"], "Offres 1 à 9 sur 9");
+    assert_eq!(v["liste"]["lignes"].as_array().unwrap().len(), 9);
+    assert_eq!(v["liste"]["lecture"]["texte"], "Les 9 offres de la liste sont lues");
+    assert_eq!(v["liste"]["lecture"]["finie"], true);
+    assert_eq!(v["liste"]["tout"], false);
+    assert_eq!(v["liste"]["tout_possible"], false, "plus rien derrière");
+    assert_eq!(v["liste"]["suivante"], false);
+    assert_eq!(v["liste"]["precedente"], false);
+    // Les filtres portent sur toutes les offres, pas sur une page
+    c.filtres = (false, true);
+    let v = c.vue(jour());
+    let montrees = v["liste"]["lignes"].as_array().unwrap().len();
+    let debutants = l_debutants(&c);
+    assert_eq!(montrees, debutants);
+    sans_tiret_long(&v);
+}
+
+/// Les offres de la liste que les règles ont lues « Débutant accepté ».
+fn l_debutants(c: &Coulisse) -> usize {
+    let l = c.liste_de(Site::FranceTravail).unwrap();
+    l.resultats.iter().filter(|r| passe(c.lu_de(&r.url), (false, true))).count()
+}
+
+/// 0.1.13 : demandé depuis la page 2, les pages déjà vues sont mises bout à bout dans l'ordre ; « Arrêter ».
+#[test]
+fn lire_toutes_les_offres_depuis_la_page_2_et_arret() {
+    let (b, rid) = base();
+    let (mut c, mut n, _t0) = liste_ft(&b, rid);
+    let premiere = url(&c, 0);
+    let f = c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 1));
+    charger_et_lire(&mut c, Some(&b), &mut n, &f);
+    assert_eq!(c.liste_de(Site::FranceTravail).unwrap().resultats.len(), 3);
+    assert_eq!(c.vue(jour())["liste"]["tout_possible"], true, "une page d'avant est gardée");
+    let f = c.geste(Some(&b), TOUT, &Value::Null, m(9, 2));
+    assert!(f.journal.as_deref().unwrap().contains("(9 offres déjà dans la liste)"), "{f:?}");
+    let l = c.liste_de(Site::FranceTravail).unwrap();
+    assert_eq!(l.resultats.len(), 9);
+    assert_eq!(l.resultats[0].url, premiere, "la page 1 d'abord");
+    assert!(l.gardees.is_empty() && l.page == 2 && !l.suivante && l.fusion && l.tout);
+    assert_eq!(c.vue(jour())["liste"]["sous"], "Offres 1 à 9 sur 9");
+    // « Arrêter » : une fois
+    let f = c.geste(Some(&b), ARRET_TOUT, &Value::Null, m(9, 3));
+    assert!(f.change && f.journal.as_deref().unwrap().contains("arrêtée par Jordan"), "{f:?}");
+    assert!(!c.liste_de(Site::FranceTravail).unwrap().tout);
+    assert_eq!(c.geste(Some(&b), ARRET_TOUT, &Value::Null, m(9, 3)), Fait::default());
+}
+
+/// 0.1.13 : le rythme : une offre lue plus tôt qu'une liste, et une pause plus courte sur France Travail.
+#[test]
+fn rythme_de_la_0_1_13() {
+    assert_eq!(pause_auto(Site::FranceTravail), Duration::from_millis(500));
+    assert_eq!(pause_auto(Site::LinkedIn), Duration::from_secs(1));
+    assert_eq!((attente_offre(Site::FranceTravail), attente_offre(Site::Indeed)), (500, 800));
+    assert_eq!((tout_max(Site::LinkedIn), tout_max(Site::FranceTravail)), (100, 300));
+    let (b, rid) = base();
+    let (mut c, mut n, t0) = liste_ft(&b, rid);
+    let (_, f) = jusqu_au_chargement(&mut c, t0, 10).unwrap();
+    n.aller(&charge(&f));
+    let p = c.page_chargee(&n.adresse);
+    assert!(matches!(p.coulisse[..], [Ordre::Lire { delai_ms: ATTENTE_OFFRE_FT_MS, .. }]), "{p:?}");
 }

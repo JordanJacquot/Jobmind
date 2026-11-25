@@ -1015,6 +1015,7 @@ button.jm-bilan.f:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(-
 .jm-lec-l b { flex: none; font-weight: 700; color: var(--jm); font-variant-numeric: tabular-nums; }
 .jm-lec-j { height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.07); overflow: hidden; }
 .jm-lec-j > i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, color-mix(in srgb, var(--jm) 70%, #8a5a00), var(--jm)); transition: width 700ms ease; }
+.jm-lec-b { justify-content: flex-start; margin-top: 3px; }
 .jm-lec.finie .jm-lec-l { color: var(--vert); }
 .jm-lec.finie .jm-lec-j > i { background: var(--vert); }
 .jm-lec.arret { border-color: color-mix(in srgb, var(--orange) 35%, transparent); background: color-mix(in srgb, var(--orange) 7%, transparent); }

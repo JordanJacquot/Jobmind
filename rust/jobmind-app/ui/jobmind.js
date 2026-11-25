@@ -603,9 +603,12 @@
     if (cle !== lecVu.cle) lecVu = { cle, pc: 0 };
     const de = reduit() || arret ? pc : Math.min(lecVu.pc, pc);
     lecVu.pc = pc;
+    // (0.1.13 : « Lire toutes les offres » : Jobmind tourne les pages toute seule ; « Arrêter » pendant qu'elle le fait)
+    const btTout = l.tout === true ? bouton('cs-tout-arret', 'cs:tout-arret', t('tout_arret') || 'Arrêter', 'croix', 'second')
+      : l.tout_possible === true ? bouton('cs-tout', 'cs:tout', l.fusion === true ? (t('tout_suite') || 'Lire la suite des offres') : (t('tout') || 'Lire toutes les offres'), 'droite', 'second') : '';
     return `<div class="jm-lec${finie ? ' finie' : ''}${arret ? ' arret' : ''}" data-cle="${esc(cle)}" role="status">
       <div class="jm-lec-l"><span>${esc(texte)}</span>${ok && !arret ? `<b>${pc} %</b>` : ''}</div>
-      <div class="jm-lec-j" aria-hidden="true"><i style="width:${de}%" data-vers="${pc}"></i></div></div>`;
+      <div class="jm-lec-j" aria-hidden="true"><i style="width:${de}%" data-vers="${pc}"></i></div>${btTout ? `<div class="jm-btns jm-lec-b">${btTout}</div>` : ''}</div>`;
   }
   // (une ligne disparaît de la liste : la main passe à sa voisine avant le dessin suivant, pour ne pas la perdre)
   function mainVoisine(el, sel) {
@@ -1021,7 +1024,7 @@
       // (0.1.12 : une page à la fois : « Page précédente », « Page 2 sur 15 », « Page suivante » ; la première page
       // d'une recherche qui tient sur une page ne montre rien)
       const avant = l.precedente === true, apres = l.suivante === true, noPage = Number(l.page);
-      if (avant || apres || (Number.isInteger(noPage) && noPage > 1)) {
+      if (l.fusion !== true && (avant || apres || (Number.isInteger(noPage) && noPage > 1))) {
         h += `<div class="jm-btns centre jm-cs-suite jm-cs-pages">${avant ? bouton('cs-precedente', 'cs:precedente', t('precedente') || 'Page précédente', 'gauche', 'second') : ''}<span class="jm-cs-page pale" role="status">${esc(texteSur(l.page_texte))}</span>${apres ? bouton('cs-suivante', 'cs:suivante', t('suivante') || 'Page suivante', 'droite', 'second') : ''}</div>`;
       }
     }
@@ -1227,6 +1230,8 @@
       }
       case 'cs-suivante': O.son?.ok?.(); O.action('cs-suivante'); return true;
       case 'cs-precedente': O.son?.ok?.(); O.action('cs-precedente'); return true;
+      case 'cs-tout': O.son?.ok?.(); O.action('cs-tout'); return true;
+      case 'cs-tout-arret': O.son?.ok?.(); O.action('cs-tout-arret'); return true;
       case 'cs-ouvrir': { const i = Number(d.i); if (Number.isInteger(i) && i >= 0) { ouvI = i; O.son?.ok?.(); O.anime = !reduit(); O.action('cs-ouvrir', { i }); } return true; }
       // (0.1.4 : la croix d'une ligne, « Remettre », « Revoir les offres retirées » ; une ligne qui va disparaître
       // donne la main à la croix de sa voisine)
