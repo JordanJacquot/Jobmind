@@ -102,7 +102,8 @@ impl Choix {
 
     /// L'offre passe les filtres cochés. Une valeur pas connue ne passe pas un filtre coché.
     pub fn garde(&self, faits: Option<&Faits>, distance: Option<Distance>, aujourdhui: Jour) -> bool {
-        self.distance.is_none_or(|km| distance.is_some_and(|d| d.km() <= f64::from(km)))
+        // (la distance arrondie, celle que la carte écrit : une carte « à 15 km » passe « Jusqu'à 15 km »)
+        self.distance.is_none_or(|km| distance.is_some_and(|d| d.km().round() <= f64::from(km)))
             && (self.contrats.is_empty() || faits.and_then(|f| f.contrat).is_some_and(|c| self.contrats.contains(&c)))
             && self.jours.is_none_or(|n| {
                 faits.and_then(|f| f.publiee).is_some_and(|j| j.jours_jusqua(aujourdhui) <= i64::from(n))
@@ -119,7 +120,8 @@ pub struct LieuOffre {
     pub insee: Option<&'static str>,
     /// Son département (« 57 »), s'il est dit
     pub departement: Option<&'static str>,
-    /// Sa position (latitude, longitude), si le site la donne
+    /// Sa position (latitude, longitude) : celle que le site donne, sinon le centre de sa commune quand elle est
+    /// reconnue sans doute possible (jobmind_sources::communes::centre)
     pub point: Option<(f64, f64)>,
 }
 
@@ -136,7 +138,7 @@ impl LieuOffre {
             ville: cle_ville(lieu),
             insee: commune.map(|c| c.insee),
             departement: departement_lu(lieu, zones).map(|d| d.code).or(commune.map(|c| c.departement())),
-            point,
+            point: point.or_else(|| commune.and_then(|c| communes::centre(c.insee))),
         }
     }
 }
@@ -182,6 +184,8 @@ impl Depart {
     pub fn de(lieu: &LieuSite, centre: Option<(f64, f64)>) -> Option<Depart> {
         let LieuSite::Ville { nom, .. } = lieu else { return None };
         let l = LieuOffre::de(nom, &[], None);
+        // (0.2.0 : le centre de la commune cherchée, quand les offres gardées ne le donnent pas)
+        let centre = centre.or(l.point);
         (!l.ville.is_empty()).then_some(Depart { ville: l.ville, insee: l.insee, departement: l.departement, centre })
     }
 
@@ -200,9 +204,13 @@ impl Depart {
 
     /// La distance jusqu'à ce lieu, si elle est connue : jamais inventée.
     pub fn distance(&self, l: &LieuOffre) -> Option<Distance> {
+        // (dans la ville cherchée : « sur place », même si les deux positions sont connues)
+        if self.meme_ville(l) {
+            return Some(Distance::SurPlace);
+        }
         match (self.centre, l.point) {
             (Some(c), Some(p)) => Some(Distance::Km(distance_km(c, p))),
-            _ => self.meme_ville(l).then_some(Distance::SurPlace),
+            _ => None,
         }
     }
 }
@@ -424,7 +432,14 @@ mod tests {
         assert_eq!(f.publiee, Jour::nouveau(2026, 11, 17));
         assert!(f.annonce.is_some());
         assert_eq!((f.lieu.ville.as_str(), f.lieu.insee, f.lieu.departement), ("metz", Some("57463"), Some("57")));
-        assert_eq!(f.lieu.point, None);
+        // (le site ne donne pas de position : c'est le centre de la commune reconnue, ici Metz)
+        assert_eq!(f.lieu.point, Some((49.1196, 6.1764)));
+        assert_eq!(f.lieu.point, communes::centre("57463"));
+        // (un lieu qui n'est pas une commune reconnue sans doute possible : pas de position, jamais inventée)
+        for lieu in ["", "Moselle", "Grand Est", "France", "Télétravail", "Saint-Denis", "Ennery"] {
+            let l = Faits::de(&offre("Cariste H/F", lieu, "CDI", "2026-11-17")).lieu;
+            assert_eq!((l.insee, l.point), (None, None), "{lieu}");
+        }
         for (dit, titre, attendu) in [
             ("CDI", "Cariste", Some(Contrat::Cdi)),
             ("permanent", "Cariste", Some(Contrat::Cdi)),
@@ -440,28 +455,41 @@ mod tests {
             assert_eq!(f.contrat, attendu, "{dit} / {titre}");
             assert_eq!((f.publiee, f.annonce), (None, None), "pas de date, un texte trop court");
         }
-        // (une position donnée à moitié n'en est pas une)
-        let mut o = offre("Cariste", "Metz", "CDI", "pas une date");
+        // (une position donnée à moitié n'en est pas une : sans commune reconnue, pas de position du tout)
+        let mut o = offre("Cariste", "Moselle", "CDI", "pas une date");
         o.latitude = Some(49.1);
         assert_eq!((Faits::de(&o).lieu.point, Faits::de(&o).publiee), (None, None));
+        // (et dans une commune reconnue, c'est le centre de la commune, pas la moitié de position)
+        o.lieu = "Metz".into();
+        assert_eq!((Faits::de(&o).lieu.point, Faits::de(&o).publiee), (Some((49.1196, 6.1764)), None));
+        // (la position entière donnée par le site passe avant le centre de la commune)
         o.longitude = Some(6.2);
         assert_eq!(Faits::de(&o).lieu.point, Some((49.1, 6.2)));
     }
 
-    /// La distance n'est jamais inventée : à vol d'oiseau quand le centre de la ville et la position de l'offre sont
-    /// connus, « sur place » dans la ville cherchée, rien sinon.
+    /// La distance n'est jamais inventée : à vol d'oiseau entre le centre de la ville cherchée et la position de
+    /// l'offre (celle du site, sinon le centre de sa commune reconnue), « sur place » dans la ville cherchée, rien
+    /// quand le lieu n'est pas une commune reconnue.
     #[test]
     fn distance_connue_ou_pas() {
         let (centre, woippy) = ((49.1193, 6.1757), (49.1519, 6.1514));
         let lieu = |t: &str, point| LieuOffre::de(t, &[], point);
-        // Le centre et la position : la vraie distance (Woippy est à 4 km de Metz), même dans la ville
+        // Le centre du départ : celui tiré des offres gardées, sinon le centre de la commune cherchée
+        assert_eq!(metz(Some(centre)).centre, Some(centre));
+        assert_eq!(metz(None).centre, Some((49.1196, 6.1764)));
+        assert_eq!(metz(None).centre, communes::centre("57463"));
+        // Le centre et la position donnée par le site : la vraie distance (Woippy est à 4 km de Metz)
         let d = metz(Some(centre)).distance(&lieu("57 - Woippy", Some(woippy))).unwrap();
         assert!(matches!(d, Distance::Km(x) if (3.0..5.0).contains(&x)), "{d:?}");
         assert_eq!(d.texte(), "à 4 km");
-        assert_eq!(metz(Some(centre)).distance(&lieu("57 - Metz", Some(centre))), Some(Distance::Km(0.0)));
+        // Dans la ville cherchée : toujours « sur place », même quand les deux positions sont connues (au centre
+        // même, ou à l'autre bout de la commune)
+        assert_eq!(metz(Some(centre)).distance(&lieu("57 - Metz", Some(centre))), Some(Distance::SurPlace));
+        assert_eq!(metz(Some(centre)).distance(&lieu("57 - Metz", Some((49.09, 6.23)))), Some(Distance::SurPlace));
+        assert_eq!(metz(None).distance(&lieu("57 - Metz", Some((49.09, 6.23)))), Some(Distance::SurPlace));
         assert_eq!(Distance::Km(0.4).texte(), "à moins de 1 km");
         assert_eq!(Distance::Km(12.4).texte(), "à 12 km");
-        // Sans position : seulement « sur place », quelle que soit l'écriture du site
+        // Sans position : « sur place », quelle que soit l'écriture du site
         for t in
             ["57 - METZ", "Metz (57)", "57000 Metz", "Metz, Grand Est, France", "Metz", "Metz - 57", "metz cedex 1"]
         {
@@ -469,20 +497,56 @@ mod tests {
             assert_eq!(metz(Some(centre)).distance(&lieu(t, None)), Some(Distance::SurPlace), "{t}");
         }
         assert_eq!((Distance::SurPlace.km(), Distance::SurPlace.texte().as_str()), (0.0, "sur place"));
-        // Ailleurs sans position, ou avec une position mais sans centre connu : pas de distance
-        for t in ["57 - Woippy", "54 - Nancy", "Montigny-lès-Metz", "Metzervisse (57)", "Grand Est", "France", ""] {
+        // Ailleurs sans position, dans une commune reconnue : la distance entre les deux centres, à vol d'oiseau
+        // (kilomètres depuis la mairie de Metz, puis depuis le centre tiré des offres gardées, à 60 m de là)
+        for (t, de_la_commune, des_offres, ecrit) in [
+            ("57 - Woippy", 3.97, 3.97, "à 4 km"),
+            ("54 - Nancy", 47.45, 47.42, "à 47 km"),
+            ("Montigny-lès-Metz", 2.77, 2.71, "à 3 km"),
+            ("Metzervisse (57)", 22.77, 22.82, "à 23 km"),
+            ("57 - Thionville", 26.48, 26.51, "à 26 km"),
+            ("Sarrebourg (57400)", 77.28, 77.30, "à 77 km"),
+        ] {
+            let a = metz(None).distance(&lieu(t, None)).unwrap();
+            let b = metz(Some(centre)).distance(&lieu(t, None)).unwrap();
+            assert!(matches!(a, Distance::Km(x) if (x - de_la_commune).abs() < 0.05), "{t} : {a:?}");
+            assert!(matches!(b, Distance::Km(x) if (x - des_offres).abs() < 0.05), "{t} : {b:?}");
+            assert_eq!(a.texte(), ecrit, "{t}");
+        }
+        // (le centre tiré des offres gardées passe avant celui de la commune cherchée : d'un centre placé à 15 km au
+        // sud-ouest de Metz, Woippy est à 20 km, pas à 4)
+        let d = metz(Some((49.0, 6.0))).distance(&lieu("57 - Woippy", None)).unwrap();
+        assert!(matches!(d, Distance::Km(x) if (x - 20.07).abs() < 0.05), "{d:?}");
+        // (la position donnée par le site passe avant le centre de la commune de l'offre : 7 km, pas 4)
+        let d = metz(None).distance(&lieu("57 - Woippy", Some((49.18, 6.15)))).unwrap();
+        assert!(matches!(d, Distance::Km(x) if (x - 6.99).abs() < 0.05), "{d:?}");
+        assert_eq!(d.texte(), "à 7 km");
+        let d = metz(None).distance(&lieu("57 - Woippy", Some(woippy))).unwrap();
+        assert!(matches!(d, Distance::Km(x) if (x - 4.03).abs() < 0.05), "{d:?}");
+        // Un lieu qui n'est pas une commune reconnue sans doute possible (une région, un département, rien, du
+        // télétravail, deux communes du même nom sans leur département) : pas de distance
+        for t in ["Grand Est", "France", "", "Moselle", "Télétravail", "Saint-Denis", "Ennery"] {
             assert_eq!(metz(None).distance(&lieu(t, None)), None, "{t}");
             assert_eq!(metz(Some(centre)).distance(&lieu(t, None)), None, "{t}");
         }
-        assert_eq!(metz(None).distance(&lieu("57 - Woippy", Some(woippy))), None);
-        // Deux villes du même nom : jamais « sur place » quand les départements sont dits et différents
+        // Une position mais pas de centre connu (la ville cherchée n'est pas reconnue) : pas de distance
+        let sans_centre = Depart::de(&LieuSite::Ville { nom: "Saint-Denis".into(), rayon_km: 10 }, None).unwrap();
+        assert_eq!((sans_centre.insee, sans_centre.centre), (None, None));
+        assert_eq!(sans_centre.distance(&lieu("57 - Woippy", Some(woippy))), None);
+        assert_eq!(sans_centre.distance(&lieu("57 - Woippy", None)), None);
+        assert_eq!(sans_centre.distance(&lieu("Saint-Denis", None)), Some(Distance::SurPlace));
+        // Deux villes du même nom : jamais « sur place » quand les départements sont dits et différents (les deux
+        // communes sont reconnues : c'est la vraie distance, de la Seine-Saint-Denis à La Réunion)
         let saint_denis =
             Depart::de(&LieuSite::Ville { nom: "Saint-Denis (93200)".into(), rayon_km: 10 }, None).unwrap();
         assert_eq!((saint_denis.insee, saint_denis.departement), (Some("93066"), Some("93")));
+        assert_eq!(saint_denis.centre, Some((48.9362, 2.3584)));
         assert_eq!(saint_denis.distance(&lieu("93 - Saint-Denis", None)), Some(Distance::SurPlace));
         assert_eq!(saint_denis.distance(&lieu("St-Denis (93)", None)), Some(Distance::SurPlace));
-        assert_eq!(saint_denis.distance(&lieu("974 - Saint-Denis", None)), None);
-        assert_eq!(saint_denis.distance(&lieu("Saint-Denis (974)", None)), None);
+        for t in ["974 - Saint-Denis", "Saint-Denis (974)"] {
+            let d = saint_denis.distance(&lieu(t, None)).unwrap();
+            assert!(matches!(d, Distance::Km(x) if (x - 9370.1).abs() < 1.0), "{t} : {d:?}");
+        }
         // (le lieu ne dit pas lequel : le site a cherché autour de la ville demandée, c'est elle)
         assert_eq!(saint_denis.distance(&lieu("Saint-Denis", None)), Some(Distance::SurPlace));
         // Une recherche sans ville n'a pas de départ
@@ -523,6 +587,27 @@ mod tests {
         assert_eq!(avec(Choix { distance: Some(5), ..Choix::default() }), [0, 1]);
         assert_eq!(avec(Choix { distance: Some(15), ..Choix::default() }), [0, 1, 2]);
         assert_eq!(avec(Choix { distance: Some(30), ..Choix::default() }), [0, 1, 2]);
+        // (à la limite, c'est la distance écrite sur la carte, arrondie, qui décide : « à 15 km » passe « Jusqu'à
+        // 15 km », « à 16 km » non)
+        let jusqua = |limite: u32, d: Distance| {
+            Choix { distance: Some(limite), ..Choix::default() }.garde(Some(&cdi), Some(d), auj())
+        };
+        for (limite, km, ecrit, gardee) in [
+            (15, 15.0, "à 15 km", true),
+            (15, 15.4, "à 15 km", true),
+            (15, 15.49, "à 15 km", true),
+            (15, 15.5, "à 16 km", false),
+            (15, 15.6, "à 16 km", false),
+            (5, 5.4, "à 5 km", true),
+            (5, 5.6, "à 6 km", false),
+            (30, 30.4, "à 30 km", true),
+            (30, 30.6, "à 31 km", false),
+            (5, 0.4, "à moins de 1 km", true),
+        ] {
+            assert_eq!(Distance::Km(km).texte(), ecrit, "{km}");
+            assert_eq!(jusqua(limite, Distance::Km(km)), gardee, "{km} km, jusqu'à {limite} km");
+        }
+        assert!(DISTANCES.into_iter().all(|limite| jusqua(limite, Distance::SurPlace)));
         // Le contrat (plusieurs à la fois)
         assert_eq!(avec(Choix { contrats: vec![Contrat::Cdi], ..Choix::default() }), [0]);
         assert_eq!(avec(Choix { contrats: vec![Contrat::Cdd, Contrat::Interim], ..Choix::default() }), [1, 2]);

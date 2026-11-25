@@ -2,6 +2,11 @@
 //! Travail autour d'une ville (son paramètre `lieux` attend le code INSEE de la commune : Sarrebourg, 57630, et non son
 //! code postal, 57400 ; vu en vrai sur le site).
 //!
+//! 0.2.0 : chaque ligne porte aussi la position de la mairie de la commune (`;latitude;longitude`, de la même source ;
+//! le centre géographique pour les six communes sans mairie connue : la mairie est au centre-ville, le centre
+//! géographique d'une grande commune peut en être à plusieurs kilomètres), pour dire à
+//! quelle distance de la ville cherchée se trouve une offre (voir [`centre`]) : la table fait environ 1,4 Mo.
+//!
 //! La table (`communes.txt`, une ligne par commune : `code INSEE;codes postaux;nom`, environ 860 Ko) vient de l'API
 //! Découpage administratif (geo.api.gouv.fr, données de l'INSEE et de La Poste), sous Licence Ouverte Etalab 2.0 ;
 //! elle est embarquée dans l'exe, jamais téléchargée pendant que Jobmind tourne.
@@ -33,9 +38,30 @@ impl Commune {
 
 fn communes() -> impl Iterator<Item = Commune> {
     TABLE.lines().filter_map(|l| {
-        let mut p = l.splitn(3, ';');
+        let mut p = l.split(';');
         Some(Commune { insee: p.next()?, codes_postaux: p.next()?, nom: p.next()? })
     })
+}
+
+/// 0.2.0 : le centre d'une commune (latitude, longitude), d'après son code INSEE ; rien si elle n'est pas dans la
+/// table ou n'a pas de centre.
+pub fn centre(insee: &str) -> Option<(f64, f64)> {
+    static CENTRES: std::sync::OnceLock<std::collections::HashMap<&'static str, (f64, f64)>> =
+        std::sync::OnceLock::new();
+    CENTRES
+        .get_or_init(|| {
+            TABLE
+                .lines()
+                .filter_map(|l| {
+                    let mut p = l.split(';');
+                    let insee = p.next()?;
+                    let (la, lo) = (p.nth(2)?.parse::<f64>().ok()?, p.next()?.parse::<f64>().ok()?);
+                    Some((insee, (la, lo)))
+                })
+                .collect()
+        })
+        .get(insee)
+        .copied()
 }
 
 /// Un nom remis au propre pour comparer : minuscules, sans accent, tirets et apostrophes en espaces, « st » et
@@ -224,6 +250,19 @@ pub fn proposer(tape: &str, max: usize) -> Vec<Proposition> {
 mod tests {
     use super::*;
 
+    /// 0.2.0 : le centre des communes, et les noms toujours lus sans leur position.
+    #[test]
+    fn centre_des_communes() {
+        let (la, lo) = centre("57630").expect("Sarrebourg");
+        assert!((la - 48.73).abs() < 0.02 && (lo - 7.05).abs() < 0.02, "{la} {lo}");
+        let (la, lo) = centre("57463").expect("Metz");
+        assert!((la - 49.12).abs() < 0.02 && (lo - 6.18).abs() < 0.02, "{la} {lo}");
+        assert_eq!(centre("00000"), None);
+        assert_eq!(centre(""), None);
+        assert!(communes().all(|c| !c.nom.contains(';') && centre(c.insee).is_some()));
+        assert_eq!(trouver("Sarrebourg").map(|c| c.nom), Some("Sarrebourg"));
+    }
+
     /// Validée par des communes connues (codes INSEE et postaux publiés par l'INSEE et La Poste).
     #[test]
     fn communes_connues() {
@@ -246,7 +285,7 @@ mod tests {
         }
         assert_eq!(trouver("Metz").unwrap().departement(), "57");
         assert!(communes().count() > 34_000);
-        assert!(TABLE.len() < 1_000_000);
+        assert!(TABLE.len() < 1_600_000);
     }
 
     /// Plusieurs communes du même nom : le code postal ou le département départage ; sans eux, rien.

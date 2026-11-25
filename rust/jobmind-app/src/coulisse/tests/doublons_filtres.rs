@@ -4,9 +4,10 @@
 
 use jobmind_core::recherche::Contrat;
 use jobmind_sources::OffreTrouvee;
+use jobmind_sources::communes;
 use jobmind_sources::page::LuPar;
 
-use super::choix::{Choix, Depart, TriSite};
+use super::choix::{Choix, DISTANCES, Depart, TriSite};
 use super::lecture_auto::{lignes, liste_a_la_main, liste_ft, rangs, url};
 use super::*;
 
@@ -223,8 +224,10 @@ fn les_doublons_ne_comptent_pas_dans_les_pages() {
     assert_eq!(v["liste"]["sous"], "60 offres analysées");
 }
 
-/// Huit offres autour de Metz : la ville même, des positions connues à 4, 10, 27 et 47 km, deux lieux sans distance
-/// connue ; quatre contrats, un contrat pas reconnu ; des dates de 0 à 9 jours, une date absente.
+/// Huit offres autour de Metz : deux dans la ville même (dont une qui donne sa position), deux positions données par
+/// le site à 4 et 48 km, deux communes reconnues sans position (leur mairie : à 10 et 27 km), deux lieux sans distance
+/// connue (une région ; « Ennery » sans son département, il y en a deux en France) ; quatre contrats, un contrat pas
+/// reconnu ; des dates de 0 à 9 jours, une date absente.
 fn huit_offres() -> Coulisse {
     let texte = |i: usize| -> &'static str {
         [
@@ -241,22 +244,38 @@ fn huit_offres() -> Coulisse {
     let mut c = liste_de_pages(&[
         (("Préparateur", "Logipôle", "57 - Metz", "CDI", "2026-11-18", texte(0)), None),
         (("Préparateur", "Logipôle", "57 - Woippy", "CDD", "2026-11-17", texte(1)), Some((49.1519, 6.1514))),
-        (
-            ("Préparateur", "Logipôle", "57 - Maizières-lès-Metz", "Intérim", "2026-11-14", texte(2)),
-            Some((49.21, 6.17)),
-        ),
-        (("Préparateur", "Logipôle", "57 - Thionville", "CDI", "2026-11-10", texte(3)), Some((49.3579, 6.1675))),
+        // (pas de position donnée : la mairie de la commune, Maizières-lès-Metz puis Thionville)
+        (("Préparateur", "Logipôle", "57 - Maizières-lès-Metz", "Intérim", "2026-11-14", texte(2)), None),
+        (("Préparateur", "Logipôle", "57 - Thionville", "CDI", "2026-11-10", texte(3)), None),
         (("Préparateur en alternance", "Logipôle", "54 - Nancy", "", "2026-11-19", texte(4)), Some((48.69, 6.18))),
-        (("Préparateur", "Logipôle", "57 - Ennery", "Temps plein", "", texte(5)), None),
+        // (deux communes de ce nom, en Moselle et dans le Val-d'Oise : sans le département, pas de distance)
+        (("Préparateur", "Logipôle", "Ennery", "Temps plein", "", texte(5)), None),
+        // (dans la ville cherchée, avec sa position : « sur place » quand même)
         (
             ("Préparateur", "Logipôle", "57 - Metz", "Contrat à durée indéterminée", "2026-11-13", texte(6)),
             Some((49.123, 6.178)),
         ),
         (("Préparateur", "Logipôle", "Grand Est", "Mission intérimaire - 3 Mois", "2026-11-18", texte(7)), None),
     ]);
-    // (le centre de Metz est connu : les offres qui donnent leur position ont une vraie distance)
+    // (le centre de Metz vient des offres gardées : il passe avant le centre de la commune)
     c.listes[0].depart = Depart::de(&LieuSite::Ville { nom: "Metz".into(), rayon_km: 30 }, Some(METZ));
+    assert_eq!(c.listes[0].depart.as_ref().unwrap().centre, Some(METZ));
     c
+}
+
+/// Ce que chaque carte écrit comme distance, dans l'ordre des rangs donnés (rien : pas de distance écrite).
+fn distances_ecrites(c: &Coulisse, rangs: &[usize]) -> Vec<String> {
+    rangs.iter().map(|i| etiquettes(&carte(c, *i), "distance").join(" + ")).collect()
+}
+
+/// Les groupes de filtres montrés, dans l'ordre.
+fn groupes_montres(c: &Coulisse) -> Vec<String> {
+    c.vue(jour())["liste"]["filtres"]["groupes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|g| g["id"].as_str().unwrap().to_string())
+        .collect()
 }
 
 /// Les trois filtres de la colonne de gauche, seuls puis croisés, leurs nombres (comptés avec les autres filtres
@@ -307,16 +326,20 @@ fn les_filtres_de_la_colonne_de_gauche_et_leurs_nombres() {
         (etiquettes(&carte(&c, 1), "contrat"), etiquettes(&carte(&c, 1), "distance")),
         (vec!["CDD".to_string()], vec!["à 4 km".to_string()])
     );
+    // (les offres 2 et 3 ne donnent pas leur position : du centre de Metz à la mairie de leur commune, 10,2 km
+    // jusqu'à Maizières-lès-Metz et 26,5 km jusqu'à Thionville)
     assert_eq!(etiquettes(&carte(&c, 2), "distance"), ["à 10 km"]);
     assert_eq!(etiquettes(&carte(&c, 3), "distance"), ["à 27 km"]);
     assert_eq!(
         (etiquettes(&carte(&c, 4), "contrat"), etiquettes(&carte(&c, 4), "distance")),
         (vec!["Alternance".to_string()], vec!["à 48 km".to_string()])
     );
+    // (« Ennery » sans son département : pas une commune reconnue sans doute possible, pas de distance)
     assert!(etiquettes(&carte(&c, 5), "contrat").is_empty() && etiquettes(&carte(&c, 5), "distance").is_empty());
+    // (dans la ville cherchée : « sur place », même avec sa position à 400 m du centre)
     assert_eq!(
         (etiquettes(&carte(&c, 6), "contrat"), etiquettes(&carte(&c, 6), "distance")),
-        (vec!["CDI".to_string()], vec!["à moins de 1 km".to_string()])
+        (vec!["CDI".to_string()], vec!["sur place".to_string()])
     );
     assert_eq!(
         (etiquettes(&carte(&c, 7), "contrat"), etiquettes(&carte(&c, 7), "distance")),
@@ -431,6 +454,12 @@ fn le_tri_des_cartes() {
     assert_eq!(rangs(&c), [4, 0, 7, 1, 2, 6, 3, 5]);
     c.geste(None, TRI, &json!({ "tri": "pres" }), m(9, 1));
     assert_eq!(rangs(&c), [0, 6, 1, 2, 3, 4, 5, 7]);
+    // (les deux offres de Metz d'abord, dans l'ordre du site ; les distances des offres 2 et 3 viennent du centre de
+    // leur commune ; les deux offres sans distance connue à la fin, dans l'ordre du site)
+    assert_eq!(
+        distances_ecrites(&c, &rangs(&c)),
+        ["sur place", "sur place", "à 4 km", "à 10 km", "à 27 km", "à 48 km", "", ""]
+    );
     // Les offres voisines suivent les cartes : après la 6 vient la 1, avant elle la 0
     c.geste(None, OUVRIR, &json!({ "i": 6 }), m(9, 2));
     c.geste(None, VOISINE, &json!({ "d": 1 }), m(9, 2));
@@ -506,34 +535,250 @@ fn un_choix_remet_a_la_premiere_page_de_cartes() {
     }
 }
 
+/// Les lieux qui ne sont pas une commune reconnue sans doute possible (rien, un département, du télétravail, deux
+/// communes du même nom sans leur département) : leur distance n'est jamais inventée. Ici aucune offre n'a de distance
+/// en kilomètres (deux sont à Metz même, « sur place ») : le groupe Distance n'est pas montré, il donnerait trois fois
+/// le même résultat ; il revient dès qu'une offre a une distance en kilomètres.
+#[test]
+fn sans_commune_reconnue_pas_de_distance_et_pas_de_groupe_sans_kilometres() {
+    let texte = |i: usize| -> &'static str {
+        [
+            "Poste numéro 0 : mise en rayon, rotation des produits, accueil des clients, en équipe du matin.",
+            "Poste numéro 1 : mise en rayon, rotation des produits, accueil des clients, en équipe du matin.",
+            "Poste numéro 2 : mise en rayon, rotation des produits, accueil des clients, en équipe du matin.",
+            "Poste numéro 3 : mise en rayon, rotation des produits, accueil des clients, en équipe du matin.",
+            "Poste numéro 4 : mise en rayon, rotation des produits, accueil des clients, en équipe du matin.",
+            "Poste numéro 5 : mise en rayon, rotation des produits, accueil des clients, en équipe du matin.",
+            "Poste numéro 6 : mise en rayon, rotation des produits, accueil des clients, en équipe du matin.",
+        ][i]
+    };
+    let six: Vec<(Ecrite, Option<(f64, f64)>)> = vec![
+        (("Employé de rayon", "Logipôle", "", "CDI", "2026-11-18", texte(0)), None),
+        (("Employé de rayon", "Logipôle", "57 - Metz", "CDI", "2026-11-18", texte(1)), None),
+        (("Employé de rayon", "Logipôle", "Moselle", "CDD", "2026-11-18", texte(2)), None),
+        (("Employé de rayon", "Logipôle", "Télétravail", "CDI", "2026-11-18", texte(3)), None),
+        (("Employé de rayon", "Logipôle", "Saint-Denis", "CDI", "2026-11-18", texte(4)), None),
+        (("Employé de rayon", "Logipôle", "Metz (57)", "CDD", "2026-11-18", texte(5)), Some((49.09, 6.23))),
+    ];
+    // (la recherche est autour de Metz, dont le centre est connu par la table des communes)
+    let mut c = liste_de_pages(&six);
+    let depart = c.listes[0].depart.clone().unwrap();
+    assert_eq!((depart.insee, depart.centre), (Some("57463"), communes::centre("57463")));
+    for i in [0, 2, 3, 4] {
+        let l = &c.offres_lues[i].faits.lieu;
+        assert_eq!((l.insee, l.point, depart.distance(l)), (None, None, None), "l'offre {i}");
+    }
+    // Les cartes : « sur place » pour les deux offres de Metz, rien pour les autres
+    assert_eq!(distances_ecrites(&c, &[0, 1, 2, 3, 4, 5]), ["", "sur place", "", "", "", "sur place"]);
+    // Pas de groupe Distance (aucune distance en kilomètres) ; « Les plus près d'abord » reste proposé
+    assert_eq!(groupes_montres(&c), ["contrat", "publiee"]);
+    let v = c.vue(jour());
+    let tris: Vec<&str> =
+        v["liste"]["filtres"]["tri"]["choix"].as_array().unwrap().iter().map(|t| t["v"].as_str().unwrap()).collect();
+    assert_eq!(tris, ["site", "recentes", "pres"]);
+    // Sans filtre, tout est montré ; « Les plus près d'abord » : les offres sans distance à la fin
+    assert_eq!((rangs(&c), sous(&c).as_str()), ((0..6).collect::<Vec<_>>(), "6 offres analysées"));
+    c.geste(None, TRI, &json!({ "tri": "pres" }), m(9, 0));
+    assert_eq!(rangs(&c), [1, 5, 0, 2, 3, 4]);
+    c.geste(None, TRI, &json!({ "tri": "site" }), m(9, 0));
+    // Un filtre de distance cache les offres sans distance connue, et le compteur dit combien
+    for km in DISTANCES {
+        c.geste(None, DISTANCE, &json!({ "km": km }), m(9, 1));
+        assert_eq!(rangs(&c), [1, 5], "{km} km");
+        assert_eq!(sous(&c), "2 offres sur 6 analysées, 4 offres sans distance connue", "{km} km");
+    }
+    c.geste(None, DISTANCE, &json!({ "km": 0 }), m(9, 2));
+    assert_eq!(c.choix, Choix::default());
+
+    // La même liste avec une offre à Ennery en plus (commune reconnue avec son département, à 12,2 km de la mairie de
+    // Metz) : une distance en kilomètres est connue, le groupe Distance est montré
+    let mut sept = six.clone();
+    sept.push((("Employé de rayon", "Logipôle", "57 - Ennery", "CDI", "2026-11-18", texte(6)), None));
+    let mut c = liste_de_pages(&sept);
+    assert_eq!(groupes_montres(&c), ["distance", "contrat", "publiee"]);
+    assert_eq!(distances_ecrites(&c, &[6]), ["à 12 km"]);
+    assert_eq!(nombres(&c, "distance"), (vec![2, 3, 3, 7], vec!["0".to_string()]));
+    c.geste(None, DISTANCE, &json!({ "km": 5 }), m(9, 3));
+    assert_eq!((rangs(&c), sous(&c).as_str()), (vec![1, 5], "2 offres sur 7 analysées, 4 offres sans distance connue"));
+    c.geste(None, DISTANCE, &json!({ "km": 15 }), m(9, 4));
+    assert_eq!(
+        (rangs(&c), sous(&c).as_str()),
+        (vec![1, 5, 6], "3 offres sur 7 analysées, 4 offres sans distance connue")
+    );
+    c.geste(None, DISTANCE, &json!({ "km": 0 }), m(9, 5));
+    c.geste(None, TRI, &json!({ "tri": "pres" }), m(9, 6));
+    assert_eq!(rangs(&c), [1, 5, 6, 0, 2, 3, 4]);
+    sans_tiret_long(&c.vue(jour()));
+}
+
+/// À la limite d'un filtre de distance, c'est le nombre écrit sur la carte (la distance arrondie) qui décide : une
+/// carte « à 15 km » passe « Jusqu'à 15 km » même à 15,4 km, une carte « à 16 km » (15,6 km) non. Positions données par
+/// le site, plein nord de la mairie de Metz (un degré de latitude : 111,19 km) ; le lieu écrit n'est pas une commune.
+#[test]
+fn a_la_limite_la_distance_ecrite_sur_la_carte_decide() {
+    const LONGITUDE: f64 = 6.1764;
+    let texte = |i: usize| -> &'static str {
+        [
+            "Poste numéro 0 : entretien des locaux, vitres et sols, tôt le matin, avec un véhicule de service.",
+            "Poste numéro 1 : entretien des locaux, vitres et sols, tôt le matin, avec un véhicule de service.",
+            "Poste numéro 2 : entretien des locaux, vitres et sols, tôt le matin, avec un véhicule de service.",
+            "Poste numéro 3 : entretien des locaux, vitres et sols, tôt le matin, avec un véhicule de service.",
+            "Poste numéro 4 : entretien des locaux, vitres et sols, tôt le matin, avec un véhicule de service.",
+            "Poste numéro 5 : entretien des locaux, vitres et sols, tôt le matin, avec un véhicule de service.",
+        ][i]
+    };
+    // (latitude, distance exacte attendue, ce que la carte écrit)
+    let cas: [(f64, f64, &str); 6] = [
+        (49.2581, 15.40, "à 15 km"),
+        (49.2602, 15.63, "à 16 km"),
+        (49.1682, 5.40, "à 5 km"),
+        (49.3948, 30.60, "à 31 km"),
+        (49.1700, 5.60, "à 6 km"),
+        (49.3930, 30.40, "à 30 km"),
+    ];
+    let offres: Vec<(Ecrite, Option<(f64, f64)>)> = cas
+        .iter()
+        .enumerate()
+        .map(|(i, x)| {
+            (("Agent d'entretien", "Logipôle", "Moselle", "CDI", "2026-11-18", texte(i)), Some((x.0, LONGITUDE)))
+        })
+        .collect();
+    let mut c = liste_de_pages(&offres);
+    let depart = c.listes[0].depart.clone().unwrap();
+    assert_eq!(depart.centre, Some((49.1196, LONGITUDE)));
+    for (i, x) in cas.iter().enumerate() {
+        let km = depart.distance(&c.offres_lues[i].faits.lieu).unwrap().km();
+        assert!((km - x.1).abs() < 0.03, "l'offre {i} : {km} km, {} attendus", x.1);
+    }
+    assert_eq!(distances_ecrites(&c, &[0, 1, 2, 3, 4, 5]), cas.map(|x| x.2));
+    assert_eq!(nombres(&c, "distance").0, [1, 3, 5, 6]);
+    for (limite, gardees) in [(5, vec![2]), (15, vec![0, 2, 4]), (30, vec![0, 1, 2, 4, 5])] {
+        c.geste(None, DISTANCE, &json!({ "km": limite }), m(9, 0));
+        assert_eq!(rangs(&c), gardees, "jusqu'à {limite} km");
+        assert_eq!(
+            sous(&c),
+            format!("{} offre{} sur 6 analysées", gardees.len(), if gardees.len() > 1 { "s" } else { "" })
+        );
+    }
+}
+
+/// Les distances des neuf fausses offres de France Travail depuis la mairie de Metz, à vol d'oiseau jusqu'à la mairie
+/// de leur commune (calculées à part) : Ennery, Woippy, Thionville, Metz, Metz, Montigny-lès-Metz, Metz, Hagondange,
+/// Rombas. Zéro : dans la ville cherchée, « sur place ».
+const KM_FT: [f64; 9] = [12.23, 3.97, 26.48, 0.0, 0.0, 2.77, 0.0, 14.97, 15.83];
+
 /// Avec les fausses pages de France Travail (9 offres autour de Metz, lues comme les vraies) : aucune ne donne sa
-/// position, la distance n'est connue que pour les trois offres de Metz même ; les contrats et les dates viennent de
-/// la page. Une nouvelle recherche remet les filtres et le tri, pas « Cacher les doublons ».
+/// position, mais chacune est dans une commune reconnue, donc à une vraie distance du centre de Metz. Le groupe
+/// Distance est montré, ses nombres disent ce que les cartes écrivent, et ses trois choix ne donnent pas le même
+/// résultat.
+#[test]
+fn la_distance_des_offres_d_un_site_vient_des_communes() {
+    let (b, rid) = base();
+    let (mut c, mut n, t0) = liste_ft(&b, rid);
+    assert_eq!(lire_jusqu_au_bout(&mut c, &b, &mut n, t0).1, 9);
+    let depart = c.liste_de(Site::FranceTravail).unwrap().depart.clone().unwrap();
+    assert_eq!(depart.centre, Some((49.1196, 6.1764)));
+    assert_eq!(groupes_montres(&c), ["distance", "contrat", "publiee"]);
+    // Ce que les cartes écrivent
+    let tous: Vec<usize> = (0..9).collect();
+    assert_eq!(rangs(&c), tous);
+    let ecrites = distances_ecrites(&c, &tous);
+    assert_eq!(
+        ecrites,
+        ["à 12 km", "à 4 km", "à 26 km", "sur place", "sur place", "à 3 km", "sur place", "à 15 km", "à 16 km"]
+    );
+    // Les distances exactes de ces offres
+    let km: Vec<f64> = tous
+        .iter()
+        .map(|i| {
+            let f = c.offres_lues.iter().find(|f| f.url == url(&c, *i)).unwrap();
+            depart.distance(&f.faits.lieu).unwrap().km()
+        })
+        .collect();
+    assert_eq!(km.len(), KM_FT.len());
+    for (i, (vu, attendu)) in km.iter().zip(KM_FT).enumerate() {
+        assert!((vu - attendu).abs() < 0.05, "l'offre {i} : {vu} km, {attendu} attendus");
+    }
+    // Les nombres du groupe : chaque choix dit combien de cartes il donnerait
+    let (n_choix, coches) = nombres(&c, "distance");
+    assert_eq!((n_choix.clone(), coches), (vec![5, 7, 9, 9], vec!["0".to_string()]));
+    assert!(n_choix[0] < n_choix[1] && n_choix[1] < n_choix[2], "les trois choix ne donnent pas le même résultat");
+    // Chaque choix, coché : ses cartes, son nombre, et ce que ces cartes écrivent. Une carte « à N km » est gardée si
+    // et seulement si N est inférieur ou égal à la limite (Hagondange, à 14,97 km, écrite « à 15 km » : gardée par
+    // « Jusqu'à 15 km » ; Rombas, à 15,83 km, écrite « à 16 km » : cachée).
+    let ecrit_km = |t: &str| -> u32 {
+        match t {
+            "sur place" => 0,
+            t => t.trim_start_matches("à ").trim_end_matches(" km").parse().unwrap(),
+        }
+    };
+    let attendus: [&[usize]; 3] = [&[1, 3, 4, 5, 6], &[0, 1, 3, 4, 5, 6, 7], &[0, 1, 2, 3, 4, 5, 6, 7, 8]];
+    for (k, limite) in DISTANCES.into_iter().enumerate() {
+        c.geste(Some(&b), DISTANCE, &json!({ "km": limite }), m(9, 30));
+        let montrees = rangs(&c);
+        assert_eq!(montrees, attendus[k], "jusqu'à {limite} km");
+        assert_eq!(montrees.len() as u64, n_choix[k], "jusqu'à {limite} km : le nombre écrit à côté du choix");
+        assert_eq!(montrees, tous.iter().copied().filter(|i| km[*i].round() <= f64::from(limite)).collect::<Vec<_>>());
+        for i in &tous {
+            let ecrit = ecrit_km(&ecrites[*i]);
+            assert_eq!(montrees.contains(i), ecrit <= limite, "l'offre {i}, {}, jusqu'à {limite} km", ecrites[*i]);
+        }
+        // (toutes les distances sont connues : rien à dire de plus dans le compteur)
+        assert_eq!(sous(&c), format!("{} offres sur 9 analysées", montrees.len()), "jusqu'à {limite} km");
+        assert_eq!(nombres(&c, "distance"), (n_choix.clone(), vec![limite.to_string()]), "son groupe ne change pas");
+    }
+    c.geste(Some(&b), DISTANCE, &json!({ "km": 0 }), m(9, 31));
+    // « Les plus près d'abord » : les trois offres de Metz (dans l'ordre du site), puis de la plus proche à la plus
+    // lointaine
+    c.geste(Some(&b), TRI, &json!({ "tri": "pres" }), m(9, 32));
+    assert_eq!(rangs(&c), [3, 4, 6, 5, 1, 0, 7, 8, 2]);
+    assert_eq!(
+        distances_ecrites(&c, &rangs(&c)),
+        ["sur place", "sur place", "sur place", "à 3 km", "à 4 km", "à 12 km", "à 15 km", "à 16 km", "à 26 km"]
+    );
+    sans_tiret_long(&c.vue(jour()));
+}
+
+/// Avec les fausses pages de France Travail (9 offres autour de Metz, lues comme les vraies) : aucune ne donne sa
+/// position, leur distance vient de la mairie de leur commune (« sur place » pour les trois offres de Metz même) ; les
+/// contrats et les dates viennent de la page. Une nouvelle recherche remet les filtres et le tri, pas « Cacher les
+/// doublons ».
 #[test]
 fn filtres_sur_les_pages_d_un_site_et_remise_a_zero() {
     let (b, rid) = base();
     let (mut c, mut n, t0) = liste_ft(&b, rid);
     assert_eq!(lire_jusqu_au_bout(&mut c, &b, &mut n, t0).1, 9);
     let l = c.liste_de(Site::FranceTravail).unwrap();
-    assert!(l.depart.as_ref().is_some_and(|d| d.ville == "metz" && d.insee == Some("57463") && d.centre.is_none()));
-    assert!(c.offres_lues.iter().all(|f| f.faits.lieu.point.is_none()), "une page de site ne donne pas de position");
+    // (aucune offre gardée à Metz dans la base : le centre du départ est celui de la commune de Metz)
+    assert!(
+        l.depart
+            .as_ref()
+            .is_some_and(|d| { d.ville == "metz" && d.insee == Some("57463") && d.centre == Some((49.1196, 6.1764)) })
+    );
+    // (une page de site ne donne pas de position : celle de chaque offre est le centre de sa commune, reconnue)
+    assert!(
+        c.offres_lues.iter().all(|f| f.lue.offre.latitude.is_none() && f.lue.offre.longitude.is_none()),
+        "une page de site ne donne pas de position"
+    );
+    assert!(c.offres_lues.iter().all(|f| {
+        f.faits.lieu.insee.is_some() && f.faits.lieu.point == f.faits.lieu.insee.and_then(communes::centre)
+    }));
     // (deux de ces fausses offres sont dans la forme réelle de France Travail, sans date de publication dans leurs
     // données : leur date reste inconnue, jamais inventée ; leur contrat est reconnu dans leur texte)
     assert!(c.offres_lues.iter().all(|f| f.faits.contrat.is_some()));
     assert_eq!(c.offres_lues.iter().filter(|f| f.faits.publiee.is_none()).count(), 2);
     assert_eq!(sous(&c), "9 offres analysées", "aucun doublon parmi les fausses offres");
-    // (aucune distance en kilomètres n'est connue : le groupe Distance n'est pas montré, il donnerait trois fois le
-    // même résultat)
-    let v = c.vue(jour());
-    let ids: Vec<&str> =
-        v["liste"]["filtres"]["groupes"].as_array().unwrap().iter().filter_map(|g| g["id"].as_str()).collect();
-    assert_eq!(ids, ["contrat", "publiee"]);
+    // (six offres ont une distance en kilomètres : le groupe Distance est montré, devant les deux autres)
+    assert_eq!(groupes_montres(&c), ["distance", "contrat", "publiee"]);
+    assert_eq!(nombres(&c, "distance").0, [5, 7, 9, 9]);
     assert_eq!(nombres(&c, "contrat").0, [6, 1, 2, 0]);
     assert_eq!(nombres(&c, "publiee").0, [2, 5, 9]);
+    // « Jusqu'à 5 km » : les trois offres de Metz, celle de Woippy (à 4 km) et celle de Montigny-lès-Metz (à 3 km) ;
+    // toutes les distances sont connues, le compteur n'a rien à ajouter
     c.geste(Some(&b), DISTANCE, &json!({ "km": 5 }), m(9, 30));
-    assert_eq!(rangs(&c), [3, 4, 6]);
-    assert!(lignes(&c).iter().all(|l| etiquettes(l, "distance") == ["sur place"]));
-    assert_eq!(sous(&c), "3 offres sur 9 analysées, 6 offres sans distance connue");
+    assert_eq!(rangs(&c), [1, 3, 4, 5, 6]);
+    assert_eq!(distances_ecrites(&c, &[1, 3, 4, 5, 6]), ["à 4 km", "sur place", "sur place", "à 3 km", "sur place"]);
+    assert_eq!(sous(&c), "5 offres sur 9 analysées");
     c.geste(Some(&b), CONTRAT, &json!({ "contrat": "cdd" }), m(9, 31));
     assert_eq!(rangs(&c), [3]);
     assert_eq!(etiquettes(&carte(&c, 3), "contrat"), ["CDD"]);
