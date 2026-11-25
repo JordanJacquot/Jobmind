@@ -1106,3 +1106,14 @@ button.jm-bilan.f:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(-
 .jm-fiche-nav { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding: 18px 44px 0; max-width: 900px; }
 .jm-fiche-nav-d { display: flex; gap: 8px; flex-wrap: wrap; }
 .jm-corps.offres.plein .jm-d, .jm-corps.offres.plein .jm-fiche-nav, .jm-corps.offres.plein .jm-ouv { max-width: 1040px; margin-left: auto; margin-right: auto; }
+/* (0.2.0 : les filtres des offres d'un site, sous les bascules de la colonne de gauche : un petit titre par groupe
+   (Distance, Contrat, Publiée), puis ses choix en puces, chacun avec son nombre d'offres. Un choix qui ne donnerait
+   aucune offre est plus pâle, il reste cliquable) */
+.jm-filtres { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; padding-top: 12px; border-top: 1px solid color-mix(in srgb, var(--ligne) 60%, transparent); }
+.jm-filtre { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.jm-filtre-t { font-size: 12.5px; font-weight: 650; color: var(--pale); }
+.jm-rch .jm-filtre .jm-bascules { margin-top: 0; }
+.jm-filtre .jm-puce.zero { opacity: 0.55; }
+/* (0.2.0 : le tri des cartes, à droite de leur titre ; l'étiquette des annonces identiques ou « Doublon ») */
+.jm-cartes-tri { margin-left: auto; }
+.jm-tag.double { border-color: color-mix(in srgb, var(--jm) 45%, transparent); color: var(--jm); }

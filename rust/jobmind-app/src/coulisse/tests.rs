@@ -196,7 +196,7 @@ fn liste_offre_et_ajout() {
     let metz = LieuSite::Ville { nom: "Metz".into(), rayon_km: 30 };
     assert_eq!(u, adresse_recherche(Site::LinkedIn, "cariste", &metz, 1).unwrap());
     assert_eq!(f.coulisse.len(), 1);
-    assert!(c.vue(jour())["attente"].as_str().unwrap().contains("Jobmind lit les résultats sur LinkedIn"));
+    assert!(c.vue(jour())["attente"].as_str().unwrap().contains("Jobmind analyse les résultats sur LinkedIn"));
     // Un second clic pendant la lecture : rien de chargé
     let f2 = c.geste(Some(&b), CHERCHER, &json!({ "site": "linkedin", "recherche": rid }), m(9, 0));
     assert!(f2.coulisse.is_empty() && f2.message.is_some());
@@ -218,7 +218,7 @@ fn liste_offre_et_ajout() {
     assert!(v["liste"]["lignes"].as_array().unwrap().is_empty(), "{v}");
     assert_eq!(v["liste"]["sous"], "0 offre analysée");
     assert!(v["liste"]["vide_texte"].as_str().unwrap().starts_with("Jobmind analyse les offres"), "{v}");
-    assert_eq!(v["liste"]["lecture"]["texte"], "Jobmind lit toutes les offres : 0 lues");
+    assert_eq!(v["liste"]["lecture"]["texte"], "Jobmind analyse toutes les offres : 0 analysées");
     assert_eq!((&v["liste"]["precedente"], &v["liste"]["suivante"]), (&json!(false), &json!(false)));
     assert_eq!(v["sites"][0]["etat"], "Pas connecté à LinkedIn");
     assert!(v["attente"].is_null());
@@ -296,7 +296,7 @@ fn liste_offre_et_ajout() {
     assert_eq!(v["liste"]["sous"], "9 offres analysées");
     assert_eq!(v["liste"]["page_texte"], "Page 1 sur 1 · offres 1 à 9");
     assert_eq!(v["liste"]["page"], 1);
-    assert_eq!(v["liste"]["lecture"]["texte"], "Les 9 offres de la liste sont lues");
+    assert_eq!(v["liste"]["lecture"]["texte"], "Les 9 offres de la liste sont analysées");
     assert_eq!(v["textes"]["suivante"], "Page suivante");
     assert_eq!(v["textes"]["precedente"], "Page précédente");
     sans_tiret_long(&v);
@@ -783,5 +783,6 @@ fn chaque_chemin_envoie_la_petite_fenetre_a_la_page() {
 }
 
 mod analyses;
+mod doublons_filtres;
 mod garde;
 mod lecture_auto;

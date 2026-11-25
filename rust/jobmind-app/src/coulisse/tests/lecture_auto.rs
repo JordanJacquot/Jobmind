@@ -99,6 +99,8 @@ pub(super) fn liste_a_la_main(n: usize) -> Coulisse {
         fusion: true,
         tout: false,
         carte_page: 1,
+        // (0.2.0 : le départ des distances, comme une vraie recherche autour de Metz ; son centre n'est pas connu)
+        depart: choix::Depart::de(&LieuSite::Ville { nom: "Metz".into(), rayon_km: 30 }, None),
     };
     Coulisse { source: Some(Site::FranceTravail), listes: vec![liste], lus, ..Coulisse::default() }
 }
@@ -114,7 +116,7 @@ fn ordre_rythme_et_fin() {
     assert_eq!(v["liste"]["lecture"]["lues"], 0);
     // (le but est le nombre d'offres annoncé par le site pour toute la recherche)
     assert_eq!(v["liste"]["lecture"]["total"], 9);
-    assert_eq!(v["liste"]["lecture"]["texte"], "Jobmind lit toutes les offres : 0 sur 9");
+    assert_eq!(v["liste"]["lecture"]["texte"], "Jobmind analyse toutes les offres : 0 sur 9");
     assert_eq!(v["liste"]["lecture"]["finie"], false);
     assert_eq!(v["liste"]["lecture"]["tout"], true);
     assert!(v["liste"]["lecture"]["arret"].is_null());
@@ -134,7 +136,7 @@ fn ordre_rythme_et_fin() {
             assert_eq!(c.lecture_auto(trop_tot, true), Fait::default(), "page 2 trop tôt");
             let v = c.vue(jour());
             assert_eq!(v["liste"]["lecture"]["finie"], false);
-            assert_eq!(v["liste"]["lecture"]["texte"], "Jobmind lit toutes les offres : 6 sur 9");
+            assert_eq!(v["liste"]["lecture"]["texte"], "Jobmind analyse toutes les offres : 6 sur 9");
             let f = c.lecture_auto(t + PAUSE + PAUSE_PAGE_TOUT, true);
             let l = c.liste_de(Site::FranceTravail).unwrap();
             assert_eq!(Some(charge(&f)), sites::adresse_recherche(Site::FranceTravail, &l.mots, &l.lieu, 2));
@@ -191,7 +193,7 @@ fn ordre_rythme_et_fin() {
     let v = c.vue(jour());
     assert_eq!(v["liste"]["lecture"]["finie"], true);
     assert_eq!(v["liste"]["lecture"]["tout"], false);
-    assert_eq!(v["liste"]["lecture"]["texte"], "Les 9 offres de la liste sont lues");
+    assert_eq!(v["liste"]["lecture"]["texte"], "Les 9 offres de la liste sont analysées");
     assert_eq!(v["liste"]["lignes"][3]["etat"], "lue");
     assert!(c.lecture_auto(t + SECONDE * 3600, true).coulisse.is_empty());
     sans_tiret_long(&v);
@@ -444,7 +446,10 @@ fn arret_sur_un_captcha_une_page_illisible_ou_un_site_muet() {
     let v = c.vue(jour());
     assert!(v["liste"]["lecture"]["arret"].is_null(), "{v}");
     assert_eq!(v["liste"]["lecture"]["finie"], true, "{v}");
-    assert!(v["liste"]["lecture"]["texte"].as_str().unwrap().contains("sauf 5 que Jobmind n'arrive pas à lire"), "{v}");
+    assert!(
+        v["liste"]["lecture"]["texte"].as_str().unwrap().contains("sauf 5 que Jobmind n'arrive pas à analyser"),
+        "{v}"
+    );
     // (sans filtre, les offres sautées ont leur carte, « pas lue », pour que Jordan clique dessus ; avec un filtre,
     // seules les offres lues qui le passent sont montrées)
     let l = lignes(&c);
@@ -565,7 +570,7 @@ fn retirer_une_offre_gardee_dans_la_base() {
     let v = c.vue(jour());
     assert_eq!(v["liste"]["sous"], "8 offres analysées");
     assert_eq!(v["liste"]["lecture"]["total"], 8, "une offre retirée n'est pas lue");
-    assert_eq!(v["liste"]["lecture"]["texte"], "Les 8 offres de la liste sont lues");
+    assert_eq!(v["liste"]["lecture"]["texte"], "Les 8 offres de la liste sont analysées");
     // (« Revoir les offres retirées » : elle revient à sa place, en gris)
     c.geste(Some(&b), VOIR_RETIREES, &json!({}), m(9, 2));
     let l = lignes(&c);
@@ -706,7 +711,7 @@ fn page_suivante_sans_rien_derriere() {
     assert_eq!(fin, ["Sites : lecture de toutes les offres finie sur francetravail (6 offres dans la liste)"]);
     let v = c.vue(jour());
     assert_eq!(v["liste"]["lecture"]["finie"], true);
-    assert_eq!(v["liste"]["lecture"]["texte"], "Les 6 offres de la liste sont lues");
+    assert_eq!(v["liste"]["lecture"]["texte"], "Les 6 offres de la liste sont analysées");
     assert_eq!((&v["liste"]["tout"], &v["liste"]["tout_possible"]), (&json!(false), &json!(false)), "{v}");
     // 2. Une page suivante illisible : relue, puis la lecture de toutes les offres s'arrête ; les offres restent
     let (mut c, mut n, t0) = liste_ft(&b, rid);
@@ -757,7 +762,7 @@ fn page_suivante_sans_rien_derriere() {
     assert_eq!(v["liste"]["sous"], "6 offres analysées", "{v}");
     assert_eq!(v["liste"]["page_texte"], "Page 1 sur 1 · offres 1 à 6");
     assert_eq!((&v["liste"]["precedente"], &v["liste"]["suivante"]), (&json!(false), &json!(false)));
-    assert_eq!(v["liste"]["lecture"]["texte"], "Jobmind lit toutes les offres : 6 sur 9");
+    assert_eq!(v["liste"]["lecture"]["texte"], "Jobmind analyse toutes les offres : 6 sur 9");
     // (les offres déjà lues le restent ; la lecture automatique reprend à la première offre de la page 2)
     assert_eq!(rangs(&c), [0, 1, 2, 3, 4, 5]);
     let (_, f) = jusqu_au_chargement(&mut c, x + SECONDE, 10).unwrap();
@@ -770,7 +775,7 @@ fn page_suivante_sans_rien_derriere() {
 }
 
 /// 0.1.12, revu pour la 0.2.0 : le compteur de la liste compte les offres analysées ; le nombre d'offres de toute la
-/// recherche, quand le site le dit, est le but de la lecture (« Jobmind lit toutes les offres : X sur Y »).
+/// recherche, quand le site le dit, est le but de la lecture (« Jobmind analyse toutes les offres : X sur Y »).
 #[test]
 fn compteur_de_la_liste() {
     let (b, rid) = base();
@@ -781,34 +786,34 @@ fn compteur_de_la_liste() {
     let total = |c: &mut Coulisse, t| c.liste_de_mut(Site::FranceTravail).unwrap().total = t;
     // (aucune offre analysée : pas de page de cartes à compter)
     assert_eq!((sous(&c).as_str(), texte(&c).as_str()), ("0 offre analysée", ""));
-    assert_eq!(lecture(&c), "Jobmind lit toutes les offres : 0 sur 9");
+    assert_eq!(lecture(&c), "Jobmind analyse toutes les offres : 0 sur 9");
     total(&mut c, Some(sites::Total { n: 296, au_moins: false }));
-    assert_eq!(lecture(&c), "Jobmind lit toutes les offres : 0 sur 296");
+    assert_eq!(lecture(&c), "Jobmind analyse toutes les offres : 0 sur 296");
     // (plus d'offres que Jobmind n'en lit sur ce site : le but est sa limite)
     total(&mut c, Some(sites::Total { n: 1499, au_moins: false }));
-    assert_eq!(lecture(&c), format!("Jobmind lit toutes les offres : 0 sur {}", tout_max(Site::FranceTravail)));
+    assert_eq!(lecture(&c), format!("Jobmind analyse toutes les offres : 0 sur {}", tout_max(Site::FranceTravail)));
     // (« Plus de 99 résultats » : pas de but)
     total(&mut c, Some(sites::Total { n: 99, au_moins: true }));
-    assert_eq!(lecture(&c), "Jobmind lit toutes les offres : 0 lues");
+    assert_eq!(lecture(&c), "Jobmind analyse toutes les offres : 0 analysées");
     // (un total plus petit que ce qui est dans la liste : pas cru, pas affiché)
     total(&mut c, Some(sites::Total { n: 4, au_moins: false }));
-    assert_eq!(lecture(&c), "Jobmind lit toutes les offres : 0 lues");
+    assert_eq!(lecture(&c), "Jobmind analyse toutes les offres : 0 analysées");
     total(&mut c, None);
-    assert_eq!(lecture(&c), "Jobmind lit toutes les offres : 0 lues");
+    assert_eq!(lecture(&c), "Jobmind analyse toutes les offres : 0 analysées");
     assert_eq!(sous(&c), "0 offre analysée", "le total du site ne change pas le compte des offres analysées");
     // Le compte suit les offres analysées, une par une
     total(&mut c, Some(sites::Total { n: 9, au_moins: false }));
     let (x, f) = jusqu_au_chargement(&mut c, t0, 10).unwrap();
     lire_tout(&mut c, &b, &mut n, &f);
     assert_eq!(sous(&c), "1 offre analysée");
-    assert_eq!(lecture(&c), "Jobmind lit toutes les offres : 1 sur 9");
+    assert_eq!(lecture(&c), "Jobmind analyse toutes les offres : 1 sur 9");
     let (x, f) = jusqu_au_chargement(&mut c, x + SECONDE, 10).unwrap();
     lire_tout(&mut c, &b, &mut n, &f);
     assert_eq!((sous(&c).as_str(), texte(&c).as_str()), ("2 offres analysées", "Page 1 sur 1 · offres 1 à 2"));
-    assert_eq!(lecture(&c), "Jobmind lit toutes les offres : 2 sur 9");
+    assert_eq!(lecture(&c), "Jobmind analyse toutes les offres : 2 sur 9");
     lire_jusqu_au_bout(&mut c, &b, &mut n, x + SECONDE);
     assert_eq!((sous(&c).as_str(), texte(&c).as_str()), ("9 offres analysées", "Page 1 sur 1 · offres 1 à 9"));
-    assert_eq!(lecture(&c), "Les 9 offres de la liste sont lues");
+    assert_eq!(lecture(&c), "Les 9 offres de la liste sont analysées");
     sans_tiret_long(&c.vue(jour()));
 }
 
@@ -883,7 +888,7 @@ fn lire_toutes_les_offres() {
     assert_eq!(v["liste"]["cartes"], true);
     assert_eq!(v["liste"]["tout_possible"], false, "déjà en cours : « Arrêter », pas « Lire toutes les offres »");
     assert_eq!(v["liste"]["suivante"], false, "plus de page à tourner à la main");
-    assert_eq!(v["liste"]["lecture"]["texte"], "Jobmind lit toutes les offres : 0 sur 9");
+    assert_eq!(v["liste"]["lecture"]["texte"], "Jobmind analyse toutes les offres : 0 sur 9");
     assert_eq!(v["liste"]["lecture"]["total"], 9);
     assert_eq!(v["liste"]["lecture"]["finie"], false);
     let (mut t, mut pages, mut lues, mut avant) = (t0, 0, 0, t0);
@@ -907,7 +912,7 @@ fn lire_toutes_les_offres() {
     let v = c.vue(jour());
     assert_eq!(v["liste"]["sous"], "9 offres analysées");
     assert_eq!(v["liste"]["lignes"].as_array().unwrap().len(), 9);
-    assert_eq!(v["liste"]["lecture"]["texte"], "Les 9 offres de la liste sont lues");
+    assert_eq!(v["liste"]["lecture"]["texte"], "Les 9 offres de la liste sont analysées");
     assert_eq!(v["liste"]["lecture"]["finie"], true);
     assert_eq!(v["liste"]["tout"], false);
     assert_eq!(v["liste"]["tout_possible"], false, "plus rien derrière");
@@ -932,7 +937,7 @@ fn l_debutants(c: &Coulisse) -> usize {
 /// 0.1.13 : « Arrêter », et les pages mises bout à bout dans l'ordre. Avant la 0.2.0, ce test demandait « Lire toutes
 /// les offres » depuis la page 2 du site, tournée à la main : ces pages n'existent plus. Il vérifie maintenant
 /// « Arrêter » pendant la lecture partie toute seule (les offres déjà là finissent d'être lues, la page 2 n'est pas
-/// chargée), puis « Reprendre la lecture des offres » : la page 2 s'ajoute au bout, la page 1 d'abord.
+/// chargée), puis « Reprendre l'analyse des offres » : la page 2 s'ajoute au bout, la page 1 d'abord.
 #[test]
 fn arreter_puis_reprendre_la_lecture_de_toutes_les_offres() {
     let (b, rid) = base();
@@ -952,12 +957,12 @@ fn arreter_puis_reprendre_la_lecture_de_toutes_les_offres() {
     let v = c.vue(jour());
     assert_eq!(v["liste"]["sous"], "6 offres analysées");
     assert_eq!(v["liste"]["lecture"]["finie"], true);
-    assert_eq!(v["liste"]["lecture"]["texte"], "Les 6 offres de la liste sont lues");
+    assert_eq!(v["liste"]["lecture"]["texte"], "Les 6 offres de la liste sont analysées");
     assert_eq!(v["liste"]["attente_texte"], "");
     assert_eq!(v["liste"]["tout"], false);
-    assert_eq!(v["liste"]["tout_possible"], true, "il reste une page : « Reprendre la lecture des offres »");
-    assert_eq!(v["textes"]["tout_suite"], "Reprendre la lecture des offres");
-    // « Reprendre la lecture des offres » : la page 2 est chargée toute seule, ses offres s'ajoutent au bout
+    assert_eq!(v["liste"]["tout_possible"], true, "il reste une page : « Reprendre l'analyse des offres »");
+    assert_eq!(v["textes"]["tout_suite"], "Reprendre l'analyse des offres");
+    // « Reprendre l'analyse des offres » : la page 2 est chargée toute seule, ses offres s'ajoutent au bout
     let f = c.geste(Some(&b), TOUT, &Value::Null, m(9, 4));
     assert!(f.change && f.coulisse.is_empty(), "{f:?}");
     assert_eq!(
@@ -967,7 +972,7 @@ fn arreter_puis_reprendre_la_lecture_de_toutes_les_offres() {
     let v = c.vue(jour());
     assert_eq!((&v["liste"]["tout"], &v["liste"]["tout_possible"]), (&json!(true), &json!(false)));
     assert_eq!(v["liste"]["lecture"]["finie"], false);
-    assert_eq!(v["liste"]["lecture"]["texte"], "Jobmind lit toutes les offres : 6 sur 9");
+    assert_eq!(v["liste"]["lecture"]["texte"], "Jobmind analyse toutes les offres : 6 sur 9");
     let (pages, lues, _) = lire_jusqu_au_bout(&mut c, &b, &mut n, x + SECONDE);
     assert_eq!((pages, lues), (1, 3));
     let l = c.liste_de(Site::FranceTravail).unwrap();
@@ -976,7 +981,7 @@ fn arreter_puis_reprendre_la_lecture_de_toutes_les_offres() {
     assert!(l.gardees.is_empty() && l.page == 2 && !l.suivante && l.fusion && !l.tout && l.lecture.finie, "{l:?}");
     let v = c.vue(jour());
     assert_eq!(v["liste"]["sous"], "9 offres analysées");
-    assert_eq!(v["liste"]["lecture"]["texte"], "Les 9 offres de la liste sont lues");
+    assert_eq!(v["liste"]["lecture"]["texte"], "Les 9 offres de la liste sont analysées");
     assert_eq!(v["liste"]["tout_possible"], false, "plus rien derrière");
     assert_eq!(c.geste(Some(&b), ARRET_TOUT, &Value::Null, m(9, 5)), Fait::default());
 }
@@ -1237,7 +1242,7 @@ fn pages_de_cartes() {
     assert_eq!(page(&c), ("Page 1 sur 3 · offres 1 à 24".into(), false, true, 0, 23));
     // (le compte des offres ne dépend pas de la page montrée ; la lecture automatique n'a rien à faire)
     assert_eq!(c.vue(jour())["liste"]["sous"], "60 offres analysées");
-    assert_eq!(c.vue(jour())["liste"]["lecture"]["texte"], "Les 60 offres de la liste sont lues");
+    assert_eq!(c.vue(jour())["liste"]["lecture"]["texte"], "Les 60 offres de la liste sont analysées");
     assert_eq!(c.lecture_auto(Instant::now(), true), Fait::default());
     // Un filtre coché sur la dernière page : moins de cartes (une sur deux), moins de pages ; la page montrée est
     // la dernière qui existe
@@ -1319,7 +1324,7 @@ fn filtre_debutant_sur_toutes_les_offres_analysees() {
         "{l:?}"
     );
     // (le filtre ne change pas ce que dit la lecture, ni le chiffre des offres retirées)
-    assert_eq!(v["liste"]["lecture"]["texte"], "Les 9 offres de la liste sont lues");
+    assert_eq!(v["liste"]["lecture"]["texte"], "Les 9 offres de la liste sont analysées");
     assert_eq!(v["liste"]["page_texte"], format!("Page 1 sur 1 · offres 1 à {}", d.len()));
     sans_tiret_long(&v);
     // Les deux filtres : les offres qui passent les deux

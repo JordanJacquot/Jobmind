@@ -125,6 +125,24 @@ pub fn meme_offre(a: &Comparee, b: &Comparee) -> bool {
     }
 }
 
+/// 0.2.0 : un texte d'annonce de moins de ce nombre de mots est trop court pour dire que deux annonces sont la même.
+pub const MOTS_MEME_ANNONCE: usize = 12;
+
+/// 0.2.0 : la clé d'une annonce pour reconnaître la même annonce publiée deux fois sur un site (les doublons des
+/// offres d'un site, cachés dans la liste) : le poste, l'entreprise, le lieu et tout le texte, remis au propre
+/// ([`normaliser`] : sans majuscules, accents, espaces en trop ni ponctuation ; l'entreprise sans sa forme, « SAS »).
+/// Deux annonces sont des doublons seulement si leurs clés sont égales. Plus sévère que [`meme_offre`], qui sert à
+/// regrouper les offres gardées : ici le texte doit être le même en entier, et le poste aussi (« Cariste CDI » et
+/// « Cariste CDD » restent deux annonces). Rien (jamais un doublon) si le poste, l'entreprise ou le lieu manquent, ou
+/// si le texte a moins de [`MOTS_MEME_ANNONCE`] mots : deux annonces différentes ne doivent jamais être confondues.
+pub fn cle_meme_annonce(titre: &str, entreprise: &str, lieu: &str, description: &str) -> Option<String> {
+    let (t, e, l, d) = (normaliser(titre), cle_entreprise(entreprise), normaliser(lieu), normaliser(description));
+    if t.is_empty() || e.is_empty() || l.is_empty() || d.split(' ').count() < MOTS_MEME_ANNONCE {
+        return None;
+    }
+    Some(format!("{t}|{e}|{l}|{d}"))
+}
+
 /// La position du premier de ces mots (ou suites de mots) dans un texte remis au propre.
 fn premier(t: &str, mots: &[&str]) -> Option<usize> {
     let t = format!(" {t} ");
@@ -782,6 +800,63 @@ mod tests {
         );
         assert!(!meme_offre(&jour, &nuit));
         assert!(meme_offre(&jour, &encore));
+    }
+
+    /// 0.2.0 : la même annonce publiée deux fois sur un site (les doublons cachés dans les offres d'un site), et sa
+    /// contre-épreuve : au moindre doute, ce ne sont pas des doublons.
+    #[test]
+    fn meme_annonce_publiee_deux_fois() {
+        let texte = "Conduite de chariot en équipe de jour, réception des livraisons, rangement des palettes, \
+                     inventaires tournants. Débutant accepté.";
+        let a = cle_meme_annonce("Cariste H/F", "Logipôle Lorraine", "57 - Metz", texte);
+        assert!(a.is_some());
+        // Les mêmes, à la casse, aux accents, aux espaces et à la ponctuation près ; la forme de l'entreprise aussi
+        for (titre, entreprise, lieu, description) in [
+            ("Cariste H/F", "Logipôle Lorraine", "57 - Metz", texte),
+            ("CARISTE (H/F)", "LOGIPOLE LORRAINE", "57 -  METZ", texte),
+            ("cariste h/f", "Logipôle Lorraine SAS", "57 Metz", texte),
+            (
+                " Cariste  H / F ",
+                "logipole-lorraine",
+                "57 - Metz",
+                "CONDUITE DE CHARIOT EN EQUIPE DE JOUR : réception des livraisons ; rangement des palettes ; \
+                 inventaires tournants...\n\n  Débutant accepté !",
+            ),
+        ] {
+            assert_eq!(cle_meme_annonce(titre, entreprise, lieu, description), a, "{titre} / {entreprise} / {lieu}");
+        }
+        // Différentes : un autre poste (même le contrat dans le titre), une autre entreprise, un autre lieu, un mot
+        // de plus ou de moins dans le texte, un autre nombre
+        for (titre, entreprise, lieu, description) in [
+            ("Cariste de nuit H/F", "Logipôle Lorraine", "57 - Metz", texte.to_string()),
+            ("Cariste H/F CDD", "Logipôle Lorraine", "57 - Metz", texte.to_string()),
+            ("Cariste H/F", "Logipôle Alsace", "57 - Metz", texte.to_string()),
+            ("Cariste H/F", "Logipôle Lorraine", "57 - Woippy", texte.to_string()),
+            ("Cariste H/F", "Logipôle Lorraine", "54 - Metz", texte.to_string()),
+            ("Cariste H/F", "Logipôle Lorraine", "57 - Metz", format!("{texte} Poste de nuit.")),
+            ("Cariste H/F", "Logipôle Lorraine", "57 - Metz", texte.replace("de jour", "de nuit")),
+            ("Cariste H/F", "Logipôle Lorraine", "57 - Metz", texte.replace("Débutant accepté.", "")),
+        ] {
+            let b = cle_meme_annonce(titre, entreprise, lieu, &description);
+            assert!(b.is_some() && b != a, "{titre} / {entreprise} / {lieu} / {description}");
+        }
+        // Jamais un doublon : sans poste, sans entreprise (ou seulement sa forme), sans lieu, sans texte, ou avec un
+        // texte trop court pour en juger
+        for (titre, entreprise, lieu, description) in [
+            ("", "Logipôle Lorraine", "57 - Metz", texte),
+            ("Cariste H/F", "", "57 - Metz", texte),
+            ("Cariste H/F", "SARL", "57 - Metz", texte),
+            ("Cariste H/F", "Logipôle Lorraine", "", texte),
+            ("Cariste H/F", "Logipôle Lorraine", " - ", texte),
+            ("Cariste H/F", "Logipôle Lorraine", "57 - Metz", ""),
+            ("Cariste H/F", "Logipôle Lorraine", "57 - Metz", "Voir l'annonce sur le site de l'entreprise."),
+        ] {
+            assert_eq!(cle_meme_annonce(titre, entreprise, lieu, description), None, "{titre} / {entreprise} / {lieu}");
+        }
+        let juste = "un deux trois quatre cinq six sept huit neuf dix onze douze";
+        assert_eq!(juste.split(' ').count(), MOTS_MEME_ANNONCE);
+        assert!(cle_meme_annonce("Cariste", "Logipôle", "Metz", juste).is_some());
+        assert!(cle_meme_annonce("Cariste", "Logipôle", "Metz", juste.trim_end_matches(" douze")).is_none());
     }
 
     #[test]

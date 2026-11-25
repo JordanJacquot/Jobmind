@@ -550,7 +550,7 @@
 
   // 0.1.4 (étape 2) : la liste se lit toute seule, et l'offre qui s'ouvre a sa barre. L'écran est redessiné souvent :
   // ce qui était affiché est gardé ici pour repartir de là après chaque dessin (jamais un saut en arrière).
-  let lecVu = { cle: '', pc: 0 };   // la jauge « Jobmind lit les offres » : sa liste, et ce qu'elle montrait
+  let lecVu = { cle: '', pc: 0 };   // la jauge « Jobmind analyse les offres » : sa liste, et ce qu'elle montrait
   let ouvI = null;                  // la ligne cliquée (pour le titre de l'offre qui s'ouvre)
   let clicSouris = 0;               // 0.2.0 : le rang du dernier clic de souris (1 simple, 2 double ; 0 : clavier, manette)
   let ouvEnCours = false;           // une offre s'ouvre (avec sa barre)
@@ -589,7 +589,7 @@
     const box = lj?.parentElement?.getBoundingClientRect();
     if (lj && box && box.width > 0 && lj.closest('.jm-lec')?.dataset.cle === lecVu.cle) lecVu.pc = pcSur(lj.getBoundingClientRect().width / box.width * 100);
   }
-  // L'encart en haut de la liste : « Jobmind lit les offres : 3 sur 20 », son pourcentage et sa jauge
+  // L'encart en haut de la liste : « Jobmind analyse les offres : 3 sur 20 », son pourcentage et sa jauge
   function lectureHTML(l, s) {
     const lec = objet(l.lecture);
     const lues = Number(lec.lues), total = Number(lec.total);
@@ -598,15 +598,15 @@
     const { esc } = O, t = tC();
     const finie = lec.finie === true, arret = !finie && (lec.arret === true || !!texteSur(lec.arret));
     const pc = finie ? 100 : (ok ? Math.round(pcSur(lues / total * 100)) : 0);
-    const texte = texteSur(lec.texte) || (finie ? (t('lecture_finie') || 'Toutes les offres de la page sont lues')
-      : (ok ? (t('lecture_n') || 'Jobmind lit les offres : {lues} sur {total}').replace('{lues}', String(lues)).replace('{total}', String(total)) : ''));
+    const texte = texteSur(lec.texte) || (finie ? (t('lecture_finie') || 'Toutes les offres de la page sont analysées')
+      : (ok ? (t('lecture_n') || 'Jobmind analyse les offres : {lues} sur {total}').replace('{lues}', String(lues)).replace('{total}', String(total)) : ''));
     const cle = `${s.id}|${texteSur(l.titre)}|${ok ? total : ''}`;
     if (cle !== lecVu.cle) lecVu = { cle, pc: 0 };
     const de = reduit() || arret ? pc : Math.min(lecVu.pc, pc);
     lecVu.pc = pc;
-    // (0.1.13 : « Lire toutes les offres » : Jobmind tourne les pages toute seule ; « Arrêter » pendant qu'elle le fait)
+    // (0.1.13 : « Analyser toutes les offres » : Jobmind tourne les pages toute seule ; « Arrêter » pendant qu'elle le fait)
     const btTout = l.tout === true ? bouton('cs-tout-arret', 'cs:tout-arret', t('tout_arret') || 'Arrêter', 'croix', 'second')
-      : l.tout_possible === true ? bouton('cs-tout', 'cs:tout', l.fusion === true ? (t('tout_suite') || 'Lire la suite des offres') : (t('tout') || 'Lire toutes les offres'), 'droite', 'second') : '';
+      : l.tout_possible === true ? bouton('cs-tout', 'cs:tout', l.fusion === true ? (t('tout_suite') || "Reprendre l'analyse des offres") : (t('tout') || 'Analyser toutes les offres'), 'droite', 'second') : '';
     return `<div class="jm-lec${finie ? ' finie' : ''}${arret ? ' arret' : ''}" data-cle="${esc(cle)}" role="status">
       <div class="jm-lec-l"><span>${esc(texte)}</span>${ok && !arret ? `<b>${pc} %</b>` : ''}</div>
       <div class="jm-lec-j" aria-hidden="true"><i style="width:${de}%" data-vers="${pc}"></i></div>${btTout ? `<div class="jm-btns jm-lec-b">${btTout}</div>` : ''}</div>`;
@@ -997,10 +997,13 @@
     h += gardeHTML(s, 'cs:oublier');
     h += basculesHTML(to);
     // (0.2.0 : « Seulement les pas encore vues » : les offres que tu as déjà ouvertes toi-même n'ont plus leur carte)
-    const pasVues = c.pas_vues === true;
-    h += `<div class="jm-bascules jm-bascules-vues"><button type="button" role="switch" aria-checked="${pasVues}" class="jm-puce petite jm-bascule f${pasVues ? ' oui' : ''}" data-perso="cs-pas-vues" data-k="cs:pas-vues">${icone(pasVues ? 'coche' : 'plus')}${esc(t('pas_vues') || 'Seulement les pas encore vues')}</button></div>`;
-    h += '</div>';
+    // (0.2.0 : « Cacher les doublons », coché d'office : la même annonce publiée deux fois n'a qu'une carte)
+    const pasVues = c.pas_vues === true, sansDoublons = c.cacher_doublons !== false;
+    h += `<div class="jm-bascules jm-bascules-vues"><button type="button" role="switch" aria-checked="${pasVues}" class="jm-puce petite jm-bascule f${pasVues ? ' oui' : ''}" data-perso="cs-pas-vues" data-k="cs:pas-vues">${icone(pasVues ? 'coche' : 'plus')}${esc(t('pas_vues') || 'Seulement les pas encore vues')}</button><button type="button" role="switch" aria-checked="${sansDoublons}" class="jm-puce petite jm-bascule f${sansDoublons ? ' oui' : ''}" data-perso="cs-doublons" data-k="cs:doublons">${icone(sansDoublons ? 'coche' : 'plus')}${esc(t('cacher_doublons') || 'Cacher les doublons')}</button></div>`;
     const l = c.liste && typeof c.liste === 'object' && c.liste.site === s.id ? c.liste : null;
+    // (0.2.0 : sous les bascules, les filtres des offres analysées : distance, contrat, date de publication)
+    if (l) h += filtresSitesHTML(l.filtres);
+    h += '</div>';
     if (l) {
       h += `<div class="jm-liste-tete"><span class="jm-liste-t">${esc(texteSur(l.titre))}</span></div>`;
       h += lectureHTML(l, s);
@@ -1013,6 +1016,28 @@
       }
     }
     return h;
+  }
+
+  // 0.2.0 : les filtres des offres d'un site, dans la colonne de gauche : un groupe par filtre (la distance, le
+  // contrat, la date de publication ; Rust n'envoie le groupe de la distance que si la recherche a une ville). À côté
+  // de chaque choix, le nombre d'offres qu'il donnerait, compté par Rust avec les autres filtres cochés. Un seul choix
+  // à la fois pour la distance et la date (comme les listes de « Mes offres gardées »), plusieurs pour le contrat (des
+  // bascules). Le data-k de chaque choix : « cf: », la lettre du groupe, sa valeur (« cf:d-15 », « cf:c-cdi »).
+  const FILTRES_SITES = ['distance', 'contrat', 'publiee'];
+  function filtresSitesHTML(fl) {
+    const { esc } = O;
+    const groupes = liste(objet(fl).groupes).filter((g) => FILTRES_SITES.includes(g?.id));
+    let h = '';
+    for (const g of groupes) {
+      const plusieurs = g.plusieurs === true, titre = texteSur(g.titre);
+      const choix = liste(g.choix).filter((x) => typeof x?.v === 'string' && /^[a-z0-9]{1,10}$/.test(x.v) && texteSur(x.nom));
+      if (!choix.length) continue;
+      h += `<div class="jm-filtre" role="${plusieurs ? 'group' : 'radiogroup'}" aria-label="${esc(titre)}"><span class="jm-filtre-t">${esc(titre)}</span><div class="jm-bascules">${choix.map((x) => {
+        const oui = x.oui === true, n = Number.isInteger(x.n) && x.n >= 0 ? x.n : 0, nom = texteSur(x.nom);
+        return `<button type="button" role="${plusieurs ? 'switch' : 'radio'}" aria-checked="${oui}" aria-label="${esc(`${nom} : ${n} ${n > 1 ? 'offres' : 'offre'}`)}" class="jm-puce petite f${plusieurs ? ' jm-bascule' : ''}${oui ? ' oui' : ''}${n === 0 && !oui ? ' zero' : ''}" data-perso="cs-filtre" data-groupe="${g.id}" data-v="${x.v}" data-k="cf:${g.id[0]}-${x.v}">${plusieurs ? icone(oui ? 'coche' : 'plus') : ''}${esc(nom)} <i>${n}</i></button>`;
+      }).join('')}</div></div>`;
+    }
+    return h ? `<div class="jm-filtres">${h}</div>` : '';
   }
 
   // L'offre d'un site lue en coulisse, comme une offre de l'onglet Offres
@@ -1050,7 +1075,12 @@
   function cartesHTML(l, s) {
     const { esc } = O, t = tC();
     const lignes = liste(l.lignes);
-    let h = `<div class="jm-cartes-zone${anime()}"><div class="jm-cartes-tete"><h1>${esc(texteSur(l.titre))}</h1><span class="jm-cartes-sous">${esc(texteSur(l.sous))}</span></div>`;
+    // (0.2.0 : le tri des cartes, au-dessus d'elles, à droite : une liste déroulante habillée par habillerMenus())
+    const tri = objet(objet(l.filtres).tri), tris = liste(tri.choix).filter((x) => codeSurP(x?.v) && texteSur(x.nom));
+    const triH = lignes.length && tris.length > 1
+      ? `<span class="jm-b-sel jm-tri jm-cartes-tri"><select class="f" data-perso="cs-tri" data-k="cs:tri" aria-label="${esc(texteSur(tri.nom) || 'Trier les offres')}">${tris.map((x) => `<option value="${x.v}"${x.v === tri.ici ? ' selected' : ''}>${esc(texteSur(x.nom))}</option>`).join('')}</select></span>`
+      : '';
+    let h = `<div class="jm-cartes-zone${anime()}"><div class="jm-cartes-tete"><h1>${esc(texteSur(l.titre))}</h1><span class="jm-cartes-sous">${esc(texteSur(l.sous))}</span>${triH}</div>`;
     if (texteSur(l.attente_texte)) h += `<p class="jm-cartes-attente pale" role="status">${esc(texteSur(l.attente_texte))}</p>`;
     if (!lignes.length) return `${h}<div class="jm-vide"><div class="jm-v-ic plasma-bord">${icone('globe')}</div><p>${esc(texteSur(l.vide_texte))}</p></div></div>`;
     const tRetirer = t('l_retirer') || 'Retirer de ma liste', tRemettre = t('l_remettre') || 'Remettre', tVue = t('deja_vue') || 'Déjà vue';
@@ -1061,7 +1091,9 @@
       // (0.2.0 : « Déjà vue » : une offre que tu as ouverte toi-même ; son bandeau en haut à droite, la carte plus
       // terne ; la croix est en bas à droite, la rangée des étiquettes est toujours là pour lui garder sa place)
       const vue = r.vue === true && !retiree;
-      const tags = liste(r.etiquettes).map((e) => (texteSur(e?.nom) ? `<span class="jm-tag${e.bon === true ? ' bon' : ''}">${esc(texteSur(e.nom))}</span>` : '')).join('');
+      // (0.2.0 : le contrat, la distance connue et « 2 annonces identiques » sont des étiquettes aussi ; celle des
+      // doublons a sa couleur)
+      const tags = liste(r.etiquettes).map((e) => (texteSur(e?.nom) ? `<span class="jm-tag${e.bon === true ? ' bon' : ''}${e.genre === 'double' ? ' double' : ''}">${esc(texteSur(e.nom))}</span>` : '')).join('');
       const cote = retiree
         ? `<button type="button" class="jm-off-remettre f" data-perso="cs-remettre" data-i="${r.i}" data-k="csx:${r.i}" title="${esc(tRemettre)}" aria-label="${esc(`${tRemettre} : ${titre}`)}">${esc(tRemettre)}</button>`
         : `<button type="button" class="jm-off-x f" data-perso="cs-retirer" data-i="${r.i}" data-k="csx:${r.i}" title="${esc(tRetirer)}" aria-label="${esc(`${tRetirer} : ${titre}`)}">${icone('croix')}</button>`;
@@ -1279,6 +1311,19 @@
       case 'cs-voir-retirees': O.son?.bascule?.(); O.action('cs-voir-retirees', {}); return true;
       // (0.2.0 : « Seulement les pas encore vues » : Rust garde le choix et renvoie les cartes)
       case 'cs-pas-vues': O.son?.bascule?.(); O.action('cs-pas-vues', {}); return true;
+      // (0.2.0 : « Cacher les doublons » et les filtres de la colonne de gauche : Rust garde le choix, refait les
+      // nombres et renvoie les cartes, à leur première page)
+      case 'cs-doublons': O.son?.bascule?.(); O.action('cs-doublons', {}); return true;
+      case 'cs-filtre': {
+        const v = typeof d.v === 'string' ? d.v : '';
+        if (d.groupe === 'contrat') { if (codeSurP(v)) { O.son?.bascule?.(); O.action('cs-contrat', { contrat: v }); } return true; }
+        if (!/^\d{1,3}$/.test(v) || el.getAttribute('aria-checked') === 'true') return true;
+        if (d.groupe === 'distance') { O.son?.bascule?.(); O.action('cs-distance', { km: Number(v) }); }
+        else if (d.groupe === 'publiee') { O.son?.bascule?.(); O.action('cs-publiee', { jours: Number(v) }); }
+        return true;
+      }
+      // (le tri des cartes se choisit dans sa liste déroulante : voir surSaisie)
+      case 'cs-tri': return true;
       case 'cs-ajouter': if (!el.disabled) { el.disabled = true; O.son?.ok?.(); O.action('cs-ajouter'); } return true;
       case 'cs-voir': O.son?.ok?.(); O.action('cs-voir'); return true;
       case 'cs-offre': { const id = Number(d.id); if (numSur(id)) { O.son?.ok?.(); O.action('cs-offre', { id }); } return true; }
@@ -1666,6 +1711,8 @@
     if (estCaseVille(el)) demanderVilles(el);
     // (étape 7 : la candidature choisie pour un mail à ranger)
     if (d.perso === 'm-choix') { const id = Number(d.id), k = Number(el.value); if (numSur(id)) mrChoix[id] = numSur(k) ? k : 0; return; }
+    // (0.2.0 : le tri des cartes des offres d'un site : Rust garde le choix et renvoie les cartes dans cet ordre)
+    if (d.perso === 'cs-tri') { if (codeSurP(el.value)) { O.son?.bascule?.(); O.action('cs-tri', { tri: el.value }); } return; }
     if (d.perso === 'champ' && form && CHAMPS.includes(d.champ)) {
       form.v[d.champ] = el.value;
       el.closest('.jm-champ')?.classList.remove('faux');

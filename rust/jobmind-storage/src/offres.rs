@@ -371,6 +371,27 @@ pub fn candidats(c: &Connection, principale: i64) -> rusqlite::Result<Option<Vue
     })
 }
 
+/// L'offre de cette source déjà gardée sous cet identifiant : son numéro, et celui de la première de son groupe si
+/// elle est rattachée à une autre. C'est la reconnaissance de [`ajouter_page`] (« était déjà dans tes offres »).
+fn deja_gardee(c: &Connection, source_id: i64, id_source: &str) -> rusqlite::Result<Option<(i64, Option<i64>)>> {
+    c.query_row(
+        "SELECT id, doublon_de FROM offres WHERE source_id = ?1 AND id_source = ?2",
+        params![source_id, id_source],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .optional()
+}
+
+/// 0.2.0 : le numéro sous lequel cette offre d'un site est déjà gardée (la première de son groupe, celle que la liste
+/// montre, comme [`AjoutPage::id`]), d'après le code du site et son identifiant sur ce site : la même reconnaissance
+/// que [`ajouter_page`], sans rien écrire. Rien si elle n'est pas gardée, ou si ce site n'est pas une source connue.
+pub fn numero_gardee(c: &Connection, source: &str, id_source: &str) -> rusqlite::Result<Option<i64>> {
+    let source_id: Option<i64> =
+        c.query_row("SELECT id FROM sources WHERE code = ?1", [source], |r| r.get(0)).optional()?;
+    let Some(source_id) = source_id else { return Ok(None) };
+    Ok(deja_gardee(c, source_id, id_source)?.map(|(id, doublon)| doublon.unwrap_or(id)))
+}
+
 /// Ce qu'a donné « Ajouter à Jobmind » (étape 5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AjoutPage {
@@ -397,13 +418,7 @@ pub fn ajouter_page(
     let t = c.unchecked_transaction()?;
     let source_id: i64 = t.query_row("SELECT id FROM sources WHERE code = ?1", [source], |r| r.get(0))?;
     let quand = maintenant.iso();
-    let deja: Option<(i64, Option<i64>)> = t
-        .query_row(
-            "SELECT id, doublon_de FROM offres WHERE source_id = ?1 AND id_source = ?2",
-            params![source_id, o.id_source],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .optional()?;
+    let deja = deja_gardee(&t, source_id, &o.id_source)?;
     let (ligne, ajout) = match deja {
         Some((id, doublon)) => {
             let contrat = contrat_lu(&o.contrat, &o.titre, &o.description).map(Contrat::code);
