@@ -35,6 +35,10 @@ pub fn nom_copie(c: &Comprise) -> Option<String> {
         // (une liste lue seulement par ses liens : les blocs du site ne sont plus reconnus. 0.1.7 : jamais la page
         // d'une offre, qui remplaçait la copie de la liste dans la 0.1.6)
         "liste"
+    } else if c.liste.total.is_none() && !c.liste.resultats.is_empty() && adresse_de_liste(&c.adresse) {
+        // (0.1.12 : une liste bien lue mais sans le nombre d'offres de toute la recherche : le compteur « sur 296 »
+        // manque, la copie sert à trouver où le site l'écrit)
+        "liste"
     } else {
         return None;
     };

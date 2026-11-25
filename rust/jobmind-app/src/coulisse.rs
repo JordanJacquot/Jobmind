@@ -92,6 +92,8 @@ pub const OFFRES_LUES_MAX: usize = 60;
 pub const SOURCE: &str = "cs-source";
 pub const CHERCHER: &str = "cs-chercher";
 pub const SUIVANTE: &str = "cs-suivante";
+/// 0.1.12 : « Page précédente » (une page déjà vue, remontrée sans la recharger)
+pub const PRECEDENTE: &str = "cs-precedente";
 pub const OUVRIR: &str = "cs-ouvrir";
 pub const AJOUTER: &str = "cs-ajouter";
 pub const VOIR: &str = "cs-voir";
@@ -111,7 +113,8 @@ pub const OUBLIER: &str = "cs-oublier";
 pub const RETIRER: &str = "cs-retirer";
 pub const REMETTRE: &str = "cs-remettre";
 pub const VOIR_RETIREES: &str = "cs-voir-retirees";
-const GESTES: [&str; 18] = [
+const GESTES: [&str; 19] = [
+    PRECEDENTE,
     RETIRER,
     REMETTRE,
     VOIR_RETIREES,
@@ -346,10 +349,64 @@ pub struct ListeSite {
     /// 0.1.10 : les offres (par adresse) que la lecture automatique a sautées (illisibles, ou plus en ligne) : elle
     /// ne les réessaie pas, Jordan peut cliquer dessus
     pub sautees: Vec<String>,
-    /// Pendant « Voir plus d'offres » : le numéro de la page d'avant, remis si la suivante est vide, illisible ou
-    /// pareille. 0.1.9 : les offres déjà montrées restent dans `resultats`, celles de la page suivante s'ajoutent à la
-    /// suite (avant, la liste repartait de zéro avec la page 2 seule, remarque de Jordan 22/11/2026).
+    /// Pendant « Page suivante » : le numéro de la page d'avant, remis si la suivante est vide, illisible ou
+    /// pareille. 0.1.12 : une page à la fois (« 1 à 20, puis 21 à 40 », demande de Jordan le 25/11/2026 : 296 offres
+    /// sur France Travail, 14 clics sur « Voir plus d'offres ») ; la page quittée est gardée dans `gardees`, « Page
+    /// précédente » la remontre sans rien recharger (de la 0.1.9 à la 0.1.11, les pages s'ajoutaient à la suite).
     pub precedente: Option<u32>,
+    /// 0.1.12 : le nombre d'offres de toute la recherche, si le site le dit
+    pub total: Option<sites::Total>,
+    /// 0.1.12 : les pages déjà vues de cette recherche (pas celle affichée)
+    pub gardees: Vec<PageGardee>,
+}
+
+/// 0.1.12 : une page de résultats déjà vue, gardée pour y revenir sans la recharger.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PageGardee {
+    pub page: u32,
+    pub resultats: Vec<Resultat>,
+    pub suivante: bool,
+    pub sautees: Vec<String>,
+}
+
+impl ListeSite {
+    /// Range la page affichée sous ce numéro (rien si elle est vide).
+    fn ranger(&mut self, page: u32, suivante: bool) {
+        if self.resultats.is_empty() {
+            return;
+        }
+        self.gardees.retain(|g| g.page != page);
+        self.gardees.push(PageGardee {
+            page,
+            resultats: std::mem::take(&mut self.resultats),
+            suivante,
+            sautees: std::mem::take(&mut self.sautees),
+        });
+    }
+
+    /// Cette page est déjà vue et gardée.
+    fn gardee(&self, page: u32) -> bool {
+        self.gardees.iter().any(|g| g.page == page)
+    }
+
+    /// Le rang, dans toute la recherche, de la première offre de cette page (les pages d'avant sont toutes gardées :
+    /// on n'arrive à une page que par la précédente).
+    fn debut(&self, page: u32) -> usize {
+        1 + self.gardees.iter().filter(|g| g.page < page).map(|g| g.resultats.len()).sum::<usize>()
+    }
+}
+
+/// Un nombre écrit pour Jordan (« 1 499 »).
+fn milliers(n: usize) -> String {
+    let c = n.to_string();
+    let mut s = String::new();
+    for (i, x) in c.chars().enumerate() {
+        if i > 0 && (c.len() - i).is_multiple_of(3) {
+            s.push(' ');
+        }
+        s.push(x);
+    }
+    s
 }
 
 /// La lecture automatique des offres d'une page de résultats (0.1.4).
@@ -930,6 +987,7 @@ impl Coulisse {
             }
             CHERCHER => self.chercher(base, v),
             SUIVANTE => self.suivante(),
+            PRECEDENTE => self.precedente(),
             OUVRIR => self.ouvrir(v),
             AJOUTER => self.ajouter(base, maintenant),
             VOIR => self.voir_ici(),
@@ -1074,6 +1132,8 @@ impl Coulisse {
             lecture: Auto::default(),
             sautees: Vec::new(),
             precedente: None,
+            total: None,
+            gardees: Vec::new(),
         });
         if self.fiche.as_ref().is_some_and(|f| f.site == s) {
             self.fiche = None;
@@ -1094,7 +1154,56 @@ impl Coulisse {
         true
     }
 
-    /// « Voir plus d'offres » : la page d'après, sur ce clic seulement ; ses offres s'ajouteront à la suite.
+    /// 0.1.12 : une page déjà vue remontrée, sans rien charger : la page affichée est rangée à sa place. La lecture
+    /// automatique en cours est abandonnée (ses rangs sont ceux de la page quittée) ; elle reprend sur la page
+    /// remontrée, pour ses offres pas encore lues.
+    fn aller_gardee(&mut self, s: Site, page: u32) -> Fait {
+        if matches!(self.attente.as_ref().map(|a| a.but), Some(But::Lecture(_))) {
+            self.attente = None;
+            self.attendue = None;
+        }
+        // (l'offre ouverte à droite reste ouverte ; sa ligne est de nouveau marquée quand sa page revient)
+        let ouverte = self.fiche.as_ref().filter(|f| f.site == s).map(|f| f.url.clone());
+        let Some(l) = self.liste_de_mut(s) else { return Fait::default() };
+        let Some(k) = l.gardees.iter().position(|g| g.page == page) else { return Fait::default() };
+        let g = l.gardees.remove(k);
+        let (ici, suivante) = (l.page, l.suivante);
+        l.ranger(ici, suivante);
+        l.page = page;
+        l.resultats = g.resultats;
+        l.suivante = g.suivante;
+        l.sautees = g.sautees;
+        l.ouvert = ouverte.and_then(|u| l.resultats.iter().position(|r| r.url == u));
+        l.precedente = None;
+        l.lecture = Auto::default();
+        self.annonces[indice(s)] = None;
+        Fait {
+            journal: Some(format!("Sites : page {page} de {} remontrée (déjà vue, rien de rechargé)", s.code())),
+            change: true,
+            ..Fait::default()
+        }
+    }
+
+    /// 0.1.12 : « Page précédente » : la page d'avant, déjà vue, remontrée sans la recharger.
+    fn precedente(&mut self) -> Fait {
+        let Some(s) = self.source else { return Fait::default() };
+        if self.po_occupe() {
+            return Fait { message: Some(OCCUPE_PO.into()), ..Fait::default() };
+        }
+        if self.occupe() {
+            return Fait {
+                message: Some("Jobmind lit déjà une page : attends un instant.".into()), ..Fait::default()
+            };
+        }
+        let Some(l) = self.liste_de(s).filter(|l| l.page > 1 && l.gardee(l.page - 1)) else {
+            return Fait::default();
+        };
+        let page = l.page - 1;
+        self.aller_gardee(s, page)
+    }
+
+    /// « Page suivante » : la page d'après, sur ce clic seulement ; elle remplace la page affichée, qui est gardée
+    /// (0.1.12). Une page d'après déjà vue est remontrée sans la recharger.
     fn suivante(&mut self) -> Fait {
         let Some(s) = self.source else { return Fait::default() };
         if self.po_occupe() {
@@ -1104,6 +1213,11 @@ impl Coulisse {
             return Fait {
                 message: Some("Jobmind lit déjà une page : attends un instant.".into()), ..Fait::default()
             };
+        }
+        if let Some(page) =
+            self.liste_de(s).map(|l| l.page + 1).filter(|p| self.liste_de(s).is_some_and(|l| l.gardee(*p)))
+        {
+            return self.aller_gardee(s, page);
         }
         let Some(l) = self.liste_de(s).filter(|l| l.suivante) else { return Fait::default() };
         let page = l.page + 1;
@@ -1721,10 +1835,15 @@ impl Coulisse {
             But::Liste => {
                 // (0.1.6 : une page suivante qui ne montre que des offres déjà dans la liste : il n'y a rien derrière)
                 let pareille = !c.liste.resultats.is_empty()
-                    && self
-                        .liste_de(a.site)
-                        .filter(|l| l.precedente.is_some())
-                        .is_some_and(|l| c.liste.resultats.iter().all(|r| l.resultats.iter().any(|x| x.url == r.url)));
+                    && self.liste_de(a.site).filter(|l| l.precedente.is_some()).is_some_and(|l| {
+                        // (0.1.12 : déjà dans la page affichée ou dans une page gardée)
+                        c.liste.resultats.iter().all(|r| {
+                            l.resultats
+                                .iter()
+                                .chain(l.gardees.iter().flat_map(|g| g.resultats.iter()))
+                                .any(|x| x.url == r.url)
+                        })
+                    });
                 if (pareille || c.aucun_resultat) && self.revenir_page(a.site) {
                     self.attente = None;
                     self.dire(a.site, annonce(PLUS_DE_PAGE, "attention", None));
@@ -1743,17 +1862,17 @@ impl Coulisse {
                     let n = c.liste.resultats.len();
                     let lu_par = c.liste.lu_par;
                     let page = self.liste_de(a.site).map_or(1, |x| x.page);
+                    let total = c.liste.total;
                     if let Some(x) = self.liste_de_mut(a.site) {
-                        if x.precedente.take().is_some() {
-                            // (0.1.9 : la page suivante s'ajoute à la suite ; une offre déjà dans la liste n'y est
-                            // pas remise, les rangs des offres déjà montrées ne bougent pas)
-                            for r in c.liste.resultats {
-                                if !x.resultats.iter().any(|d| d.url == r.url) {
-                                    x.resultats.push(r);
-                                }
-                            }
-                        } else {
-                            x.resultats = c.liste.resultats;
+                        if let Some(avant) = x.precedente.take() {
+                            // (0.1.12 : la page suivante remplace la page affichée, gardée pour « Page précédente »)
+                            x.ranger(avant, true);
+                            x.ouvert = None;
+                        }
+                        x.resultats = c.liste.resultats;
+                        // (le total d'une page d'après qui ne le redit pas reste celui de la première)
+                        if total.is_some() || page == 1 {
+                            x.total = total;
                         }
                         x.suivante = c.liste.suivante;
                         // (0.1.4 : la lecture automatique des offres pas encore lues commence après la pause)
@@ -2205,7 +2324,7 @@ impl Coulisse {
                 "ou_t": "Où chercher",
                 "connecte": "Connecté",
                 "chercher": "Chercher sur {site}",
-                "suivante": "Voir plus d'offres",
+                "suivante": "Page suivante",
                 "voir": "Voir la page du site",
                 "ajouter": "Ajouter à Jobmind",
                 "ajoutee": "Ajoutée à tes offres",
@@ -2233,6 +2352,8 @@ impl Coulisse {
                 "texte_vide": "Le site n'a donné aucun texte pour cette offre. Lis-la sur la page du site.",
             },
         });
+        // (0.1.12 : posé à part, la macro json! est à sa limite de taille)
+        v["textes"]["precedente"] = json!("Page précédente");
         // (« Garder le mot de passe » : ajoutés à part, la macro json! a atteint sa limite)
         if let Some(t) = v.get_mut("textes").and_then(Value::as_object_mut) {
             t.insert("garde".into(), json!("Jobmind se souvient de ta connexion sur ce PC."));
@@ -2318,14 +2439,38 @@ impl Coulisse {
                 "retiree": retiree,
             }));
         }
-        // (0.1.9 : les pages s'ajoutent ; pendant le chargement de la suivante, le compte reste celui des pages lues)
-        let pages = l.precedente.unwrap_or(l.page);
-        let mut sous = match (l.resultats.len(), pages) {
-            (0, p) => format!("Page {p}"),
-            (1, 1) => "Page 1, 1 offre".to_string(),
-            (n, 1) => format!("Page 1, {n} offres"),
-            (n, p) => format!("{n} offres, {p} pages"),
+        // (0.1.12 : le compteur « Offres 21 à 40 sur 296 » ; pendant le chargement de la page suivante, la page
+        // affichée est encore celle d'avant)
+        let page = l.precedente.unwrap_or(l.page);
+        let (debut, n) = (l.debut(page), l.resultats.len());
+        let fin = debut + n.saturating_sub(1);
+        let total = l.total.filter(|t| t.n as usize >= fin);
+        let sur = match total {
+            Some(t) if t.au_moins => format!(" sur plus de {}", milliers(t.n as usize)),
+            Some(t) => format!(" sur {}", milliers(t.n as usize)),
+            None => String::new(),
         };
+        let mut sous = match n {
+            0 => format!("Page {page}"),
+            1 if debut == 1 && total.is_none_or(|t| t.n == 1 && !t.au_moins) => "1 offre".to_string(),
+            1 => format!("Offre {}{sur}", milliers(debut)),
+            _ => format!("Offres {} à {}{sur}", milliers(debut), milliers(fin)),
+        };
+        // (le nombre de pages : seulement avec un total exact)
+        let page_texte = match total {
+            Some(t) if !t.au_moins => {
+                // (la taille d'une page : celle de la première, vue en vrai ; une page suivante annoncée compte)
+                let taille =
+                    if page == 1 { n } else { l.gardees.iter().find(|g| g.page == 1).map_or(0, |g| g.resultats.len()) };
+                let taille = if taille == 0 { sites::par_page(l.site) as usize } else { taille };
+                let pages = (t.n as usize).div_ceil(taille.max(1)).max(page as usize + usize::from(l.suivante));
+                format!("Page {page} sur {}", milliers(pages))
+            }
+            _ => format!("Page {page}"),
+        };
+        let libre = !self.occupe();
+        let precedente = libre && l.precedente.is_none() && page > 1 && l.gardee(page - 1);
+        let suivante = libre && (l.suivante || l.gardee(l.page + 1));
         if pas_lues > 0 {
             sous.push_str(&format!(", {pas_lues} pas encore lue{}", if pas_lues > 1 { "s" } else { "" }));
         }
@@ -2363,7 +2508,10 @@ impl Coulisse {
             "site": l.site.code(),
             "titre": format!("Sur {}", l.site.nom()),
             "sous": sous,
-            "suivante": l.suivante && !self.occupe(),
+            "suivante": suivante,
+            "precedente": precedente,
+            "page": page,
+            "page_texte": page_texte,
             "lignes": lignes,
             "lecture": lecture,
             "retirees": retirees,

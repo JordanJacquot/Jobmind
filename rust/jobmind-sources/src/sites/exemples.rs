@@ -395,7 +395,8 @@ fn liste_france_travail(n: u32, dedans: bool) -> String {
     } else {
         "<header><a class=\"btn-connexion\" href=\"/espacepersonnel/\">Se connecter</a></header>"
     });
-    h.push_str("<main><h1>Offres d'emploi</h1><ul class=\"result-list\">");
+    // (0.1.12 : le nombre d'offres de toute la recherche, dans le titre)
+    h.push_str(&format!("<main><h1>{} offres pour cariste</h1><ul class=\"result-list\">", OFFRES.len()));
     for i in de_la_page(n) {
         let o = OFFRES[i];
         h.push_str(&format!(
@@ -421,7 +422,18 @@ fn liste_france_travail(n: u32, dedans: bool) -> String {
 /// 0.1.11 : une liste de HelloWork ou de Meteojob, inventée (leurs vraies pages ne sont pas encore vues) : un lien par
 /// offre, à l'adresse d'une offre du site, et un lien vers la page suivante.
 fn liste_simple(site: &str, n: u32) -> String {
-    let mut h = String::from("<main><h1>Offres d'emploi</h1><ul>");
+    // (0.1.12 : le total comme ces sites l'écrivent, vu le 24/11/2026 : « 1 499 offres », « 669 emplois correspondent »)
+    let mut h = if site == "hellowork" {
+        format!(
+            "<main><h1 class=\"typo-l-bold\">\n            {}\u{202f}offres\n        </h1><p>Nous avons masqué 0 offre.</p><ul>",
+            OFFRES.len()
+        )
+    } else {
+        format!(
+            "<main><h1 class=\"mj-title-small\"><span><strong>{} emplois</strong><span> correspondent à vos critères</span></span></h1><ul>",
+            OFFRES.len()
+        )
+    };
     for i in de_la_page(n) {
         let o = OFFRES[i];
         let lien = if site == "hellowork" {

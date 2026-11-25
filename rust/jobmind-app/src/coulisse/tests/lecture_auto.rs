@@ -360,7 +360,7 @@ fn filtres_sur_les_offres_pas_encore_lues() {
     c.filtres = (true, false);
     let v = c.vue(jour());
     assert!(v["liste"]["lignes"].as_array().unwrap().is_empty());
-    assert_eq!(v["liste"]["sous"], "Page 1, 6 offres, 6 pas encore lues");
+    assert_eq!(v["liste"]["sous"], "Offres 1 à 6 sur 9, 6 pas encore lues");
     // Toutes lues : seules celles sans diplôme restent ; le compte distingue les deux
     let mut t = t0;
     while let Some((x, f)) = jusqu_au_chargement(&mut c, t, 10) {
@@ -374,7 +374,7 @@ fn filtres_sur_les_offres_pas_encore_lues() {
     let cachees = 6 - lignes.len();
     assert_eq!(
         v["liste"]["sous"],
-        format!("Page 1, 6 offres, {cachees} cachée{} par tes filtres", if cachees > 1 { "s" } else { "" })
+        format!("Offres 1 à 6 sur 9, {cachees} cachée{} par tes filtres", if cachees > 1 { "s" } else { "" })
     );
     // (les i restent les rangs dans les résultats)
     assert!(lignes.iter().any(|l| l["i"] == 2), "{lignes:?}");
@@ -514,7 +514,8 @@ fn page_suivante_sans_rien_derriere() {
     assert_eq!((l.precedente, l.resultats.len()), (Some(1), 6));
     let v = c.vue(jour());
     assert_eq!(v["liste"]["lignes"].as_array().unwrap().len(), 6);
-    assert!(v["liste"]["sous"].as_str().unwrap().starts_with("Page 1, 6 offres"), "{v}");
+    assert!(v["liste"]["sous"].as_str().unwrap().starts_with("Offres 1 à 6 sur 9"), "{v}");
+    assert_eq!((&v["liste"]["page"], &v["liste"]["precedente"]), (&json!(1), &json!(false)), "{v}");
     n.aller(&charge(&f));
     n.html = page1;
     let p = c.page_chargee(&n.adresse);
@@ -538,16 +539,73 @@ fn page_suivante_sans_rien_derriere() {
     assert!(f.journal.as_deref().unwrap().contains("LECTURE CASSÉE"), "{f:?}");
     let l = c.liste_de(Site::FranceTravail).unwrap();
     assert_eq!((l.page, l.resultats.len(), l.suivante), (1, 6, false));
-    // 3. Une vraie page 2 (0.1.9) : ses offres s'ajoutent à la suite, celles de la page 1 gardent leur rang
-    let (mut c, mut n, _) = liste_ft(&b, rid);
+    // 3. Une vraie page 2 (0.1.12) : ses offres remplacent celles de la page 1, gardée pour « Page précédente »
+    let (mut c, mut n, t0) = liste_ft(&b, rid);
     let avant: Vec<String> = c.liste_de(Site::FranceTravail).unwrap().resultats.iter().map(|r| r.url.clone()).collect();
+    // (deux offres de la page 1 lues par la lecture automatique avant de changer de page)
+    let mut t = t0;
+    for _ in 0..2 {
+        let (x, f) = jusqu_au_chargement(&mut c, t, 10).unwrap();
+        lire_tout(&mut c, &b, &mut n, &f);
+        t = x + SECONDE;
+    }
+    // (« Page suivante » pendant que la troisième se charge : sa lecture est abandonnée)
+    let (x, _) = jusqu_au_chargement(&mut c, t, 10).unwrap();
+    assert!(matches!(c.attente.as_ref().map(|a| a.but), Some(But::Lecture(2))));
     let f = c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 4));
     charger_et_lire(&mut c, Some(&b), &mut n, &f);
     let l = c.liste_de(Site::FranceTravail).unwrap();
-    assert_eq!((l.page, l.resultats.len(), l.precedente.is_none()), (2, 9, true));
-    assert!(l.resultats.iter().zip(&avant).all(|(r, u)| &r.url == u));
+    assert_eq!((l.page, l.resultats.len(), l.precedente.is_none()), (2, 3, true));
+    assert!(l.resultats.iter().all(|r| !avant.contains(&r.url)));
+    assert_eq!((l.gardees.len(), l.gardees[0].page, l.gardees[0].resultats.len()), (1, 1, 6));
     assert!(!l.lecture.finie);
-    assert!(c.vue(jour())["liste"]["sous"].as_str().unwrap().starts_with("9 offres, 2 pages"));
+    let v = c.vue(jour());
+    assert_eq!(v["liste"]["sous"], "Offres 7 à 9 sur 9", "{v}");
+    assert_eq!(v["liste"]["page_texte"], "Page 2 sur 2");
+    assert_eq!((&v["liste"]["precedente"], &v["liste"]["suivante"]), (&json!(true), &json!(false)));
+    // (la lecture automatique lit les offres de la page 2)
+    let (x, f) = jusqu_au_chargement(&mut c, x + SECONDE, 10).unwrap();
+    assert_eq!(charge(&f), c.liste_de(Site::FranceTravail).unwrap().resultats[0].url);
+    // « Page précédente » pendant ce chargement : la page 1 revient, la lecture en cours est abandonnée, rien n'est
+    // rechargé ; ses deux offres déjà lues le restent, la lecture automatique reprend à la troisième
+    let f = c.geste(Some(&b), PRECEDENTE, &Value::Null, m(9, 5));
+    assert!(f.change && f.coulisse.is_empty(), "{f:?}");
+    assert!(c.attente.is_none());
+    let l = c.liste_de(Site::FranceTravail).unwrap();
+    assert_eq!((l.page, l.suivante), (1, true));
+    assert_eq!(l.resultats.iter().map(|r| r.url.clone()).collect::<Vec<_>>(), avant);
+    let v = c.vue(jour());
+    assert_eq!(v["liste"]["sous"], "Offres 1 à 6 sur 9");
+    assert_eq!(v["liste"]["page_texte"], "Page 1 sur 2");
+    assert_eq!((&v["liste"]["lignes"][0]["etat"], &v["liste"]["lignes"][1]["etat"]), (&json!("lue"), &json!("lue")));
+    assert_eq!(v["liste"]["lignes"][2]["etat"], "attente");
+    let (_, f) = jusqu_au_chargement(&mut c, x + SECONDE, 10).unwrap();
+    assert_eq!(charge(&f), avant[2]);
+}
+
+/// 0.1.12 : le compteur de la liste, avec et sans le nombre d'offres de toute la recherche.
+#[test]
+fn compteur_de_la_liste() {
+    let (b, rid) = base();
+    let (mut c, _, _) = liste_ft(&b, rid);
+    let sous = |c: &Coulisse| c.vue(jour())["liste"]["sous"].as_str().unwrap().to_string();
+    let texte = |c: &Coulisse| c.vue(jour())["liste"]["page_texte"].as_str().unwrap().to_string();
+    let total = |c: &mut Coulisse, t| c.liste_de_mut(Site::FranceTravail).unwrap().total = t;
+    assert_eq!((sous(&c).as_str(), texte(&c).as_str()), ("Offres 1 à 6 sur 9", "Page 1 sur 2"));
+    // (296 offres, 6 par page dans les pages d'essai : 50 pages)
+    total(&mut c, Some(sites::Total { n: 296, au_moins: false }));
+    assert_eq!((sous(&c).as_str(), texte(&c).as_str()), ("Offres 1 à 6 sur 296", "Page 1 sur 50"));
+    total(&mut c, Some(sites::Total { n: 1499, au_moins: false }));
+    assert_eq!(sous(&c), "Offres 1 à 6 sur 1 499");
+    // (« Plus de 99 résultats » : pas de nombre de pages)
+    total(&mut c, Some(sites::Total { n: 99, au_moins: true }));
+    assert_eq!((sous(&c).as_str(), texte(&c).as_str()), ("Offres 1 à 6 sur plus de 99", "Page 1"));
+    // (un total plus petit que ce qui est montré : pas cru, pas affiché)
+    total(&mut c, Some(sites::Total { n: 4, au_moins: false }));
+    assert_eq!((sous(&c).as_str(), texte(&c).as_str()), ("Offres 1 à 6", "Page 1"));
+    total(&mut c, None);
+    assert_eq!(sous(&c), "Offres 1 à 6");
+    sans_tiret_long(&c.vue(jour()));
 }
 
 /// 0.1.6 : le chiffre de l'onglet Offres compte les offres du site à l'écran ; rien sans liste.

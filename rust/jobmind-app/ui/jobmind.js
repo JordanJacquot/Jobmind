@@ -31,7 +31,7 @@
 // - les sites en coulisse (étape 5 bis) : en haut de la liste des offres, la liste déroulante « Où chercher »
 //   (France Travail d'abord, puis LinkedIn, Indeed, Welcome to the Jungle, ou « Mes offres gardées », sans
 //   recherche : 'cs-source') ; un site choisi, « Chercher sur LinkedIn » ('cs-chercher'),
-//   ses résultats lus par Rust en coulisse ('cs-ouvrir', « Voir plus d'offres » : 'cs-suivante'), l'offre ouverte
+//   ses résultats lus par Rust en coulisse ('cs-ouvrir', « Page suivante » : 'cs-suivante', « Page précédente » : 'cs-precedente'), l'offre ouverte
 //   (« Ajouter à Jobmind » : 'cs-ajouter', « Voir la page du site » : 'cs-voir') ; la carte de connexion de Jobmind
 //   ('cs-connecter') ; la petite fenêtre du site, où Rust pose la vraie page (sa place : 'cs-zone') ; Réglages :
 //   « Me déconnecter de tous les sites » ('cs-deconnecter') ;
@@ -1018,7 +1018,12 @@
         const txt = voir ? (t('cacher_retirees') || 'Cacher les offres retirées') : `${t('revoir_retirees') || 'Revoir les offres retirées'} (${nRet})`;
         h += `<button type="button" class="jm-off-revoir f" data-perso="cs-voir-retirees" data-k="cs:retirees" aria-pressed="${voir}">${esc(txt)}</button>`;
       }
-      if (l.suivante === true) h += `<div class="jm-btns centre jm-cs-suite">${bouton('cs-suivante', 'cs:suivante', t('suivante'), 'droite', 'second')}</div>`;
+      // (0.1.12 : une page à la fois : « Page précédente », « Page 2 sur 15 », « Page suivante » ; la première page
+      // d'une recherche qui tient sur une page ne montre rien)
+      const avant = l.precedente === true, apres = l.suivante === true, noPage = Number(l.page);
+      if (avant || apres || (Number.isInteger(noPage) && noPage > 1)) {
+        h += `<div class="jm-btns centre jm-cs-suite jm-cs-pages">${avant ? bouton('cs-precedente', 'cs:precedente', t('precedente') || 'Page précédente', 'gauche', 'second') : ''}<span class="jm-cs-page pale" role="status">${esc(texteSur(l.page_texte))}</span>${apres ? bouton('cs-suivante', 'cs:suivante', t('suivante') || 'Page suivante', 'droite', 'second') : ''}</div>`;
+      }
     }
     return h;
   }
@@ -1221,6 +1226,7 @@
         return true;
       }
       case 'cs-suivante': O.son?.ok?.(); O.action('cs-suivante'); return true;
+      case 'cs-precedente': O.son?.ok?.(); O.action('cs-precedente'); return true;
       case 'cs-ouvrir': { const i = Number(d.i); if (Number.isInteger(i) && i >= 0) { ouvI = i; O.son?.ok?.(); O.anime = !reduit(); O.action('cs-ouvrir', { i }); } return true; }
       // (0.1.4 : la croix d'une ligne, « Remettre », « Revoir les offres retirées » ; une ligne qui va disparaître
       // donne la main à la croix de sa voisine)

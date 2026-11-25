@@ -173,6 +173,9 @@ fn listes_des_quatre_sites() {
             assert_eq!(c.liste.resultats.len(), 6, "{site:?} {}", c.trace);
             assert_eq!(c.liste.lu_par, "regles", "{site:?}");
             assert!(c.liste.suivante, "{site:?} : une page suivante");
+            // (0.1.12 : le total de la recherche, là où la page le dit)
+            let attendu = (site == Site::FranceTravail).then_some(Total { n: 9, au_moins: false });
+            assert_eq!(c.liste.total, attendu, "{site:?}");
             assert_eq!(c.connecte, Some(dedans), "{site:?} connecté {dedans}");
             propre(&c.liste);
             let r = &c.liste.resultats[0];
@@ -243,6 +246,7 @@ fn hellowork_et_meteojob() {
         let c = compris(&adresse_recherche(site, "cariste", &sarrebourg, 1).unwrap(), "");
         assert_eq!(c.ecran, Ecran::Normale, "{}", c.trace);
         assert_eq!((c.liste.resultats.len(), c.liste.lu_par, c.liste.suivante), (6, "liens", true), "{site:?}");
+        assert_eq!(c.liste.total, Some(Total { n: 9, au_moins: false }), "{site:?}");
         assert_eq!(c.liste.resultats[0].url, premiere);
         assert_eq!(c.liste.resultats[0].titre, "Cariste H/F");
         assert_eq!(c.connecte, None, "{site:?} : pas de connexion");
@@ -594,4 +598,26 @@ fn resultats_linkedin_novembre_2026() {
             ),
         ]
     );
+}
+
+/// 0.1.12 : le nombre d'offres de toute la recherche, comme les sites l'écrivent.
+#[test]
+fn total_de_la_recherche() {
+    let t = |n, au_moins| Some(Total { n, au_moins });
+    assert_eq!(lire_total("296 offres pour Sarrebourg (57) dans un rayon de 30 km", false), t(296, false));
+    assert_eq!(lire_total("1\u{202f}499 offres", false), t(1499, false));
+    assert_eq!(lire_total("1 499\u{a0}offres", false), t(1499, false));
+    assert_eq!(lire_total("669 emplois correspondent à vos critères", false), t(669, false));
+    assert_eq!(lire_total("Plus de 99 résultats", true), t(99, true));
+    assert_eq!(lire_total("Plus de 1 000 emplois", false), t(1000, true));
+    assert_eq!(lire_total("1 000+ offres", false), t(1000, true));
+    assert_eq!(lire_total("12 345 offres d'emploi", false), t(12345, false));
+    assert_eq!(lire_total("Rayon de 30 km 12 offres", false), t(12, false));
+    assert_eq!(lire_total("1 offre", false), t(1, false));
+    // Pas un total
+    assert_eq!(lire_total("Offres d'emploi", false), None);
+    assert_eq!(lire_total("emplois : Sarrebourg (57)", false), None);
+    assert_eq!(lire_total("Emploi Sarrebourg 57 offres", true), None);
+    assert_eq!(lire_total("Nous avons masqué 0 offre que vous avez décidé de ne plus voir", true), None);
+    assert_eq!(lire_total("", false), None);
 }

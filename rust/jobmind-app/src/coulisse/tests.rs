@@ -209,19 +209,49 @@ fn liste_offre_et_ajout() {
     assert_eq!(c.vue(jour())["fiche"]["ajoutee"], id);
     // Le même résultat rouvert : rien de rechargé
     assert!(c.geste(Some(&b), OUVRIR, &json!({ "i": 1 }), m(9, 4)).coulisse.is_empty());
-    // « Voir plus d'offres » : la page 2, sur ce clic seulement
+    // « Page suivante » : la page 2, sur ce clic seulement
+    let v = c.vue(jour());
+    assert_eq!((&v["liste"]["sous"], &v["liste"]["page_texte"]), (&json!("Offres 1 à 6"), &json!("Page 1")));
+    assert_eq!((&v["liste"]["precedente"], &v["liste"]["suivante"]), (&json!(false), &json!(true)));
+    assert!(c.geste(Some(&b), PRECEDENTE, &Value::Null, m(9, 5)).coulisse.is_empty(), "pas de page avant la 1");
     let f = c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 5));
     assert!(charge(&f).ends_with("&start=25"), "{f:?}");
     charger_et_lire(&mut c, Some(&b), &mut n, &f);
     let v = c.vue(jour());
-    // (0.1.9 : ses 3 offres s'ajoutent sous les 6 de la page 1, l'offre ouverte reste ouverte)
-    assert_eq!(v["liste"]["lignes"].as_array().unwrap().len(), 9);
+    // (0.1.12 : une page à la fois : ses 3 offres remplacent les 6 de la page 1 ; l'offre ouverte reste ouverte à
+    // droite, aucune ligne de la page 2 n'est marquée)
+    let lignes = v["liste"]["lignes"].as_array().unwrap();
+    assert_eq!(lignes.len(), 3);
+    assert_ne!(lignes[0]["titre"], "Cariste H/F");
+    assert!(lignes.iter().all(|l| l["sel"] == false), "{lignes:?}");
+    assert_eq!(v["fiche"]["titre"], "Agent de quai (H/F)");
+    assert_eq!((&v["liste"]["precedente"], &v["liste"]["suivante"]), (&json!(true), &json!(false)));
+    assert_eq!((&v["liste"]["sous"], &v["liste"]["page_texte"]), (&json!("Offres 7 à 9"), &json!("Page 2")));
+    assert_eq!(v["liste"]["page"], 2);
+    assert_eq!(v["textes"]["suivante"], "Page suivante");
+    assert_eq!(v["textes"]["precedente"], "Page précédente");
+    sans_tiret_long(&v);
+    assert!(c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 6)).coulisse.is_empty());
+    // « Page précédente » : la page 1 revient telle quelle, sans rien recharger ; l'offre ouverte y est marquée
+    let f = c.geste(Some(&b), PRECEDENTE, &Value::Null, m(9, 6));
+    assert!(f.change && f.coulisse.is_empty(), "{f:?}");
+    assert!(f.journal.as_deref().unwrap().contains("page 1 de linkedin remontrée"), "{f:?}");
+    let v = c.vue(jour());
+    assert_eq!(v["liste"]["lignes"].as_array().unwrap().len(), 6);
     assert_eq!(v["liste"]["lignes"][0]["titre"], "Cariste H/F");
     assert_eq!(v["liste"]["lignes"][1]["sel"], true);
-    assert_eq!(v["liste"]["suivante"], false);
-    assert_eq!(v["liste"]["sous"], "9 offres, 2 pages");
-    assert_eq!(v["textes"]["suivante"], "Voir plus d'offres");
-    assert!(c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 6)).coulisse.is_empty());
+    assert_eq!((&v["liste"]["precedente"], &v["liste"]["suivante"]), (&json!(false), &json!(true)));
+    assert_eq!(v["liste"]["sous"], "Offres 1 à 6");
+    // (le même résultat rouvert après le retour : toujours rien de rechargé)
+    assert!(c.geste(Some(&b), OUVRIR, &json!({ "i": 1 }), m(9, 6)).coulisse.is_empty());
+    // « Page suivante » vers une page déjà vue : rien de rechargé non plus
+    let f = c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 6));
+    assert!(f.change && f.coulisse.is_empty(), "{f:?}");
+    let v = c.vue(jour());
+    assert_eq!(v["liste"]["lignes"].as_array().unwrap().len(), 3);
+    assert_eq!((&v["liste"]["sous"], &v["liste"]["suivante"]), (&json!("Offres 7 à 9"), &json!(false)));
+    let l = c.liste_de(Site::LinkedIn).unwrap();
+    assert_eq!((l.page, l.gardees.len(), l.gardees[0].page), (2, 1, 1));
     // « Voir dans mes offres »
     let f = c.geste(Some(&b), VOIR_OFFRE, &json!({ "id": id }), m(9, 7));
     assert_eq!(f.offre, Some(id));

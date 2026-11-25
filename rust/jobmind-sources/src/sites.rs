@@ -110,7 +110,7 @@ pub fn par_page(site: Site) -> u32 {
         Site::Wttj => 30,
         Site::FranceTravail => 20,
         Site::HelloWork => 30,
-        Site::Meteojob => 50,
+        Site::Meteojob => 20,
         Site::Autre => 20,
     }
 }
@@ -335,10 +335,20 @@ pub struct Resultat {
     pub candidats: Option<String>,
 }
 
+/// 0.1.12 : le nombre d'offres que le site annonce pour toute la recherche (« 296 offres », « Plus de 99 résultats »).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Total {
+    pub n: u32,
+    /// Le site ne donne qu'un minimum (« Plus de 99 résultats », « 1 000+ »)
+    pub au_moins: bool,
+}
+
 /// La liste lue sur une page de résultats.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ListeLue {
     pub resultats: Vec<Resultat>,
+    /// 0.1.12 : le nombre d'offres de toute la recherche, si la page le dit
+    pub total: Option<Total>,
     /// Le site montre une page suivante
     pub suivante: bool,
     /// Comment elle a été lue : « regles » (les blocs du site) ou « liens » (les liens qui mènent à une offre)
@@ -710,6 +720,75 @@ fn liste_liens(d: &Document, site: Site, base: &Adresse) -> Vec<Resultat> {
     l
 }
 
+/// 0.1.12 : le nombre d'offres annoncé dans un texte (« 1 499 offres », « 669 emplois correspondent à vos critères »,
+/// « Plus de 99 résultats », « 1 000+ offres ») : le nombre écrit juste avant le mot. `debut` : seulement si le
+/// texte commence par lui (un paragraphe quelconque de la page ne compte pas).
+pub fn lire_total(texte: &str, debut: bool) -> Option<Total> {
+    const MOTS: [&str; 7] = ["offre", "emploi", "resultat", "résultat", "annonce", "job", "poste"];
+    let t = texte.replace(['\u{a0}', '\u{202f}', '\u{2009}'], " ").to_lowercase();
+    let mots: Vec<&str> = t.split_whitespace().collect();
+    for (k, m) in mots.iter().enumerate() {
+        if k == 0 || !MOTS.iter().any(|x| m.starts_with(x)) {
+            continue;
+        }
+        // (les groupes de chiffres juste avant : « 1 499 », « 1.499 », « 1000+ »)
+        let mut chiffres = String::new();
+        let mut i = k;
+        let mut plus = false;
+        while i > 0 {
+            let g = mots[i - 1];
+            let (g, p) = match g.strip_suffix('+') {
+                Some(x) if chiffres.is_empty() => (x, true),
+                _ => (g, false),
+            };
+            let nu: String = g.chars().filter(|c| !matches!(c, '.' | ',')).collect();
+            if nu.is_empty() || !nu.chars().all(|c| c.is_ascii_digit()) {
+                break;
+            }
+            // (un groupe de plus à gauche seulement devant un groupe de trois chiffres : « 30 km 12 offres » reste 12)
+            if !chiffres.is_empty() && (!chiffres.len().is_multiple_of(3) || nu.len() > 3) {
+                break;
+            }
+            chiffres.insert_str(0, &nu);
+            plus |= p;
+            i -= 1;
+        }
+        if chiffres.is_empty() || chiffres.len() > 7 {
+            continue;
+        }
+        let avant = mots[..i].join(" ");
+        if debut && !(avant.is_empty() || avant == "plus de" || avant == "environ") {
+            continue;
+        }
+        let Ok(n) = chiffres.parse::<u32>() else { continue };
+        let au_moins = plus || avant.ends_with("plus de") || avant.ends_with("+ de");
+        return Some(Total { n, au_moins });
+    }
+    None
+}
+
+/// 0.1.12 : le nombre d'offres de toute la recherche, lu dans le titre de la page de résultats (rien : la page ne le
+/// dit pas, ou dit moins que ce qu'elle montre).
+fn total(d: &Document, nombre: usize) -> Option<Total> {
+    let surs = [
+        ".jobsearch-JobCountAndSortPane-jobCount",
+        ".results-context-header__job-count",
+        ".jobs-search-results-list__subtitle",
+        "[data-testid=\"jobs-search-results-count\"]",
+        "h1",
+        "h2",
+    ];
+    let mut t = surs.iter().flat_map(|s| d.tous(s, 6)).find_map(|i| lire_total(&d.texte(i), false));
+    if t.is_none() {
+        // (LinkedIn connecté : « Plus de 99 résultats » dans un simple paragraphe, seul sur sa ligne)
+        t = d.tous("p", 60).into_iter().find_map(|i| {
+            let x = d.texte(i);
+            (x.chars().count() <= 40).then(|| lire_total(&x, true)).flatten()
+        });
+    }
+    t.filter(|t| t.n as usize >= nombre && t.n > 0)
+}
+
 /// Le site montre-t-il une page suivante ?
 fn suivante(d: &Document, site: Site, nombre: usize) -> bool {
     let sels = [
@@ -961,6 +1040,9 @@ pub fn comprendre(adresse: &str, html: &str) -> Comprise {
         liste.lu_par = "liens";
     }
     liste.suivante = !liste.resultats.is_empty() && suivante(&d, site, liste.resultats.len());
+    if !liste.resultats.is_empty() {
+        liste.total = total(&d, liste.resultats.len());
+    }
     let texte_page = simple(&d.texte_page_sauf(None, 6000));
     let fort = captcha_fort(&d, &a, &titre);
     let contenu = !liste.resultats.is_empty() || offre.is_ok();
