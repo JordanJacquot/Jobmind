@@ -782,5 +782,6 @@ fn chaque_chemin_envoie_la_petite_fenetre_a_la_page() {
     fermer_et_oublier(&mut c, Some(&b));
 }
 
+mod analyses;
 mod garde;
 mod lecture_auto;

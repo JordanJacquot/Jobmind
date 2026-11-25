@@ -996,6 +996,9 @@
     if (!remplace && oui && s.connexion !== false) h += `<div class="jm-cx-etat ok"><i class="jm-point ok" aria-hidden="true"></i><span>${esc(texteSur(s.etat))}</span></div>`;
     h += gardeHTML(s, 'cs:oublier');
     h += basculesHTML(to);
+    // (0.2.0 : « Seulement les pas encore vues » : les offres que tu as déjà ouvertes toi-même n'ont plus leur carte)
+    const pasVues = c.pas_vues === true;
+    h += `<div class="jm-bascules jm-bascules-vues"><button type="button" role="switch" aria-checked="${pasVues}" class="jm-puce petite jm-bascule f${pasVues ? ' oui' : ''}" data-perso="cs-pas-vues" data-k="cs:pas-vues">${icone(pasVues ? 'coche' : 'plus')}${esc(t('pas_vues') || 'Seulement les pas encore vues')}</button></div>`;
     h += '</div>';
     const l = c.liste && typeof c.liste === 'object' && c.liste.site === s.id ? c.liste : null;
     if (l) {
@@ -1050,18 +1053,21 @@
     let h = `<div class="jm-cartes-zone${anime()}"><div class="jm-cartes-tete"><h1>${esc(texteSur(l.titre))}</h1><span class="jm-cartes-sous">${esc(texteSur(l.sous))}</span></div>`;
     if (texteSur(l.attente_texte)) h += `<p class="jm-cartes-attente pale" role="status">${esc(texteSur(l.attente_texte))}</p>`;
     if (!lignes.length) return `${h}<div class="jm-vide"><div class="jm-v-ic plasma-bord">${icone('globe')}</div><p>${esc(texteSur(l.vide_texte))}</p></div></div>`;
-    const tRetirer = t('l_retirer') || 'Retirer de ma liste', tRemettre = t('l_remettre') || 'Remettre';
+    const tRetirer = t('l_retirer') || 'Retirer de ma liste', tRemettre = t('l_remettre') || 'Remettre', tVue = t('deja_vue') || 'Déjà vue';
     h += '<div class="jm-cartes">';
     for (const r of lignes) {
       if (!r || typeof r !== 'object' || !Number.isInteger(r.i) || r.i < 0) continue;
       const sel = r.sel === true, retiree = r.retiree === true, titre = texteSur(r.titre);
+      // (0.2.0 : « Déjà vue » : une offre que tu as ouverte toi-même ; son bandeau en haut à droite, la carte plus
+      // terne ; la croix est en bas à droite, la rangée des étiquettes est toujours là pour lui garder sa place)
+      const vue = r.vue === true && !retiree;
       const tags = liste(r.etiquettes).map((e) => (texteSur(e?.nom) ? `<span class="jm-tag${e.bon === true ? ' bon' : ''}">${esc(texteSur(e.nom))}</span>` : '')).join('');
       const cote = retiree
         ? `<button type="button" class="jm-off-remettre f" data-perso="cs-remettre" data-i="${r.i}" data-k="csx:${r.i}" title="${esc(tRemettre)}" aria-label="${esc(`${tRemettre} : ${titre}`)}">${esc(tRemettre)}</button>`
         : `<button type="button" class="jm-off-x f" data-perso="cs-retirer" data-i="${r.i}" data-k="csx:${r.i}" title="${esc(tRetirer)}" aria-label="${esc(`${tRetirer} : ${titre}`)}">${icone('croix')}</button>`;
-      h += `<div class="jm-carte-l${retiree ? ' retiree' : ''}"><button type="button" class="jm-carte f${sel ? ' sel' : ''}" data-perso="cs-ouvrir" data-i="${r.i}" data-k="csl:${r.i}" aria-current="${sel}">
-        <b class="jm-carte-t">${esc(titre)}</b><span class="jm-carte-e">${esc(texteSur(r.sous))}</span><span class="jm-carte-d pale">${esc([texteSur(r.lieu), texteSur(r.l3)].filter(Boolean).join(' · '))}</span>
-        ${r.etat === 'sautee' ? `<span class="jm-carte-n pale">${esc(t('l_sautee') || "Pas lue, clique pour l'ouvrir")}</span>` : ''}${tags ? `<span class="jm-carte-tags">${tags}</span>` : ''}</button>${cote}</div>`;
+      h += `<div class="jm-carte-l${retiree ? ' retiree' : ''}${vue ? ' vue' : ''}"><button type="button" class="jm-carte f${sel ? ' sel' : ''}" data-perso="cs-ouvrir" data-i="${r.i}" data-k="csl:${r.i}" aria-current="${sel}">
+        <b class="jm-carte-t">${vue ? `<span class="jm-carte-vue">${esc(tVue)}</span>` : ''}${esc(titre)}</b><span class="jm-carte-e">${esc(texteSur(r.sous))}</span><span class="jm-carte-d pale">${esc([texteSur(r.lieu), texteSur(r.l3)].filter(Boolean).join(' · '))}</span>
+        ${r.etat === 'sautee' ? `<span class="jm-carte-n pale">${esc(t('l_sautee') || "Pas analysée, clique pour l'ouvrir")}</span>` : ''}<span class="jm-carte-tags">${tags}</span></button>${cote}</div>`;
     }
     h += '</div>';
     const avant = l.precedente === true, apres = l.suivante === true;
@@ -1265,12 +1271,14 @@
       case 'cs-retirer': {
         const i = Number(d.i);
         if (!Number.isInteger(i) || i < 0) return true;
-        if (cs().liste?.voir_retirees !== true) mainVoisine(el, '.jm-off-l .jm-off-x, .jm-off-l .jm-off-remettre');
+        if (cs().liste?.voir_retirees !== true) mainVoisine(el, '.jm-off-l .jm-off-x, .jm-off-l .jm-off-remettre, .jm-carte-l .jm-off-x, .jm-carte-l .jm-off-remettre');
         O.son?.ok?.(); O.action('cs-retirer', { i });
         return true;
       }
       case 'cs-remettre': { const i = Number(d.i); if (Number.isInteger(i) && i >= 0) { O.son?.ok?.(); O.action('cs-remettre', { i }); } return true; }
       case 'cs-voir-retirees': O.son?.bascule?.(); O.action('cs-voir-retirees', {}); return true;
+      // (0.2.0 : « Seulement les pas encore vues » : Rust garde le choix et renvoie les cartes)
+      case 'cs-pas-vues': O.son?.bascule?.(); O.action('cs-pas-vues', {}); return true;
       case 'cs-ajouter': if (!el.disabled) { el.disabled = true; O.son?.ok?.(); O.action('cs-ajouter'); } return true;
       case 'cs-voir': O.son?.ok?.(); O.action('cs-voir'); return true;
       case 'cs-offre': { const id = Number(d.id); if (numSur(id)) { O.son?.ok?.(); O.action('cs-offre', { id }); } return true; }

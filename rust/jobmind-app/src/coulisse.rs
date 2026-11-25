@@ -31,6 +31,17 @@
 //! site (page de secours, captcha, connexion demandée, page illisible, pas de réponse), sans jamais réessayer en
 //! boucle, et ne lit pas les offres retirées (« Retirer de ma liste », gardées dans la base).
 //!
+//! 0.2.0, les analyses gardées et « Déjà vue » : une offre lue avec succès (lecture automatique ou clic) est écrite
+//! dans la base (jobmind_storage::analyses) ; quand une liste arrive, les offres déjà analysées y sont retrouvées
+//! (`Coulisse::retrouver_analyses`) : leurs cartes arrivent tout de suite, elles s'ouvrent sans rien charger, et la
+//! lecture automatique ne recharge que les offres vraiment nouvelles. Une offre est « vue » quand sa fiche est montrée
+//! par un geste de Jordan (un clic, l'offre voisine), jamais par la lecture automatique ([`Coulisse::vues`], gardé
+//! dans la même table) ; « Seulement les pas encore vues » ([`PAS_VUES`]) cache les autres. Une erreur de la base ne
+//! casse jamais une lecture (au plus une ligne au journal) ; sans base, tout reste en mémoire comme avant. Une offre
+//! dont l'adresse ne donne pas de clé (jobmind_sources::page::cle_offre rend rien : une adresse illisible) n'est ni
+//! écrite ni cherchée dans la base : elle est relue à chaque lancement, et « vue » seulement le temps que Jobmind
+//! est ouverte (comme « Retirer de ma liste », qui ne fait rien pour elle).
+//!
 //! Ce module ne fait que décider (testable sans fenêtre) : chaque geste donne des [`Ordre`] que le programme exécute
 //! sur la vue des sites (src\programme.rs), et ce que la vue rapporte (une page chargée, une page lue) revient ici.
 
@@ -41,6 +52,7 @@ use jobmind_core::lecture::{self, Confiance, LectureOffre};
 use jobmind_core::recherche::Lieu;
 use jobmind_sources::page::{PageLue, Site};
 use jobmind_sources::sites::{self, Comprise, Ecran, LieuSite, Resultat};
+use jobmind_storage::analyses as base_analyses;
 use jobmind_storage::offres as base_offres;
 use jobmind_storage::retirees as base_retirees;
 use jobmind_storage::{Base, Moment};
@@ -153,7 +165,10 @@ pub const OUBLIER: &str = "cs-oublier";
 pub const RETIRER: &str = "cs-retirer";
 pub const REMETTRE: &str = "cs-remettre";
 pub const VOIR_RETIREES: &str = "cs-voir-retirees";
-const GESTES: [&str; 23] = [
+/// 0.2.0 : « Seulement les pas encore vues » (les offres que Jordan a déjà ouvertes sont cachées), coché ou décoché
+pub const PAS_VUES: &str = "cs-pas-vues";
+const GESTES: [&str; 24] = [
+    PAS_VUES,
     RETOUR,
     VOISINE,
     PRECEDENTE,
@@ -561,6 +576,31 @@ pub struct Coulisse {
     pub bloque: [Option<(Option<Instant>, String)>; 6],
     /// 0.1.4 : ce que l'annuaire officiel dit de l'entreprise de l'offre ouverte (posé par le programme avant la vue)
     pub annuaire: Option<crate::entreprise::Connu>,
+    /// 0.2.0 : les clés (voir [`cle`]) des offres que Jordan a ouvertes lui-même (« Déjà vue ») : celles de cette
+    /// session, et celles de la base, relues par [`Coulisse::relire_vues`] à chaque liste lue
+    pub vues: HashSet<String>,
+    /// 0.2.0 : « Seulement les pas encore vues » est coché
+    pub pas_vues: bool,
+    /// 0.2.0 : le ménage des analyses de plus de 30 jours est fait (une fois par lancement, à la première liste lue)
+    menage_fait: bool,
+}
+
+/// Une ligne de journal, avec une seconde à sa suite s'il y en a une.
+fn avec(journal: String, suite: Option<String>) -> String {
+    match suite {
+        Some(s) => format!("{journal} ; {s}"),
+        None => journal,
+    }
+}
+
+/// 0.2.0 : l'offre qui vient d'être lue est écrite dans la base, sous sa clé stable (rien sans base, ni pour une
+/// adresse sans clé). Une erreur de la base ne casse pas la lecture : elle rend seulement sa ligne pour le journal.
+fn garder_analyse(base: Option<&Base>, url: &str, lue: &PageLue, maintenant: Moment) -> Option<String> {
+    let base = base?;
+    let (site, id) = jobmind_sources::page::cle_offre(url)?;
+    base_analyses::ecrire(base.connexion(), site.code(), &id, url, lue, maintenant)
+        .err()
+        .map(|e| format!("Sites : analyse non gardée ({e})"))
 }
 
 /// La clé stable d'une offre d'un site : « francetravail:123ABC » (sinon son adresse remise au propre).
@@ -782,6 +822,110 @@ impl Coulisse {
     /// Une offre retirée (par sa croix, ou gardée puis retirée de ma liste).
     pub fn est_retiree(&self, url: &str) -> bool {
         !url.trim().is_empty() && self.retirees.contains(&cle(url))
+    }
+
+    /// 0.2.0 : les offres que Jordan a ouvertes, relues de la base (ajoutées à celles de cette session).
+    pub fn relire_vues(&mut self, base: Option<&Base>) {
+        let Some(b) = base else { return };
+        let Ok(l) = base_analyses::vues(b.connexion()) else { return };
+        self.vues.extend(l.into_iter().map(|(site, id)| format!("{site}:{id}")));
+    }
+
+    /// 0.2.0 : Jordan a déjà ouvert cette offre lui-même.
+    pub fn est_vue(&self, url: &str) -> bool {
+        !url.trim().is_empty() && self.vues.contains(&cle(url))
+    }
+
+    /// 0.2.0 : la fiche de cette offre est montrée à Jordan par son geste : elle devient « vue », en mémoire et dans
+    /// la base (rien sans base, ni pour une adresse sans clé). Rend la ligne du journal si la base a refusé.
+    fn marquer_vue(&mut self, base: Option<&Base>, url: &str, maintenant: Moment) -> Option<String> {
+        let k = cle(url);
+        if k.is_empty() || !self.vues.insert(k) {
+            return None;
+        }
+        let base = base?;
+        let (site, id) = jobmind_sources::page::cle_offre(url)?;
+        base_analyses::marquer_vue(base.connexion(), site.code(), &id, url, maintenant)
+            .err()
+            .map(|e| format!("Sites : offre vue non notée ({e})"))
+    }
+
+    /// 0.2.0 : une liste de ce site vient d'arriver (la première page, ou une page ajoutée au bout) : ses offres pas
+    /// encore lues sont cherchées dans la base. Celles qui y sont, dans le bon format et de moins de 30 jours, sont
+    /// remises en mémoire comme des offres fraîchement lues (`lus` pour la carte et les filtres, `offres_lues` pour
+    /// les rouvrir tout de suite), dans les plafonds habituels : la lecture automatique ne les recharge pas. Le ménage
+    /// des analyses de plus de 30 jours est fait ici, une fois par lancement. Rend ce qu'il y a à dire au journal
+    /// (des nombres seulement, jamais un texte d'offre ni une adresse).
+    fn retrouver_analyses(&mut self, base: Option<&Base>, s: Site, maintenant: Moment) -> Option<String> {
+        let base = base?;
+        let c = base.connexion();
+        let mut notes = Vec::new();
+        let pluriel = |n: usize| if n > 1 { "s" } else { "" };
+        if !self.menage_fait {
+            self.menage_fait = true;
+            match base_analyses::effacer_anciennes(c, maintenant) {
+                Ok(0) => {}
+                Ok(n) => notes.push(format!(
+                    "{n} analyse{} de plus de {} jours effacée{}",
+                    pluriel(n),
+                    base_analyses::JOURS_GARDEES,
+                    pluriel(n)
+                )),
+                Err(e) => notes.push(format!("ménage des analyses non fait ({e})")),
+            }
+        }
+        self.relire_vues(Some(base));
+        // (la clé de chaque offre pas encore lue, et son adresse dans la liste)
+        let a_chercher: Vec<((String, String), String)> = self
+            .liste_de(s)
+            .map(|l| {
+                l.resultats
+                    .iter()
+                    .filter(|r| !r.url.trim().is_empty() && self.lu_de(&r.url).is_none())
+                    .filter_map(|r| {
+                        let (site, id) = jobmind_sources::page::cle_offre(&r.url)?;
+                        Some(((site.code().to_string(), id), r.url.clone()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if a_chercher.is_empty() {
+            return (!notes.is_empty()).then(|| notes.join(" ; "));
+        }
+        let cles: Vec<(String, String)> = a_chercher.iter().map(|(k, _)| k.clone()).collect();
+        match base_analyses::lire(c, &cles, maintenant) {
+            Ok(trouvees) => {
+                let mut n = 0;
+                for a in trouvees {
+                    let l = lecture::lire(&a.page.offre.titre, &a.page.offre.description);
+                    for (_, url) in a_chercher.iter().filter(|((site, id), _)| *site == a.site && *id == a.id_site) {
+                        if self.lu_de(url).is_some() {
+                            continue;
+                        }
+                        self.lus.push((url.clone(), l.clone()));
+                        if self.lus.len() > LUS_MAX {
+                            self.lus.remove(0);
+                        }
+                        self.offres_lues.retain(|f| f.url != *url);
+                        self.offres_lues.push(FicheSite {
+                            site: s,
+                            url: url.clone(),
+                            lue: a.page.clone(),
+                            ajoutee: None,
+                        });
+                        if self.offres_lues.len() > OFFRES_LUES_MAX {
+                            self.offres_lues.remove(0);
+                        }
+                        n += 1;
+                    }
+                }
+                if n > 0 {
+                    notes.push(format!("{n} offre{} déjà analysée{} retrouvée{}", pluriel(n), pluriel(n), pluriel(n)));
+                }
+            }
+            Err(e) => notes.push(format!("analyses gardées non relues ({e})")),
+        }
+        (!notes.is_empty()).then(|| notes.join(" ; "))
     }
 
     /// Ce que les règles ont lu dans cette offre (rien : pas encore lue).
@@ -1106,14 +1250,29 @@ impl Coulisse {
                 self.voir_retirees = !self.voir_retirees;
                 Fait { change: true, ..Fait::default() }
             }
+            PAS_VUES => {
+                self.pas_vues = !self.pas_vues;
+                // (les cartes ne sont plus les mêmes : retour à leur première page)
+                for l in &mut self.listes {
+                    l.carte_page = 1;
+                }
+                Fait {
+                    journal: Some(format!(
+                        "Sites : seulement les offres pas encore vues, {}",
+                        if self.pas_vues { "coché" } else { "décoché" }
+                    )),
+                    change: true,
+                    ..Fait::default()
+                }
+            }
             CHERCHER => self.chercher(base, v),
             SUIVANTE => self.suivante(),
             PRECEDENTE => self.precedente(),
             RETOUR => self.retour_liste(),
-            VOISINE => self.voisine(v),
+            VOISINE => self.voisine(base, v, maintenant),
             TOUT => self.tout(),
             ARRET_TOUT => self.arreter_tout(),
-            OUVRIR => self.ouvrir(v),
+            OUVRIR => self.ouvrir(base, v, maintenant),
             AJOUTER => self.ajouter(base, maintenant),
             VOIR => self.voir_ici(),
             PAGE_SITE => {
@@ -1315,14 +1474,19 @@ impl Coulisse {
 
     /// 0.2.0 : les offres montrées en cartes, dans l'ordre (leurs rangs dans les résultats) : analysées par Jobmind
     /// et acceptées par les filtres ; celles qu'elle n'arrive pas à lire, quand aucun filtre n'est coché (un clic
-    /// les ouvre) ; les retirées seulement avec « Revoir les offres retirées ».
+    /// les ouvre) ; les retirées seulement avec « Revoir les offres retirées ». Avec « Seulement les pas encore
+    /// vues », les offres déjà ouvertes par Jordan n'ont plus leur carte, sauf celle qui est ouverte en ce moment (elle
+    /// garde sa place pour « Offre précédente » et « Offre suivante », et s'en va quand il la quitte).
     fn montrees(&self, l: &ListeSite) -> Vec<usize> {
         l.resultats
             .iter()
             .enumerate()
-            .filter(|(_, r)| {
+            .filter(|(i, r)| {
                 if self.est_retiree(&r.url) {
                     return self.voir_retirees;
+                }
+                if self.pas_vues && l.ouvert != Some(*i) && self.est_vue(&r.url) {
+                    return false;
                 }
                 match self.lu_de(&r.url) {
                     Some(lu) => passe(Some(lu), self.filtres),
@@ -1381,7 +1545,7 @@ impl Coulisse {
     }
 
     /// 0.2.0 : « Offre précédente » ou « Offre suivante » : l'offre voisine parmi les cartes montrées s'ouvre.
-    fn voisine(&mut self, v: &Value) -> Fait {
+    fn voisine(&mut self, base: Option<&Base>, v: &Value, maintenant: Moment) -> Fait {
         let Some(s) = self.source else { return Fait::default() };
         let d = v.get("d").and_then(Value::as_i64).unwrap_or(0).signum();
         let Some(l) = self.liste_de(s) else { return Fait::default() };
@@ -1392,10 +1556,14 @@ impl Coulisse {
             return Fait::default();
         }
         let i = m[j as usize];
-        if let Some(l) = self.liste_de_mut(s) {
-            l.carte_page = (j as usize / CARTES_PAR_PAGE) as u32 + 1;
+        let f = self.ouvrir(base, &json!({ "i": i }), maintenant);
+        // (la page de cartes de l'offre ouverte, comptée après : avec « Seulement les pas encore vues », l'offre
+        // quittée vient de perdre sa carte)
+        let place = self.liste_de(s).and_then(|l| self.montrees(l).iter().position(|x| *x == i));
+        if let (Some(k), Some(l)) = (place, self.liste_de_mut(s)) {
+            l.carte_page = (k / CARTES_PAR_PAGE) as u32 + 1;
         }
-        self.ouvrir(&json!({ "i": i }))
+        f
     }
 
     /// 0.2.0 : la liste en cartes : seulement la page de cartes montrée, son compteur et ses phrases.
@@ -1435,6 +1603,8 @@ impl Coulisse {
                     "etiquettes": etiquettes,
                     "etat": if lu.is_some() { "lue" } else { "sautee" },
                     "retiree": self.est_retiree(&r.url),
+                    // (0.2.0 : « Déjà vue » : Jordan a ouvert cette offre lui-même, aujourd'hui ou un jour d'avant)
+                    "vue": self.est_vue(&r.url),
                 })
             })
             .collect();
@@ -1445,7 +1615,27 @@ impl Coulisse {
         let en_cours = l.lecture.arret.is_none() && (l.tout || !reste.is_empty());
         let s = |k: usize| if k > 1 { "s" } else { "" };
         let filtre = self.filtres != (false, false);
-        let sous = if filtre {
+        let sous = if self.pas_vues {
+            // (0.2.0 : « Seulement les pas encore vues » : le compte des cartes pas encore vues ; l'offre ouverte en ce
+            // moment, déjà vue, et les retirées remontrées ne comptent pas)
+            let pas_vues =
+                m.iter().map(|i| l.resultats[*i].url.as_str()).filter(|u| !self.est_vue(u) && !self.est_retiree(u));
+            let lues = pas_vues.clone().filter(|u| self.lu_de(u).is_some()).count();
+            let autres = pas_vues.count() - lues;
+            let mut t = format!(
+                "{} offre{} pas encore vue{}{} sur {} analysée{}",
+                milliers(lues),
+                s(lues),
+                s(lues),
+                if filtre { " avec tes filtres," } else { "" },
+                milliers(analysees),
+                s(analysees)
+            );
+            if autres > 0 {
+                t.push_str(&format!(", {} à ouvrir toi-même", milliers(autres)));
+            }
+            t
+        } else if filtre {
             format!("{} offre{} sur {} analysée{}", milliers(n), s(n), milliers(analysees), s(analysees))
         } else {
             // (les cartes pas analysées : illisibles, ou lecture arrêtée par le site)
@@ -1460,6 +1650,10 @@ impl Coulisse {
         let attente = if en_cours { "D'autres offres arrivent : Jobmind les analyse une par une." } else { "" };
         let vide = if n > 0 {
             String::new()
+        } else if analysees > 0 && self.pas_vues && !filtre {
+            "Tu as déjà vu toutes les offres analysées pour l'instant.".to_string()
+        } else if analysees > 0 && self.pas_vues {
+            "Aucune offre pas encore vue ne passe tes filtres pour l'instant.".to_string()
         } else if analysees > 0 {
             "Aucune offre analysée ne passe tes filtres pour l'instant.".to_string()
         } else if en_cours {
@@ -1613,8 +1807,9 @@ impl Coulisse {
         Fait { journal: Some(format!("Sites : page {page} de {}", s.code())), ..ordres(o, true) }
     }
 
-    /// Un résultat ouvert : son offre chargée en coulisse.
-    fn ouvrir(&mut self, v: &Value) -> Fait {
+    /// Un résultat ouvert : son offre chargée en coulisse. 0.2.0 : une offre montrée tout de suite (déjà lue) devient
+    /// « vue » ici ; une offre à charger le devient quand sa fiche arrive (`lu_contenu_suite`).
+    fn ouvrir(&mut self, base: Option<&Base>, v: &Value, maintenant: Moment) -> Fait {
         let Some(s) = self.source else { return Fait::default() };
         if self.po_occupe() {
             return Fait { message: Some(OCCUPE_PO.into()), ..Fait::default() };
@@ -1629,15 +1824,16 @@ impl Coulisse {
             if let Some(l) = self.liste_de_mut(s) {
                 l.ouvert = Some(i);
             }
-            return Fait { change: true, ..Fait::default() };
+            return Fait { journal: self.marquer_vue(base, &url, maintenant), change: true, ..Fait::default() };
         }
         if let Some(f) = self.offres_lues.iter().find(|f| f.site == s && f.url == url).cloned() {
             if let Some(l) = self.liste_de_mut(s) {
                 l.ouvert = Some(i);
             }
             self.fiche = Some(f);
+            let vue = self.marquer_vue(base, &url, maintenant);
             return Fait {
-                journal: Some(format!("Sites : offre {} ouverte tout de suite (déjà lue)", i + 1)),
+                journal: Some(avec(format!("Sites : offre {} ouverte tout de suite (déjà lue)", i + 1), vue)),
                 change: true,
                 ..Fait::default()
             };
@@ -2127,7 +2323,7 @@ impl Coulisse {
     }
 
     /// Une page lue pour une liste ou une offre (ou une offre lue par la lecture automatique).
-    fn lu_contenu(&mut self, base: Option<&Base>, l: Lecture, _maintenant: Moment) -> Fait {
+    fn lu_contenu(&mut self, base: Option<&Base>, l: Lecture, maintenant: Moment) -> Fait {
         let Some(a) = self.attente.clone() else { return Fait::default() };
         let c = l.comprise;
         // 0.1.4 : une page de secours (France Travail renvoie vers secours-hp.francetravail.fr après des chargements
@@ -2170,7 +2366,7 @@ impl Coulisse {
                 return self.arreter_auto(a.site, texte, Some(pourquoi), &trace);
             }
         }
-        let mut f = self.lu_contenu_suite(base, a.clone(), c);
+        let mut f = self.lu_contenu_suite(base, a.clone(), c, maintenant);
         if secours && !matches!(a.but, But::Lecture(_)) {
             let g = self.arreter_auto(
                 a.site,
@@ -2190,7 +2386,7 @@ impl Coulisse {
         f
     }
 
-    fn lu_contenu_suite(&mut self, base: Option<&Base>, a: Attente, c: Comprise) -> Fait {
+    fn lu_contenu_suite(&mut self, base: Option<&Base>, a: Attente, c: Comprise, maintenant: Moment) -> Fait {
         match c.ecran {
             Ecran::Captcha => return self.demander_personne(a.site, Raison::Captcha, &c.trace),
             Ecran::Verification => return self.demander_personne(a.site, Raison::Verification, &c.trace),
@@ -2283,11 +2479,16 @@ impl Coulisse {
                         x.sautees.retain(|u| x.resultats.iter().any(|r| r.url == *u));
                     }
                     self.relire_retirees(base);
+                    // (0.2.0 : les offres déjà analysées un jour d'avant sont retrouvées dans la base)
+                    let retrouvees = self.retrouver_analyses(base, a.site, maintenant);
                     return Fait {
-                        journal: Some(format!(
-                            "Sites : liste lue de {} ({n} résultats, page {page}, lue par {lu_par}{})",
-                            a.site.code(),
-                            if lu_par == "liens" { format!(" ; {}", c.trace) } else { String::new() }
+                        journal: Some(avec(
+                            format!(
+                                "Sites : liste lue de {} ({n} résultats, page {page}, lue par {lu_par}{})",
+                                a.site.code(),
+                                if lu_par == "liens" { format!(" ; {}", c.trace) } else { String::new() }
+                            ),
+                            retrouvees,
                         )),
                         change: true,
                         ..Fait::default()
@@ -2337,22 +2538,28 @@ impl Coulisse {
                     if self.offres_lues.len() > OFFRES_LUES_MAX {
                         self.offres_lues.remove(0);
                     }
+                    // (0.2.0 : l'analyse gardée dans la base, pour les prochains lancements ; une erreur de la base
+                    // ne casse pas la lecture, elle est seulement notée au journal)
+                    let gardee = garder_analyse(base, &url, &fiche.lue, maintenant);
                     if let But::Lecture(_) = a.but {
                         // (une lecture automatique ne change jamais ce qui est affiché ; une seule ligne au journal
-                        // pour toute la page, au début et à la fin)
+                        // pour toute la page, au début et à la fin ; elle ne rend jamais une offre « vue »)
                         if let Some(x) = self.liste_de_mut(a.site) {
                             x.lecture.faites += 1;
                             x.lecture.de_suite = 0;
                             x.lecture.prochaine = None;
                         }
-                        return Fait { change: true, ..Fait::default() };
+                        return Fait { journal: gardee, change: true, ..Fait::default() };
                     }
+                    // (0.2.0 : la fiche est montrée à Jordan, par son clic : l'offre est « vue »)
+                    let vue = self.marquer_vue(base, &url, maintenant);
                     let j = format!(
                         "Sites : offre lue de {} (lue par {}{})",
                         a.site.code(),
                         fiche.lue.lu_par.code(),
                         fiche.lue.candidats.as_ref().map(|c| format!(", {}", c.texte)).unwrap_or_default()
                     );
+                    let j = avec(avec(j, gardee), vue);
                     self.etape = 100;
                     self.fiche = Some(fiche);
                     // (0.1.10 : une offre sautée que Jordan ouvre lui-même et qui se lit n'est plus « pas lue »)
@@ -2773,7 +2980,10 @@ impl Coulisse {
                 ("l_lue", "Lue"),
                 ("l_cours", "Lecture en cours..."),
                 ("l_attente", "Pas encore lue"),
-                ("l_sautee", "Pas lue, clique pour l'ouvrir"),
+                // (0.2.0 : sur une carte, « lue » ne parle plus de la lecture par Jobmind : « analysée »)
+                ("l_sautee", "Pas analysée, clique pour l'ouvrir"),
+                ("deja_vue", "Déjà vue"),
+                ("pas_vues", "Seulement les pas encore vues"),
                 ("revoir_retirees", "Revoir les offres retirées"),
                 ("cacher_retirees", "Cacher les offres retirées"),
                 ("ouvre_offre", "Jobmind ouvre l'offre"),
@@ -2796,6 +3006,8 @@ impl Coulisse {
             let (avant, apres) = self.voisines();
             o.insert("fiche_avant".into(), json!(avant));
             o.insert("fiche_apres".into(), json!(apres));
+            // (0.2.0 : « Seulement les pas encore vues » est coché)
+            o.insert("pas_vues".into(), json!(self.pas_vues));
         }
         v
     }

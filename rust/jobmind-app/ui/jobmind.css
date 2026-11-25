@@ -1085,9 +1085,23 @@ button.jm-bilan.f:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(-
 .jm-carte-tags { margin-top: auto; padding-top: 7px; display: flex; flex-wrap: wrap; gap: 5px; }
 .jm-tag { font-size: 11.5px; border-radius: 99px; padding: 2px 8px; border: 1px solid var(--ligne); color: var(--doux); }
 .jm-tag.bon { border-color: color-mix(in srgb, var(--vert) 45%, transparent); color: var(--vert); }
-.jm-carte-l > .jm-off-x { position: absolute; top: 8px; right: 8px; }
+/* (0.2.0 : la croix « Retirer de ma liste » est en bas à droite de la carte, pour laisser le coin du haut à « Déjà
+   vue ». Le titre prend toute la largeur ; les autres lignes gardent la marge de droite de la carte, et la rangée des
+   étiquettes, toujours là et haute d'au moins 26px, occupe le bas : rien ne passe sous la croix) */
+.jm-carte-l > .jm-off-x { position: absolute; top: auto; bottom: 8px; right: 8px; }
 .jm-carte-l > .jm-off-remettre { position: absolute; top: 8px; right: 8px; }
 .jm-carte-l.retiree > .jm-carte { opacity: 0.55; padding-right: 92px; }
+.jm-carte-t { align-self: stretch; margin-right: -24px; }
+.jm-carte-l.retiree .jm-carte-t { margin-right: 0; }
+.jm-carte-tags { min-height: 26px; align-items: flex-end; }
+/* (0.2.0 : « Déjà vue » : une offre que tu as ouverte toi-même. Un petit bandeau gris dans le coin en haut à droite,
+   le titre passe à côté puis dessous ; la carte est plus terne pour que les nouvelles ressortent) */
+.jm-carte-vue { float: right; margin: 1px 0 4px 10px; padding: 1px 8px; border-radius: 99px; border: 1px solid var(--ligne); font-size: 11px; font-weight: 600; line-height: 1.5; color: var(--pale); white-space: nowrap; }
+.jm-carte-l.vue > .jm-carte { background: rgba(255, 255, 255, 0.012); }
+.jm-carte-l.vue .jm-carte-t { color: var(--doux); font-weight: 600; }
+.jm-carte-l.vue .jm-carte-e, .jm-carte-l.vue .jm-carte-d, .jm-carte-l.vue .jm-carte-n, .jm-carte-l.vue .jm-carte-tags { opacity: 0.7; }
+/* (0.2.0 : « Seulement les pas encore vues », sous « Aucun diplôme requis » et « Débutant accepté ») */
+.jm-rch .jm-bascules-vues { margin-top: 6px; }
 .jm-cartes-aide { margin: 14px 0 0; text-align: center; font-size: 13px; color: var(--pale); }
 .jm-fiche-nav { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding: 18px 44px 0; max-width: 900px; }
 .jm-fiche-nav-d { display: flex; gap: 8px; flex-wrap: wrap; }

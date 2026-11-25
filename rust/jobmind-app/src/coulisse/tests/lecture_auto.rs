@@ -15,7 +15,7 @@ const TOT: Duration = Duration::from_millis(300);
 const PAUSE: Duration = PAUSE_LECTURE_AUTO_FT;
 
 /// Une liste de France Travail lue (6 offres imitées), et le début du faux temps.
-fn liste_ft(b: &Base, rid: i64) -> (Coulisse, Navigateur, Instant) {
+pub(super) fn liste_ft(b: &Base, rid: i64) -> (Coulisse, Navigateur, Instant) {
     let mut c = Coulisse { source: Some(Site::FranceTravail), ..Coulisse::default() };
     let mut n = Navigateur::nouveau();
     let f = c.geste(Some(b), CHERCHER, &json!({ "site": "francetravail", "recherche": rid }), m(9, 0));
@@ -24,7 +24,7 @@ fn liste_ft(b: &Base, rid: i64) -> (Coulisse, Navigateur, Instant) {
     (c, n, Instant::now())
 }
 
-fn url(c: &Coulisse, i: usize) -> String {
+pub(super) fn url(c: &Coulisse, i: usize) -> String {
     c.liste_de(Site::FranceTravail).unwrap().resultats[i].url.clone()
 }
 
@@ -34,12 +34,12 @@ fn lire_tout(c: &mut Coulisse, b: &Base, n: &mut Navigateur, f: &Fait) -> Fait {
 }
 
 /// 0.2.0 : les cartes de la liste montrée (une par offre analysée).
-fn lignes(c: &Coulisse) -> Vec<Value> {
+pub(super) fn lignes(c: &Coulisse) -> Vec<Value> {
     c.vue(jour())["liste"]["lignes"].as_array().unwrap().clone()
 }
 
 /// 0.2.0 : les rangs dans les résultats (`i`) des cartes montrées, dans l'ordre.
-fn rangs(c: &Coulisse) -> Vec<usize> {
+pub(super) fn rangs(c: &Coulisse) -> Vec<usize> {
     lignes(c).iter().map(|l| l["i"].as_u64().unwrap() as usize).collect()
 }
 
@@ -60,7 +60,7 @@ fn jusqu_a_la_page_2(c: &mut Coulisse, b: &Base, n: &mut Navigateur, depuis: Ins
 
 /// 0.2.0 : une liste de France Travail écrite à la main, de `n` offres toutes déjà analysées (les rangs pairs : sans
 /// diplôme, débutant accepté ; les autres : BTS, 3 ans d'expérience) ; sa lecture est finie, il n'y a rien à charger.
-fn liste_a_la_main(n: usize) -> Coulisse {
+pub(super) fn liste_a_la_main(n: usize) -> Coulisse {
     let adresse = |i: usize| format!("https://candidat.francetravail.fr/offres/recherche/detail/{}", 1_000_000 + i);
     let resultats = (0..n)
         .map(|i| Resultat {
@@ -394,7 +394,7 @@ fn arret_sur_un_captcha_une_page_illisible_ou_un_site_muet() {
     let v = c.vue(jour());
     assert!(v["liste"]["lecture"]["arret"].is_null(), "{v}");
     assert_eq!(v["liste"]["lignes"][0]["etat"], "sautee");
-    assert_eq!(v["textes"]["l_sautee"], "Pas lue, clique pour l'ouvrir");
+    assert_eq!(v["textes"]["l_sautee"], "Pas analysée, clique pour l'ouvrir");
     let (_, f) = jusqu_au_chargement(&mut c, t0, 10).unwrap();
     assert_eq!(charge(&f), url(&c, 1), "l'offre sautée n'est pas réessayée");
     // Une offre que le site dit disparue : sautée tout de suite, sans relecture
@@ -727,6 +727,8 @@ fn page_suivante_sans_rien_derriere() {
     }
     assert_eq!(c.vue(jour())["liste"]["lecture"]["finie"], true);
     // 3. Une vraie page 2 (0.2.0) : ses offres s'ajoutent au bout de la liste, celles de la page 1 gardent leur rang
+    // (une base neuve : dans l'autre, les offres analysées plus haut seraient retrouvées, sans être relues)
+    let (b, rid) = base();
     let (mut c, mut n, t0) = liste_ft(&b, rid);
     let avant: Vec<String> = c.liste_de(Site::FranceTravail).unwrap().resultats.iter().map(|r| r.url.clone()).collect();
     // (deux offres de la page 1 lues par la lecture automatique)
@@ -1018,6 +1020,7 @@ fn une_offre_n_a_sa_carte_qu_une_fois_lue() {
             "etiquettes": etiquettes,
             "etat": "lue",
             "retiree": false,
+            "vue": false,
         })
     );
     assert_eq!(v["liste"]["sous"], "1 offre analysée");

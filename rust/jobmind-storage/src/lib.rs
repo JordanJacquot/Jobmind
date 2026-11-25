@@ -26,12 +26,15 @@
 //!   contenu exact de chaque champ, la candidature entrée dans le suivi ; les coordonnées de Jordan pour les formulaires ;
 //! - [`dossier`] : le dossier de données et suite.json (copie gérée ou non, dossier de travail) ;
 //! - [`retirees`] (0.1.4) : les offres des sites retirées de la liste (« Retirer de ma liste »), qui ne reviennent plus ;
+//! - [`analyses`] (0.2.0) : les offres des sites déjà analysées (la page lue, gardée 30 jours), et celles que la
+//!   personne a ouvertes elle-même (« Déjà vue ») ;
 //! - [`donnees`] : tout réuni ;
 //! - [`valeurs`] : les règles de PowerShell suivies (champs sans majuscules, vrai ou faux).
 //!
 //! Ce que Windows doit fournir est donné par l'appelant : l'heure locale ([`Horloge`]) et les variables
 //! d'environnement.
 
+pub mod analyses;
 pub mod base;
 pub mod bulles;
 pub mod candidatures;
