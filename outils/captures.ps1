@@ -350,7 +350,7 @@ try {
             if ((Compter 'demande une personne') -gt 0) { [void](Attendre { $false } 200) } else { [void](Attendre { $false } 600) }
         }
         elseif ($v -match '^resultat:(\d{1,3})$') {
-            $lues = { (Compter 'Sites : offre lue de') + (Compter 'LECTURE CASSÉE') + (Compter 'demande une personne') }
+            $lues = { (Compter 'Sites : offre lue de') + (Compter 'ouverte tout de suite') + (Compter 'LECTURE CASSÉE') + (Compter 'demande une personne') }
             $nAvant = & $lues
             Ordre ('{"kit":"accueil","cliquer":"csl:' + $Matches[1] + '"}')
             Verifier (Attendre { (& $lues) -gt $nAvant } 30000) "le résultat $($Matches[1]) est ouvert (journal)"

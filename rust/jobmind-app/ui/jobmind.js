@@ -552,6 +552,7 @@
   // ce qui était affiché est gardé ici pour repartir de là après chaque dessin (jamais un saut en arrière).
   let lecVu = { cle: '', pc: 0 };   // la jauge « Jobmind lit les offres » : sa liste, et ce qu'elle montrait
   let ouvI = null;                  // la ligne cliquée (pour le titre de l'offre qui s'ouvre)
+  let clicSouris = 0;               // 0.2.0 : le rang du dernier clic de souris (1 simple, 2 double ; 0 : clavier, manette)
   let ouvEnCours = false;           // une offre s'ouvre (avec sa barre)
   let ouvAff = 0;                   // ce que montre la grosse barre (en %)
   let ouvCible = 0;                 // l'étape envoyée par Rust (progression.pc)
@@ -990,42 +991,22 @@
     const oui = s.connecte === true;
     // (une annonce qui propose déjà « Me connecter » remplace la ligne d'état tant qu'elle est là : une seule carte)
     const remplace = !oui && texteSur(c.annonce?.texte) && c.annonce.bouton === 'connexion';
-    if (!remplace && s.connexion !== false) h += `<div class="jm-cx-etat${oui ? ' ok' : ''}"><i class="jm-point${oui ? ' ok' : ''}" aria-hidden="true"></i><span>${esc(texteSur(s.etat))}</span>${oui ? '' : bouton('cs-connexion', 'cs:connecter', t('connecter'), 'cadenas', 'discret', ` data-id="${s.id}"`)}</div>`;
+    // (0.2.0 : plus de « Me connecter » ici : les offres se lisent sans compte ; la ligne ne reste que connecté, et la
+    // connexion n'est proposée que quand le site la demande, par son annonce)
+    if (!remplace && oui && s.connexion !== false) h += `<div class="jm-cx-etat ok"><i class="jm-point ok" aria-hidden="true"></i><span>${esc(texteSur(s.etat))}</span></div>`;
     h += gardeHTML(s, 'cs:oublier');
     h += basculesHTML(to);
     h += '</div>';
     const l = c.liste && typeof c.liste === 'object' && c.liste.site === s.id ? c.liste : null;
-    if (l && liste(l.lignes).length) {
-      h += `<div class="jm-liste-tete"><span class="jm-liste-t">${esc(texteSur(l.titre))}</span></div><p class="jm-rch-sous jm-cs-sous">${esc(texteSur(l.sous))}</p>`;
+    if (l) {
+      h += `<div class="jm-liste-tete"><span class="jm-liste-t">${esc(texteSur(l.titre))}</span></div>`;
       h += lectureHTML(l, s);
-      // (0.1.4 : sous chaque offre, où en est sa lecture ; à droite, la croix « Retirer de ma liste », ou « Remettre »
-      // sur une offre retirée ; la croix et « Remettre » gardent le même data-k pour que la main reste à sa place)
-      const tRetirer = t('l_retirer') || 'Retirer de ma liste', tRemettre = t('l_remettre') || 'Remettre';
-      for (const r of liste(l.lignes)) {
-        if (!Number.isInteger(r?.i) || r.i < 0 || r.i > 999) continue;
-        const sel = r.sel === true, retiree = r.retiree === true;
-        const etat = ['lue', 'cours', 'attente', 'sautee'].includes(r.etat) ? r.etat : (texteSur(r.lu) ? 'lue' : '');
-        const lu = texteSur(r.lu);
-        const etatT = etat === 'lue' ? (lu || t('l_lue') || 'Lue') : etat === 'cours' ? (t('l_cours') || 'Lecture en cours...') : etat === 'attente' ? (t('l_attente') || 'Pas encore lue') : etat === 'sautee' ? (t('l_sautee') || "Pas lue, clique pour l'ouvrir") : '';
-        const titre = texteSur(r.titre);
-        const cote = retiree
-          ? `<button type="button" class="jm-off-remettre f" data-perso="cs-remettre" data-i="${r.i}" data-k="csx:${r.i}" title="${esc(tRemettre)}" aria-label="${esc(`${tRemettre} : ${titre}`)}">${esc(tRemettre)}</button>`
-          : `<button type="button" class="jm-off-x f" data-perso="cs-retirer" data-i="${r.i}" data-k="csx:${r.i}" title="${esc(tRetirer)}" aria-label="${esc(`${tRetirer} : ${titre}`)}">${icone('croix')}</button>`;
-        h += `<div class="jm-off-l${retiree ? ' retiree' : ''}"><button type="button" class="jm-cand jm-off avec-x f${sel ? ' sel' : ''}" data-perso="cs-ouvrir" data-i="${r.i}" data-k="csl:${r.i}" aria-current="${sel}">
-          <span class="jm-c1"><b>${esc(titre)}</b></span>
-          <span class="jm-c2">${esc(texteSur(r.sous))}</span><span class="jm-c3 pale">${esc(texteSur(r.l3))}</span>${etatT ? `<span class="jm-off-etat ${etat}"><i aria-hidden="true"></i><span>${esc(etatT)}</span></span>` : ''}</button>${cote}</div>`;
-      }
+      // (0.2.0 : les offres sont en cartes à droite ; ici ne restent que la jauge et « Revoir les offres retirées »)
       const nRet = Number(l.retirees);
       if (Number.isInteger(nRet) && nRet > 0) {
         const voir = l.voir_retirees === true;
         const txt = voir ? (t('cacher_retirees') || 'Cacher les offres retirées') : `${t('revoir_retirees') || 'Revoir les offres retirées'} (${nRet})`;
         h += `<button type="button" class="jm-off-revoir f" data-perso="cs-voir-retirees" data-k="cs:retirees" aria-pressed="${voir}">${esc(txt)}</button>`;
-      }
-      // (0.1.12 : une page à la fois : « Page précédente », « Page 2 sur 15 », « Page suivante » ; la première page
-      // d'une recherche qui tient sur une page ne montre rien)
-      const avant = l.precedente === true, apres = l.suivante === true, noPage = Number(l.page);
-      if (l.fusion !== true && (avant || apres || (Number.isInteger(noPage) && noPage > 1))) {
-        h += `<div class="jm-btns centre jm-cs-suite jm-cs-pages">${avant ? bouton('cs-precedente', 'cs:precedente', t('precedente') || 'Page précédente', 'gauche', 'second') : ''}<span class="jm-cs-page pale" role="status">${esc(texteSur(l.page_texte))}</span>${apres ? bouton('cs-suivante', 'cs:suivante', t('suivante') || 'Page suivante', 'droite', 'second') : ''}</div>`;
       }
     }
     return h;
@@ -1057,6 +1038,44 @@
     return `${h}</div>`;
   }
 
+  // 0.2.0 : au-dessus de l'offre ouverte en grand : « Retour à la liste », « Offre précédente », « Offre suivante »
+  function navFicheHTML(c) {
+    const t = tC();
+    return `<div class="jm-fiche-nav">${bouton('cs-retour', 'cs:retour', t('retour_liste') || 'Retour à la liste', 'gauche', 'second')}<span class="jm-fiche-nav-d">${bouton('cs-voisine', 'cs:avant', t('offre_avant') || 'Offre précédente', 'gauche', 'discret', ` data-d="-1"${c.fiche_avant === true ? '' : ' disabled'}`)}${bouton('cs-voisine', 'cs:apres', t('offre_apres') || 'Offre suivante', 'droite', 'discret', ` data-d="1"${c.fiche_apres === true ? '' : ' disabled'}`)}</span></div>`;
+  }
+  // 0.2.0 : les offres d'un site en cartes, sur toute la largeur, par pages (un double clic ouvre l'offre en grand)
+  function cartesHTML(l, s) {
+    const { esc } = O, t = tC();
+    const lignes = liste(l.lignes);
+    let h = `<div class="jm-cartes-zone${anime()}"><div class="jm-cartes-tete"><h1>${esc(texteSur(l.titre))}</h1><span class="jm-cartes-sous">${esc(texteSur(l.sous))}</span></div>`;
+    if (texteSur(l.attente_texte)) h += `<p class="jm-cartes-attente pale" role="status">${esc(texteSur(l.attente_texte))}</p>`;
+    if (!lignes.length) return `${h}<div class="jm-vide"><div class="jm-v-ic plasma-bord">${icone('globe')}</div><p>${esc(texteSur(l.vide_texte))}</p></div></div>`;
+    const tRetirer = t('l_retirer') || 'Retirer de ma liste', tRemettre = t('l_remettre') || 'Remettre';
+    h += '<div class="jm-cartes">';
+    for (const r of lignes) {
+      if (!r || typeof r !== 'object' || !Number.isInteger(r.i) || r.i < 0) continue;
+      const sel = r.sel === true, retiree = r.retiree === true, titre = texteSur(r.titre);
+      const tags = liste(r.etiquettes).map((e) => (texteSur(e?.nom) ? `<span class="jm-tag${e.bon === true ? ' bon' : ''}">${esc(texteSur(e.nom))}</span>` : '')).join('');
+      const cote = retiree
+        ? `<button type="button" class="jm-off-remettre f" data-perso="cs-remettre" data-i="${r.i}" data-k="csx:${r.i}" title="${esc(tRemettre)}" aria-label="${esc(`${tRemettre} : ${titre}`)}">${esc(tRemettre)}</button>`
+        : `<button type="button" class="jm-off-x f" data-perso="cs-retirer" data-i="${r.i}" data-k="csx:${r.i}" title="${esc(tRetirer)}" aria-label="${esc(`${tRetirer} : ${titre}`)}">${icone('croix')}</button>`;
+      h += `<div class="jm-carte-l${retiree ? ' retiree' : ''}"><button type="button" class="jm-carte f${sel ? ' sel' : ''}" data-perso="cs-ouvrir" data-i="${r.i}" data-k="csl:${r.i}" aria-current="${sel}">
+        <b class="jm-carte-t">${esc(titre)}</b><span class="jm-carte-e">${esc(texteSur(r.sous))}</span><span class="jm-carte-d pale">${esc([texteSur(r.lieu), texteSur(r.l3)].filter(Boolean).join(' · '))}</span>
+        ${r.etat === 'sautee' ? `<span class="jm-carte-n pale">${esc(t('l_sautee') || "Pas lue, clique pour l'ouvrir")}</span>` : ''}${tags ? `<span class="jm-carte-tags">${tags}</span>` : ''}</button>${cote}</div>`;
+    }
+    h += '</div>';
+    const avant = l.precedente === true, apres = l.suivante === true;
+    if (avant || apres) {
+      h += `<div class="jm-btns centre jm-cs-suite jm-cs-pages">${bouton('cs-precedente', 'cs:precedente', t('precedente') || 'Page précédente', 'gauche', 'second', avant ? '' : ' disabled')}<span class="jm-cs-page pale" role="status">${esc(texteSur(l.page_texte))}</span>${bouton('cs-suivante', 'cs:suivante', t('suivante') || 'Page suivante', 'droite', 'second', apres ? '' : ' disabled')}</div>`;
+    }
+    return `${h}<p class="jm-cartes-aide pale">${esc(t('double_clic') || "Double clic sur une offre pour l'ouvrir en grand.")}</p></div>`;
+  }
+  // 0.2.0 : un site est choisi et une offre est ouverte en grand, ou s'ouvre : elle prend toute la largeur
+  function sitePlein(s) {
+    const c = cs();
+    return c.attente_offre === true || !!(c.fiche && typeof c.fiche === 'object' && c.fiche.site === s.id);
+  }
+
   // La droite quand un site est choisi : l'offre ouverte, son chargement, ou ce que fait ce site dans Jobmind
   function droiteSitesHTML(s) {
     const { esc } = O, t = tC(), c = cs();
@@ -1069,21 +1088,23 @@
       const lignes = c.liste && typeof c.liste === 'object' && c.liste.site === s.id ? liste(c.liste.lignes) : [];
       const r = lignes.find((y) => y?.i === ouvI) || lignes.find((y) => y?.sel === true);
       const titre = texteSur(r?.titre);
-      return `<div class="jm-ouv" role="status">${titre ? `<div class="jm-ouv-t"><h1>${esc(titre)}</h1>${texteSur(r.sous) ? `<div class="jm-d-sous">${esc(texteSur(r.sous))}</div>` : ''}</div>` : ''}
+      return `${navFicheHTML(c)}<div class="jm-ouv" role="status">${titre ? `<div class="jm-ouv-t"><h1>${esc(titre)}</h1>${texteSur(r.sous) ? `<div class="jm-d-sous">${esc(texteSur(r.sous))}</div>` : ''}</div>` : ''}
         <div class="jm-ouv-c"><h2>${esc(t('ouvre_offre') || "Jobmind ouvre l'offre")}</h2>
         <div class="jm-ouv-j" aria-hidden="true"><i style="width:${ouvAff.toFixed(2)}%"></i></div>
         <p class="jm-ouv-e">${esc(texteSur(pr.etape))}</p></div></div>`;
     }
     ouvEnCours = false; ouvCible = 0;
     if (c.attente_offre === true) {
-      return `<div class="jm-vide"><div class="jm-v-ic plasma-bord">${icone('globe')}</div><div class="jm-attente" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(texteSur(c.attente))}</span></div></div>`;
+      return `${navFicheHTML(c)}<div class="jm-vide"><div class="jm-v-ic plasma-bord">${icone('globe')}</div><div class="jm-attente" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(texteSur(c.attente))}</span></div></div>`;
     }
     const f = c.fiche && typeof c.fiche === 'object' && c.fiche.site === s.id ? c.fiche : null;
-    if (f) return ficheSiteHTML(f, s);
-    const l = c.liste && typeof c.liste === 'object' && c.liste.site === s.id && liste(c.liste.lignes).length;
+    if (f) return `${navFicheHTML(c)}${ficheSiteHTML(f, s)}`;
+    // (0.2.0 : les offres en cartes ; avant la première recherche, ce que fait ce site dans Jobmind, sans « Me
+    // connecter » : les offres se lisent sans compte)
+    const l = c.liste && typeof c.liste === 'object' && c.liste.site === s.id ? c.liste : null;
+    if (l) return cartesHTML(l, s);
     return `<div class="jm-vide${anime()}"><div class="jm-v-ic plasma-bord">${icone('globe')}</div><h1>${esc(t('vide_t', s.nom))}</h1>
-      <p>${esc(l ? t('choisir') : t('vide', s.nom))}</p>
-      ${s.connecte === true ? '' : `<p class="jm-note">${esc(t('vide_note'))}</p><div class="jm-btns centre">${bouton('cs-connexion', 'cs:connecter2', t('connecter'), 'cadenas', 'second', ` data-id="${s.id}"`)}</div>`}</div>`;
+      <p>${esc(t('vide', s.nom))}</p></div>`;
   }
 
   // « Garder le mot de passe » : Jobmind se souvient de la connexion à ce site sur ce PC (seulement ce fait, jamais les
@@ -1228,11 +1249,17 @@
         O.son?.ok?.(); O.action('cs-chercher', { site: d.id, recherche: numSur(x?.recherche) ? x.recherche : 0 });
         return true;
       }
-      case 'cs-suivante': O.son?.ok?.(); O.action('cs-suivante'); return true;
-      case 'cs-precedente': O.son?.ok?.(); O.action('cs-precedente'); return true;
+      case 'cs-suivante': if (el.disabled) return true; O.son?.ok?.(); O.action('cs-suivante'); return true;
+      case 'cs-precedente': if (el.disabled) return true; O.son?.ok?.(); O.action('cs-precedente'); return true;
       case 'cs-tout': O.son?.ok?.(); O.action('cs-tout'); return true;
       case 'cs-tout-arret': O.son?.ok?.(); O.action('cs-tout-arret'); return true;
-      case 'cs-ouvrir': { const i = Number(d.i); if (Number.isInteger(i) && i >= 0) { ouvI = i; O.son?.ok?.(); O.anime = !reduit(); O.action('cs-ouvrir', { i }); } return true; }
+      case 'cs-retour': O.son?.retour?.(); O.action('cs-retour'); return true;
+      case 'cs-voisine': { if (el.disabled) return true; const pas = Number(d.d) < 0 ? -1 : 1; O.son?.ok?.(); O.action('cs-voisine', { d: pas }); return true; }
+      case 'cs-ouvrir': { const i = Number(d.i); const souris = clicSouris; clicSouris = 0;
+        // (0.2.0 : une carte : le premier clic de souris la choisit seulement, le second l'ouvre ; au clavier et à la
+        // manette, Entrée l'ouvre tout de suite)
+        if (souris === 1 && el.classList.contains('jm-carte')) return true;
+        if (Number.isInteger(i) && i >= 0) { ouvI = i; O.son?.ok?.(); O.anime = !reduit(); O.action('cs-ouvrir', { i }); } return true; }
       // (0.1.4 : la croix d'une ligne, « Remettre », « Revoir les offres retirées » ; une ligne qui va disparaître
       // donne la main à la croix de sa voisine)
       case 'cs-retirer': {
@@ -1317,7 +1344,7 @@
     // (0.1.4 : où en sont les jauges avant ce dessin ; plus d'offre qui s'ouvre : la prochaine barre repartira de zéro)
     lireJauges();
     if (cs().attente_offre !== true) { ouvEnCours = false; ouvCible = 0; }
-    let gauche, droite, barre = '', recap = '';
+    let gauche, droite, barre = '', recap = '', plein = false;
     const s = o.id === 'candidatures' ? suiviDe() : null;
     const x = o.id === 'offres' ? offresDe() : null;
     if (s) {
@@ -1349,6 +1376,7 @@
         }
       } else enVu = null;
       if (recap) { gauche = ''; droite = ''; } else if (site) {
+        plein = sitePlein(site);
         gauche = listeSitesHTML(x, site);
         droite = droiteSitesHTML(site);
       } else {
@@ -1363,7 +1391,7 @@
     }
     hote.innerHTML = `<div class="jm${O.anime ? ' entree' : ''}" id="jm" data-onglet="${o.id}">
         <nav class="jm-onglets" role="tablist" aria-label="Jobmind">${ongletsHTML(o)}</nav>${recap ? `<div class="jm-envoi-zone">${recap}</div>` : `${barre}
-        <div class="jm-corps${x ? ' offres' : ''}">
+        <div class="jm-corps${x ? ' offres' : ''}${plein ? ' plein' : ''}">
           <aside class="jm-liste${s || x ? ' suivi' : ''}" aria-label="${O.esc(texteSur(o.liste))}">${gauche}</aside>
           <section class="jm-dossier" aria-live="polite">${droite}</section>
         </div>`}
@@ -1726,6 +1754,8 @@
   function ecouter(h) {
     if (ecoute === h) return;
     ecoute = h;
+    // (0.2.0 : avant le kit : un clic de souris, simple ou double, ou un clic venu du clavier)
+    h.addEventListener('click', (e) => { clicSouris = e.detail > 0 ? e.detail : 0; }, true);
     h.addEventListener('click', surClic);
     h.addEventListener('input', surSaisie);
     h.addEventListener('keydown', surTouche);
@@ -3437,7 +3467,10 @@
       if (rubriqueOuverte('recherche') && ofConfirme) { const id = ofConfirme; ofConfirme = null; dessinerTout(`og:s-${id}`); return true; }
       if (rubriqueOuverte('recherche') && ofForm) { ofForm = null; dessinerTout('og:nouvelle'); return true; }
       if (retourProfil()) return true;
+      // (0.2.0 : l'offre d'un site ouverte en grand se referme : retour à la liste)
+      { const st = onglet === 'offres' ? sourceSite() : null; if (st && !enOuvert() && !poOuvert() && sitePlein(st) && ofPil !== 'cand') { O.son?.retour?.(); O.action('cs-retour'); return true; } }
       if (retourOffres()) return true;
+      { const st = onglet === 'offres' ? sourceSite() : null; if (st && sitePlein(st)) { O.son?.retour?.(); ofPil = null; O.action('cs-retour'); return true; } }
       const premier = onglets()[0];
       if (premier && onglet !== premier.id) { montrer(premier.id); return true; }
       return false;

@@ -115,7 +115,12 @@ pub const SAUTEES_DE_SUITE_MAX: u32 = 3;
 /// automatique sur ce site pendant ce temps, même pour une nouvelle liste (jamais d'essais en boucle).
 pub const PAUSE_APRES_ARRET: Duration = Duration::from_secs(15 * 60);
 /// Les offres lues complètes gardées en mémoire (par adresse) : rouvertes tout de suite, sans recharger la page.
-pub const OFFRES_LUES_MAX: usize = 60;
+/// 0.2.0 : 320 au lieu de 60 : toute offre montrée (analysée) s'ouvre tout de suite.
+pub const OFFRES_LUES_MAX: usize = 320;
+/// 0.2.0 : le nouvel écran des offres d'un site (demande de Jordan le 25/11/2026) : les offres en cartes sur toute la
+/// largeur, par pages de ce nombre de cartes (les pages de Jobmind, pas celles du site : rien n'est rechargé) ;
+/// l'offre ouverte prend tout l'écran, avec « Retour à la liste ». Une offre n'est montrée qu'une fois analysée.
+pub const CARTES_PAR_PAGE: usize = 24;
 
 /// Les gestes de la page.
 pub const SOURCE: &str = "cs-source";
@@ -126,6 +131,9 @@ pub const PRECEDENTE: &str = "cs-precedente";
 /// 0.1.13 : « Lire toutes les offres », et son arrêt
 pub const TOUT: &str = "cs-tout";
 pub const ARRET_TOUT: &str = "cs-tout-arret";
+/// 0.2.0 : « Retour à la liste » (l'offre ouverte en grand se referme), et l'offre d'avant ou d'après (`d` : -1 ou 1)
+pub const RETOUR: &str = "cs-retour";
+pub const VOISINE: &str = "cs-voisine";
 pub const OUVRIR: &str = "cs-ouvrir";
 pub const AJOUTER: &str = "cs-ajouter";
 pub const VOIR: &str = "cs-voir";
@@ -145,7 +153,9 @@ pub const OUBLIER: &str = "cs-oublier";
 pub const RETIRER: &str = "cs-retirer";
 pub const REMETTRE: &str = "cs-remettre";
 pub const VOIR_RETIREES: &str = "cs-voir-retirees";
-const GESTES: [&str; 21] = [
+const GESTES: [&str; 23] = [
+    RETOUR,
+    VOISINE,
     PRECEDENTE,
     TOUT,
     ARRET_TOUT,
@@ -398,6 +408,8 @@ pub struct ListeSite {
     /// 0.1.13 : « Lire toutes les offres » est en cours : la page suivante est chargée toute seule quand les offres
     /// de la liste sont lues
     pub tout: bool,
+    /// 0.2.0 : la page de cartes montrée (à partir de 1)
+    pub carte_page: u32,
 }
 
 /// 0.1.12 : une page de résultats déjà vue, gardée pour y revenir sans la recharger.
@@ -949,6 +961,8 @@ impl Coulisse {
                         "Jobmind ne lit pas les offres toute seule sur {} pendant quelques minutes, après {pourquoi}. Clique sur une offre pour l'ouvrir.",
                         s.nom()
                     ));
+                    l.tout = false;
+                    l.lecture.suite = false;
                 }
                 return Fait {
                     journal: Some(format!(
@@ -1095,6 +1109,8 @@ impl Coulisse {
             CHERCHER => self.chercher(base, v),
             SUIVANTE => self.suivante(),
             PRECEDENTE => self.precedente(),
+            RETOUR => self.retour_liste(),
+            VOISINE => self.voisine(v),
             TOUT => self.tout(),
             ARRET_TOUT => self.arreter_tout(),
             OUVRIR => self.ouvrir(v),
@@ -1243,8 +1259,10 @@ impl Coulisse {
             precedente: None,
             total: None,
             gardees: Vec::new(),
-            fusion: false,
-            tout: false,
+            // (0.2.0 : toujours une seule liste, et l'analyse de toutes les offres démarre toute seule)
+            fusion: true,
+            tout: true,
+            carte_page: 1,
         });
         if self.fiche.as_ref().is_some_and(|f| f.site == s) {
             self.fiche = None;
@@ -1293,6 +1311,185 @@ impl Coulisse {
             change: true,
             ..Fait::default()
         }
+    }
+
+    /// 0.2.0 : les offres montrées en cartes, dans l'ordre (leurs rangs dans les résultats) : analysées par Jobmind
+    /// et acceptées par les filtres ; celles qu'elle n'arrive pas à lire, quand aucun filtre n'est coché (un clic
+    /// les ouvre) ; les retirées seulement avec « Revoir les offres retirées ».
+    fn montrees(&self, l: &ListeSite) -> Vec<usize> {
+        l.resultats
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| {
+                if self.est_retiree(&r.url) {
+                    return self.voir_retirees;
+                }
+                match self.lu_de(&r.url) {
+                    Some(lu) => passe(Some(lu), self.filtres),
+                    // (lecture arrêtée par le site : les offres pas lues gardent une carte, un clic les ouvre)
+                    None => (l.sautees.contains(&r.url) || l.lecture.arret.is_some()) && self.filtres == (false, false),
+                }
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// 0.2.0 : la page de cartes d'avant ou d'après (rien n'est chargé).
+    fn page_cartes(&mut self, s: Site, d: i64) -> Fait {
+        let Some(l) = self.liste_de(s) else { return Fait::default() };
+        let pages = self.montrees(l).len().div_ceil(CARTES_PAR_PAGE).max(1) as i64;
+        let ici = i64::from(l.carte_page.max(1)).min(pages);
+        let p = (ici + d).clamp(1, pages) as u32;
+        if i64::from(p) == ici {
+            return Fait::default();
+        }
+        if let Some(l) = self.liste_de_mut(s) {
+            l.carte_page = p;
+        }
+        Fait { change: true, ..Fait::default() }
+    }
+
+    /// 0.2.0 : « Retour à la liste » : l'offre ouverte en grand se referme (une offre qui s'ouvrait est abandonnée).
+    fn retour_liste(&mut self) -> Fait {
+        let Some(s) = self.source else { return Fait::default() };
+        let ouvre = self.attente.as_ref().is_some_and(|a| a.site == s && matches!(a.but, But::Offre(_)));
+        let fiche = self.fiche.as_ref().is_some_and(|f| f.site == s);
+        if !ouvre && !fiche {
+            return Fait::default();
+        }
+        if ouvre {
+            self.attente = None;
+            self.attendue = None;
+        }
+        if fiche {
+            self.fiche = None;
+        }
+        if let Some(l) = self.liste_de_mut(s) {
+            l.ouvert = None;
+        }
+        Fait { change: true, ..Fait::default() }
+    }
+
+    /// 0.2.0 : la place de l'offre ouverte parmi les cartes montrées : y a-t-il une offre avant, une après.
+    fn voisines(&self) -> (bool, bool) {
+        let Some(l) = self.source.and_then(|s| self.liste_de(s)) else { return (false, false) };
+        let m = self.montrees(l);
+        match l.ouvert.and_then(|i| m.iter().position(|x| *x == i)) {
+            Some(k) => (k > 0, k + 1 < m.len()),
+            None => (false, false),
+        }
+    }
+
+    /// 0.2.0 : « Offre précédente » ou « Offre suivante » : l'offre voisine parmi les cartes montrées s'ouvre.
+    fn voisine(&mut self, v: &Value) -> Fait {
+        let Some(s) = self.source else { return Fait::default() };
+        let d = v.get("d").and_then(Value::as_i64).unwrap_or(0).signum();
+        let Some(l) = self.liste_de(s) else { return Fait::default() };
+        let m = self.montrees(l);
+        let Some(k) = l.ouvert.and_then(|i| m.iter().position(|x| *x == i)) else { return Fait::default() };
+        let j = k as i64 + d;
+        if d == 0 || j < 0 || j as usize >= m.len() {
+            return Fait::default();
+        }
+        let i = m[j as usize];
+        if let Some(l) = self.liste_de_mut(s) {
+            l.carte_page = (j as usize / CARTES_PAR_PAGE) as u32 + 1;
+        }
+        self.ouvrir(&json!({ "i": i }))
+    }
+
+    /// 0.2.0 : la liste en cartes : seulement la page de cartes montrée, son compteur et ses phrases.
+    fn cartes(&self, l: &ListeSite, v: &mut Value) {
+        let m = self.montrees(l);
+        let n = m.len();
+        let pages = n.div_ceil(CARTES_PAR_PAGE).max(1);
+        let page = (l.carte_page.max(1) as usize).min(pages);
+        let debut = (page - 1) * CARTES_PAR_PAGE;
+        let lignes: Vec<Value> = m
+            .iter()
+            .skip(debut)
+            .take(CARTES_PAR_PAGE)
+            .map(|&i| {
+                let r = &l.resultats[i];
+                let lu = self.lu_de(&r.url);
+                let mut etiquettes = Vec::new();
+                if let Some(d) = lu.and_then(|x| x.diplome.as_ref()) {
+                    etiquettes.push(json!({ "nom": d.valeur.nom(), "bon": d.valeur == lecture::Diplome::Aucun }));
+                }
+                if let Some(e) = lu.and_then(|x| x.experience.as_ref()) {
+                    etiquettes.push(json!({ "nom": e.valeur.nom(), "bon": e.valeur == lecture::Experience::Debutant }));
+                }
+                let l3 = [Some(r.date.as_str()), r.candidats.as_deref()]
+                    .into_iter()
+                    .flatten()
+                    .filter(|x| !x.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" · ");
+                json!({
+                    "i": i,
+                    "titre": r.titre,
+                    "sous": r.entreprise,
+                    "lieu": r.lieu,
+                    "l3": l3,
+                    "sel": l.ouvert == Some(i),
+                    "etiquettes": etiquettes,
+                    "etat": if lu.is_some() { "lue" } else { "sautee" },
+                    "retiree": self.est_retiree(&r.url),
+                })
+            })
+            .collect();
+        // (les offres analysées, retirées à part)
+        let analysees =
+            l.resultats.iter().filter(|r| !self.est_retiree(&r.url) && self.lu_de(&r.url).is_some()).count();
+        let (_, reste) = self.a_lire(l.site);
+        let en_cours = l.lecture.arret.is_none() && (l.tout || !reste.is_empty());
+        let s = |k: usize| if k > 1 { "s" } else { "" };
+        let filtre = self.filtres != (false, false);
+        let sous = if filtre {
+            format!("{} offre{} sur {} analysée{}", milliers(n), s(n), milliers(analysees), s(analysees))
+        } else {
+            // (les cartes pas analysées : illisibles, ou lecture arrêtée par le site)
+            let lues = m.iter().filter(|i| self.lu_de(&l.resultats[**i].url).is_some()).count();
+            let autres = n - lues;
+            let mut t = format!("{} offre{} analysée{}", milliers(lues), s(lues), s(lues));
+            if autres > 0 {
+                t.push_str(&format!(", {} à ouvrir toi-même", milliers(autres)));
+            }
+            t
+        };
+        let attente = if en_cours { "D'autres offres arrivent : Jobmind les analyse une par une." } else { "" };
+        let vide = if n > 0 {
+            String::new()
+        } else if analysees > 0 {
+            "Aucune offre analysée ne passe tes filtres pour l'instant.".to_string()
+        } else if en_cours {
+            "Jobmind analyse les offres : les premières arrivent dans quelques secondes.".to_string()
+        } else {
+            format!("{} n'a montré aucune offre que Jobmind arrive à lire.", l.site.nom())
+        };
+        let fin = (debut + CARTES_PAR_PAGE).min(n);
+        let page_texte = if n == 0 {
+            String::new()
+        } else {
+            format!(
+                "Page {} sur {} · offres {} à {}",
+                milliers(page),
+                milliers(pages),
+                milliers(debut + 1),
+                milliers(fin)
+            )
+        };
+        v["cartes"] = json!(true);
+        // (toutes les cartes, pas seulement celles de la page : le chiffre de l'onglet)
+        v["nombre"] = json!(m.iter().filter(|i| !self.est_retiree(&l.resultats[**i].url)).count());
+        v["lignes"] = json!(lignes);
+        v["sous"] = json!(sous);
+        v["attente_texte"] = json!(attente);
+        v["vide_texte"] = json!(vide);
+        v["page"] = json!(page);
+        v["page_texte"] = json!(page_texte);
+        v["precedente"] = json!(page > 1);
+        v["suivante"] = json!(page < pages);
     }
 
     /// 0.1.13 : « Lire toutes les offres » : les pages déjà vues sont mises bout à bout dans une seule liste (dans
@@ -1363,6 +1560,10 @@ impl Coulisse {
     /// 0.1.12 : « Page précédente » : la page d'avant, déjà vue, remontrée sans la recharger.
     fn precedente(&mut self) -> Fait {
         let Some(s) = self.source else { return Fait::default() };
+        // (0.2.0 : les pages de cartes de Jobmind, rien n'est chargé)
+        if self.liste_de(s).is_some_and(|l| l.fusion) {
+            return self.page_cartes(s, -1);
+        }
         if self.po_occupe() {
             return Fait { message: Some(OCCUPE_PO.into()), ..Fait::default() };
         }
@@ -1382,6 +1583,10 @@ impl Coulisse {
     /// (0.1.12). Une page d'après déjà vue est remontrée sans la recharger.
     fn suivante(&mut self) -> Fait {
         let Some(s) = self.source else { return Fait::default() };
+        // (0.2.0 : les pages de cartes de Jobmind, rien n'est chargé)
+        if self.liste_de(s).is_some_and(|l| l.fusion) {
+            return self.page_cartes(s, 1);
+        }
         if self.po_occupe() {
             return Fait { message: Some(OCCUPE_PO.into()), ..Fait::default() };
         }
@@ -2536,7 +2741,7 @@ impl Coulisse {
                 "fermer": "Fermer",
                 "lecture": "Lecture de la page...",
                 "vide_t": "{site} dans Jobmind",
-                "vide": "Choisis ta recherche, puis clique « Chercher sur {site} ». Jobmind lit les résultats du site et te les montre ici, une page à la fois. Ensuite, elle lit chaque offre toute seule, doucement, pour tes filtres.",
+                "vide": "Choisis ta recherche, puis clique « Chercher sur {site} ». Jobmind lit toutes les offres du site, une par une, et te les montre ici dès qu'elle les a analysées.",
                 "vide_note": "Pour voir plus d'offres, connecte-toi à ton compte : Jobmind tape ton mail et ton mot de passe pour toi.",
                 "choisir": "Choisis une offre dans la liste pour la lire ici.",
                 "cx_titre": "Me connecter à {site}",
@@ -2574,7 +2779,11 @@ impl Coulisse {
                 ("ouvre_offre", "Jobmind ouvre l'offre"),
                 ("lecture_finie", "Toutes les offres de la page sont lues"),
                 ("tout", "Lire toutes les offres"),
-                ("tout_suite", "Lire la suite des offres"),
+                ("tout_suite", "Reprendre la lecture des offres"),
+                ("retour_liste", "Retour à la liste"),
+                ("offre_avant", "Offre précédente"),
+                ("offre_apres", "Offre suivante"),
+                ("double_clic", "Double clic sur une offre pour l'ouvrir en grand."),
                 ("tout_arret", "Arrêter"),
             ] {
                 t.insert(k.into(), json!(x));
@@ -2583,6 +2792,10 @@ impl Coulisse {
         // (0.1.4 : la barre de l'offre cliquée qui s'ouvre, par étapes réelles)
         if let Some(o) = v.as_object_mut() {
             o.insert("progression".into(), if self.attend_personne() { Value::Null } else { self.progression() });
+            // (0.2.0 : l'offre ouverte en grand : « Offre précédente », « Offre suivante »)
+            let (avant, apres) = self.voisines();
+            o.insert("fiche_avant".into(), json!(avant));
+            o.insert("fiche_apres".into(), json!(apres));
         }
         v
     }
@@ -2723,7 +2936,7 @@ impl Coulisse {
             };
             json!({ "lues": lues, "total": total, "texte": texte, "finie": finie, "arret": arret, "tout": l.tout })
         };
-        json!({
+        let mut v = json!({
             "site": l.site.code(),
             "titre": format!("Sur {}", l.site.nom()),
             "sous": sous,
@@ -2738,7 +2951,11 @@ impl Coulisse {
             "lecture": lecture,
             "retirees": retirees,
             "voir_retirees": self.voir_retirees,
-        })
+        });
+        if l.fusion {
+            self.cartes(l, &mut v);
+        }
+        v
     }
 
     /// La barre de l'offre cliquée qui s'ouvre : l'étape atteinte et sa phrase (rien : aucune offre ne s'ouvre).
@@ -2764,9 +2981,13 @@ fn annonce_vue(a: &Annonce) -> Value {
 /// rien sans liste ou sans offre. Avant la 0.1.6, c'était le nombre d'offres gardées jamais ouvertes : un « 47 » fixe
 /// alors qu'aucune offre n'était à l'écran, ou que la recherche en montrait 20 (remarque de Jordan, 21/11/2026).
 pub fn chiffre_onglet(vue_coulisse: &Value) -> Value {
-    let n = vue_coulisse["liste"]["lignes"]
-        .as_array()
-        .map_or(0, |l| l.iter().filter(|x| x["retiree"] != Value::Bool(true)).count());
+    // (0.2.0 : en cartes, le nombre de toutes les cartes, pas seulement celles de la page montrée)
+    let n = match vue_coulisse["liste"]["nombre"].as_u64() {
+        Some(n) => n as usize,
+        None => vue_coulisse["liste"]["lignes"]
+            .as_array()
+            .map_or(0, |l| l.iter().filter(|x| x["retiree"] != Value::Bool(true)).count()),
+    };
     if n == 0 { Value::Null } else { json!(n) }
 }
 

@@ -3,6 +3,7 @@
 //! cookies et envoie leurs formulaires comme la vue des sites le ferait.
 
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use jobmind_core::recherches::NouvelleRecherche;
 use jobmind_sources::faux::{RepFaux, Requete};
@@ -131,6 +132,38 @@ fn charger_et_lire(c: &mut Coulisse, b: Option<&Base>, n: &mut Navigateur, f: &F
     c.lu(b, lire_no(&p), n.lecture(), m(9, 5))
 }
 
+/// Les pas de la lecture automatique jusqu'au prochain chargement (au plus `max` secondes) : le moment du
+/// chargement et ce qu'il a donné.
+fn jusqu_au_chargement(c: &mut Coulisse, depuis: Instant, max: u64) -> Option<(Instant, Fait)> {
+    for s in 0..=max {
+        let t = depuis + Duration::from_secs(s);
+        let f = c.lecture_auto(t, true);
+        if f.coulisse.iter().any(|o| matches!(o, Ordre::Charger(_))) {
+            return Some((t, f));
+        }
+    }
+    None
+}
+
+/// 0.2.0 : la lecture de toutes les offres menée jusqu'au bout (faux temps, à partir de `depuis`) : chaque offre
+/// demandée est lue, chaque page suivante chargée toute seule aussi. Le nombre de pages chargées, le nombre d'offres
+/// lues, et le moment du dernier chargement.
+fn lire_jusqu_au_bout(c: &mut Coulisse, b: &Base, n: &mut Navigateur, depuis: Instant) -> (usize, usize, Instant) {
+    let (mut t, mut pages, mut offres, mut dernier) = (depuis, 0, 0, depuis);
+    while let Some((x, f)) = jusqu_au_chargement(c, t, 10) {
+        match c.attente.as_ref().map(|a| a.but) {
+            Some(But::Liste) => pages += 1,
+            Some(But::Lecture(_)) => offres += 1,
+            but => panic!("un chargement inattendu ({but:?}) : {f:?}"),
+        }
+        assert!(pages + offres <= 40, "la lecture tourne en rond : {pages} pages, {offres} offres");
+        charger_et_lire(c, Some(b), n, &f);
+        dernier = x;
+        t = x + Duration::from_secs(1);
+    }
+    (pages, offres, dernier)
+}
+
 /// Tous les textes d'une valeur.
 fn textes_de(v: &Value, l: &mut Vec<String>) {
     match v {
@@ -175,10 +208,18 @@ fn liste_offre_et_ajout() {
     let f = c.lu(Some(&b), lire_no(&p), n.lecture(), m(9, 1));
     assert!(f.change && f.coulisse.is_empty(), "{f:?}");
     assert!(f.journal.as_deref().unwrap().contains("liste lue de linkedin (6 résultats, page 1, lue par regles)"));
+    // (0.2.0 : la liste est lue, 6 offres et une page derrière ; elle est montrée en cartes, et une offre n'a sa
+    // carte qu'une fois analysée par Jobmind : aucune pour l'instant, une phrase le dit)
+    let l = c.liste_de(Site::LinkedIn).unwrap();
+    assert_eq!((l.resultats.len(), l.resultats[0].titre.as_str(), l.suivante), (6, "Cariste H/F", true));
+    assert!(l.fusion && l.tout && l.carte_page == 1, "{l:?}");
     let v = c.vue(jour());
-    assert_eq!(v["liste"]["lignes"].as_array().unwrap().len(), 6);
-    assert_eq!(v["liste"]["lignes"][0]["titre"], "Cariste H/F");
-    assert_eq!(v["liste"]["suivante"], true);
+    assert_eq!(v["liste"]["cartes"], true);
+    assert!(v["liste"]["lignes"].as_array().unwrap().is_empty(), "{v}");
+    assert_eq!(v["liste"]["sous"], "0 offre analysée");
+    assert!(v["liste"]["vide_texte"].as_str().unwrap().starts_with("Jobmind analyse les offres"), "{v}");
+    assert_eq!(v["liste"]["lecture"]["texte"], "Jobmind lit toutes les offres : 0 lues");
+    assert_eq!((&v["liste"]["precedente"], &v["liste"]["suivante"]), (&json!(false), &json!(false)));
     assert_eq!(v["sites"][0]["etat"], "Pas connecté à LinkedIn");
     assert!(v["attente"].is_null());
     // (la liste déroulante « Où chercher » : « Mes offres gardées », sans recherche, pour les offres gardées)
@@ -197,7 +238,12 @@ fn liste_offre_et_ajout() {
     let v = c.vue(jour());
     assert_eq!(v["fiche"]["titre"], "Agent de quai (H/F)");
     assert_eq!(v["fiche"]["candidats"], "12 candidats sur LinkedIn");
-    assert_eq!(v["liste"]["lignes"][1]["sel"], true);
+    // (l'offre ouverte est lue : elle a sa carte, la seule, marquée ; son `i` reste son rang dans les résultats)
+    let lignes = v["liste"]["lignes"].as_array().unwrap();
+    assert_eq!(lignes.len(), 1, "{lignes:?}");
+    assert_eq!((&lignes[0]["i"], &lignes[0]["sel"], &lignes[0]["etat"]), (&json!(1), &json!(true), &json!("lue")));
+    assert_eq!(lignes[0]["titre"], "Agent de quai (H/F)");
+    assert_eq!(v["liste"]["sous"], "1 offre analysée");
     sans_tiret_long(&v);
     // « Ajouter à Jobmind » : gardée dans l'archive
     let f = c.geste(Some(&b), AJOUTER, &Value::Null, m(9, 3));
@@ -209,49 +255,63 @@ fn liste_offre_et_ajout() {
     assert_eq!(c.vue(jour())["fiche"]["ajoutee"], id);
     // Le même résultat rouvert : rien de rechargé
     assert!(c.geste(Some(&b), OUVRIR, &json!({ "i": 1 }), m(9, 4)).coulisse.is_empty());
-    // « Page suivante » : la page 2, sur ce clic seulement
+    // « Page suivante » et « Page précédente » (0.2.0) : ce sont les pages de cartes de Jobmind, plus celles du site ;
+    // une seule page de cartes ici : rien ne bouge, et surtout rien n'est chargé (avant, la page 2 du site partait
+    // sur ce clic)
     let v = c.vue(jour());
-    assert_eq!((&v["liste"]["sous"], &v["liste"]["page_texte"]), (&json!("Offres 1 à 6"), &json!("Page 1")));
-    assert_eq!((&v["liste"]["precedente"], &v["liste"]["suivante"]), (&json!(false), &json!(true)));
-    assert!(c.geste(Some(&b), PRECEDENTE, &Value::Null, m(9, 5)).coulisse.is_empty(), "pas de page avant la 1");
-    let f = c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 5));
-    assert!(charge(&f).ends_with("&start=25"), "{f:?}");
-    charger_et_lire(&mut c, Some(&b), &mut n, &f);
+    assert_eq!((&v["liste"]["precedente"], &v["liste"]["suivante"]), (&json!(false), &json!(false)));
+    assert_eq!(c.geste(Some(&b), PRECEDENTE, &Value::Null, m(9, 5)), Fait::default(), "pas de page avant la 1");
+    assert_eq!(c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 5)), Fait::default(), "pas de page de cartes après");
+    assert!(c.attente.is_none());
+    assert_eq!(c.liste_de(Site::LinkedIn).unwrap().page, 1);
+    // La page 2 du site vient toute seule : Jobmind lit les offres de la page 1 (pas la 2e, déjà lue par le clic),
+    // puis charge la page suivante, dont les offres s'ajoutent au bout de la liste
+    let (mut t, mut pages, mut lues) = (Instant::now(), 0, Vec::new());
+    while let Some((x, f)) = jusqu_au_chargement(&mut c, t, 10) {
+        match c.attente.as_ref().unwrap().but {
+            But::Liste => {
+                pages += 1;
+                assert!(charge(&f).ends_with("&start=25"), "{f:?}");
+                assert_eq!(f.journal.as_deref(), Some("Sites : page 2 de linkedin (lecture de toutes les offres)"));
+            }
+            But::Lecture(i) => lues.push(i),
+            but => panic!("{but:?}"),
+        }
+        assert!(pages <= 1 && lues.len() <= 8, "{pages} pages, {lues:?}");
+        charger_et_lire(&mut c, Some(&b), &mut n, &f);
+        t = x + Duration::from_secs(1);
+    }
+    assert_eq!((pages, lues), (1, vec![0, 2, 3, 4, 5, 6, 7, 8]));
     let v = c.vue(jour());
-    // (0.1.12 : une page à la fois : ses 3 offres remplacent les 6 de la page 1 ; l'offre ouverte reste ouverte à
-    // droite, aucune ligne de la page 2 n'est marquée)
+    // (les 3 offres de la page 2 sont à la suite des 6 de la page 1, dont les rangs n'ont pas bougé ; l'offre ouverte
+    // reste ouverte, sa carte est la seule marquée)
     let lignes = v["liste"]["lignes"].as_array().unwrap();
-    assert_eq!(lignes.len(), 3);
-    assert_ne!(lignes[0]["titre"], "Cariste H/F");
-    assert!(lignes.iter().all(|l| l["sel"] == false), "{lignes:?}");
+    assert_eq!(lignes.len(), 9);
+    assert!(lignes.iter().enumerate().all(|(k, l)| l["i"] == k && l["etat"] == "lue"), "{lignes:?}");
+    assert_eq!(lignes[0]["titre"], "Cariste H/F");
+    assert!(lignes[6..].iter().all(|l| lignes[..6].iter().all(|x| x["titre"] != l["titre"])), "{lignes:?}");
+    assert!(lignes.iter().all(|l| (l["sel"] == true) == (l["i"] == 1)), "{lignes:?}");
     assert_eq!(v["fiche"]["titre"], "Agent de quai (H/F)");
-    assert_eq!((&v["liste"]["precedente"], &v["liste"]["suivante"]), (&json!(true), &json!(false)));
-    assert_eq!((&v["liste"]["sous"], &v["liste"]["page_texte"]), (&json!("Offres 7 à 9"), &json!("Page 2")));
-    assert_eq!(v["liste"]["page"], 2);
+    assert_eq!((&v["liste"]["precedente"], &v["liste"]["suivante"]), (&json!(false), &json!(false)));
+    assert_eq!(v["liste"]["sous"], "9 offres analysées");
+    assert_eq!(v["liste"]["page_texte"], "Page 1 sur 1 · offres 1 à 9");
+    assert_eq!(v["liste"]["page"], 1);
+    assert_eq!(v["liste"]["lecture"]["texte"], "Les 9 offres de la liste sont lues");
     assert_eq!(v["textes"]["suivante"], "Page suivante");
     assert_eq!(v["textes"]["precedente"], "Page précédente");
     sans_tiret_long(&v);
-    assert!(c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 6)).coulisse.is_empty());
-    // « Page précédente » : la page 1 revient telle quelle, sans rien recharger ; l'offre ouverte y est marquée
-    let f = c.geste(Some(&b), PRECEDENTE, &Value::Null, m(9, 6));
-    assert!(f.change && f.coulisse.is_empty(), "{f:?}");
-    assert!(f.journal.as_deref().unwrap().contains("page 1 de linkedin remontrée"), "{f:?}");
-    let v = c.vue(jour());
-    assert_eq!(v["liste"]["lignes"].as_array().unwrap().len(), 6);
-    assert_eq!(v["liste"]["lignes"][0]["titre"], "Cariste H/F");
-    assert_eq!(v["liste"]["lignes"][1]["sel"], true);
-    assert_eq!((&v["liste"]["precedente"], &v["liste"]["suivante"]), (&json!(false), &json!(true)));
-    assert_eq!(v["liste"]["sous"], "Offres 1 à 6");
-    // (le même résultat rouvert après le retour : toujours rien de rechargé)
+    // (toujours rien à tourner à la main, et rien de chargé)
+    assert_eq!(c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 6)), Fait::default());
+    assert_eq!(c.geste(Some(&b), PRECEDENTE, &Value::Null, m(9, 6)), Fait::default());
+    // (le même résultat rouvert après la page 2 : toujours rien de rechargé)
     assert!(c.geste(Some(&b), OUVRIR, &json!({ "i": 1 }), m(9, 6)).coulisse.is_empty());
-    // « Page suivante » vers une page déjà vue : rien de rechargé non plus
-    let f = c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 6));
+    // (une offre de la page 2, lue par Jobmind : ouverte tout de suite, sans rien recharger)
+    let f = c.geste(Some(&b), OUVRIR, &json!({ "i": 7 }), m(9, 6));
     assert!(f.change && f.coulisse.is_empty(), "{f:?}");
-    let v = c.vue(jour());
-    assert_eq!(v["liste"]["lignes"].as_array().unwrap().len(), 3);
-    assert_eq!((&v["liste"]["sous"], &v["liste"]["suivante"]), (&json!("Offres 7 à 9"), &json!(false)));
+    assert_eq!(c.vue(jour())["liste"]["lignes"][7]["sel"], true);
     let l = c.liste_de(Site::LinkedIn).unwrap();
-    assert_eq!((l.page, l.gardees.len(), l.gardees[0].page), (2, 1, 1));
+    assert_eq!((l.page, l.resultats.len(), l.gardees.len(), l.suivante), (2, 9, 0, false));
+    assert!(!l.tout && l.lecture.finie, "{l:?}");
     // « Voir dans mes offres »
     let f = c.geste(Some(&b), VOIR_OFFRE, &json!({ "id": id }), m(9, 7));
     assert_eq!(f.offre, Some(id));
@@ -402,9 +462,21 @@ fn captcha_puis_reprise() {
     assert_eq!(f.coulisse.first(), Some(&Ordre::Cacher), "{f:?}");
     assert!(c.petite.is_none());
     assert_eq!(c.liste_de(Site::LinkedIn).unwrap().resultats.len(), 6);
-    // Une vérification qui ramène ailleurs : la page demandée est rechargée une seule fois
+    // Une vérification qui ramène ailleurs : la page demandée est rechargée une seule fois (0.2.0 : la page 2 n'est
+    // plus demandée par « Page suivante », qui ne charge plus rien ; Jobmind la charge toute seule, une fois les
+    // offres de la page 1 lues)
+    assert_eq!(c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 3)), Fait::default());
+    let mut t = Instant::now();
+    let f = loop {
+        let (x, f) = jusqu_au_chargement(&mut c, t, 10).expect("la page 2 est chargée toute seule");
+        if c.attente.as_ref().unwrap().but == But::Liste {
+            break f;
+        }
+        charger_et_lire(&mut c, Some(&b), &mut n, &f);
+        t = x + Duration::from_secs(1);
+    };
+    assert!(charge(&f).ends_with("&start=25"), "{f:?}");
     *n.mode.lock().unwrap() = ModeSites::Captcha;
-    let f = c.geste(Some(&b), SUIVANTE, &Value::Null, m(9, 3));
     charger_et_lire(&mut c, Some(&b), &mut n, &f);
     assert!(c.attend_personne());
     n.aller("https://www.linkedin.com/feed/");
