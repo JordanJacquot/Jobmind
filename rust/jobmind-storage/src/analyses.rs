@@ -253,7 +253,7 @@ mod tests {
     #[test]
     fn la_migration_15_sur_une_base_de_la_version_14() {
         let mut b = Base::en_memoire_jusqua(14, m(19, 9)).unwrap();
-        assert_eq!(b.migrer_tout(m(19, 10)).unwrap(), vec![15]);
+        assert_eq!(b.migrer_tout(m(19, 10)).unwrap(), vec![15, 16]);
         assert!(lire(b.connexion(), &cles(&["123ABC"]), m(19, 10)).unwrap().is_empty());
         assert!(vues(b.connexion()).unwrap().is_empty());
     }

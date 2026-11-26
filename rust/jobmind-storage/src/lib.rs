@@ -28,6 +28,8 @@
 //! - [`retirees`] (0.1.4) : les offres des sites retirées de la liste (« Retirer de ma liste »), qui ne reviennent plus ;
 //! - [`analyses`] (0.2.0) : les offres des sites déjà analysées (la page lue, gardée 30 jours), et celles que la
 //!   personne a ouvertes elle-même (« Déjà vue ») ;
+//! - [`parcours`] (0.2.0) : les corrections de la personne à la fiche tirée de son CV (les lignes retirées, les lignes
+//!   ajoutées) ;
 //! - [`donnees`] : tout réuni ;
 //! - [`valeurs`] : les règles de PowerShell suivies (champs sans majuscules, vrai ou faux).
 //!
@@ -50,6 +52,7 @@ pub mod lecture;
 pub mod mails;
 pub mod moment;
 pub mod offres;
+pub mod parcours;
 pub mod preparations;
 pub mod profil;
 pub mod rafraichir;

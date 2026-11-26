@@ -42,16 +42,20 @@ pub enum TriSite {
     Recentes,
     /// Les plus près d'abord (les offres sans distance connue à la fin)
     Pres,
+    /// 0.2.0 : les plus proches du parcours de la personne d'abord (jobmind_core::parcours ; les offres pas
+    /// comparées à la fin). Proposé seulement quand la fiche de son CV dit de quoi comparer
+    Parcours,
 }
 
 impl TriSite {
-    pub const TOUS: [TriSite; 3] = [TriSite::Site, TriSite::Recentes, TriSite::Pres];
+    pub const TOUS: [TriSite; 4] = [TriSite::Site, TriSite::Recentes, TriSite::Pres, TriSite::Parcours];
 
     pub fn code(self) -> &'static str {
         match self {
             TriSite::Site => "site",
             TriSite::Recentes => "recentes",
             TriSite::Pres => "pres",
+            TriSite::Parcours => "parcours",
         }
     }
 
@@ -60,6 +64,7 @@ impl TriSite {
             TriSite::Site => "Dans l'ordre du site",
             TriSite::Recentes => "Les plus récentes d'abord",
             TriSite::Pres => "Les plus près d'abord",
+            TriSite::Parcours => "Les plus proches de ton parcours d'abord",
         }
     }
 
@@ -271,6 +276,9 @@ pub struct Ligne<'a> {
     pub taille: usize,
     /// Jordan a déjà ouvert une annonce de son groupe (« Déjà vue » se partage entre doublons)
     pub vue_groupe: bool,
+    /// 0.2.0 : son rang de proximité avec le parcours de la personne (plus grand : plus proche ; rien : pas
+    /// comparée), pour le tri seulement
+    pub parcours: Option<u16>,
 }
 
 impl<'a> Ligne<'a> {
@@ -282,7 +290,24 @@ impl<'a> Ligne<'a> {
         faits: Option<&'a Faits>,
         distance: Option<Distance>,
     ) -> Ligne<'a> {
-        Ligne { retiree, ouverte, vue, analyse, faits, distance, groupe: None, taille: 1, vue_groupe: vue }
+        Ligne {
+            retiree,
+            ouverte,
+            vue,
+            analyse,
+            faits,
+            distance,
+            groupe: None,
+            taille: 1,
+            vue_groupe: vue,
+            parcours: None,
+        }
+    }
+
+    /// 0.2.0 : la même ligne, avec son rang de proximité avec le parcours.
+    pub fn avec_parcours(mut self, rang: Option<u16>) -> Ligne<'a> {
+        self.parcours = rang;
+        self
     }
 
     /// Une copie : une annonce identique à une autre, placée avant elle dans la liste.
@@ -392,6 +417,10 @@ pub fn cartes(lignes: &[Ligne], r: &Regles) -> Cartes {
         TriSite::Pres => rangs.sort_by(|a, b| {
             let km = |i: &usize| lignes[*i].distance.map(Distance::km);
             manquantes_a_la_fin(km(a), km(b), f64::total_cmp)
+        }),
+        TriSite::Parcours => rangs.sort_by(|a, b| {
+            let rang = |i: &usize| lignes[*i].parcours;
+            manquantes_a_la_fin(rang(a), rang(b), |x, y| y.cmp(x))
         }),
     }
     Cartes { rangs, doublons_caches }
@@ -668,6 +697,16 @@ mod tests {
         assert_eq!(TriSite::depuis_code("site"), Some(TriSite::Site));
         assert_eq!(TriSite::depuis_code("autre"), None);
         assert_eq!(TriSite::default(), TriSite::Site);
+        // 0.2.0 : les plus proches du parcours d'abord ; à égalité l'ordre du site, les offres pas comparées à la fin
+        let lignes: Vec<Ligne> = [Some(105), None, Some(310), Some(105), Some(0)]
+            .into_iter()
+            .map(|rang| analysee(&a, None).avec_parcours(rang))
+            .collect();
+        assert_eq!(avec(&lignes, TriSite::Parcours), [2, 0, 3, 4, 1]);
+        assert_eq!(avec(&lignes, TriSite::Site), [0, 1, 2, 3, 4]);
+        assert_eq!(TriSite::depuis_code("parcours"), Some(TriSite::Parcours));
+        assert_eq!(TriSite::Parcours.nom(), "Les plus proches de ton parcours d'abord");
+        assert_eq!(TriSite::TOUS.map(TriSite::code), ["site", "recentes", "pres", "parcours"]);
     }
 
     /// Les doublons : la première de la liste garde sa carte, les copies sont cachées (ou montrées, décoché) ;

@@ -1046,6 +1046,10 @@
     let h = `<div class="jm-d jm-of${O.anime ? ' entree' : ''}"><div class="jm-d-tete"><div class="jm-d-titres"><h1>${esc(texteSur(f.titre))}</h1><div class="jm-d-sous">${esc(texteSur(f.sous))}</div></div></div>`;
     h += `<div class="jm-o-src"><span>${esc(texteSur(f.source) + infosEnLigne(f))}</span></div>`;
     if (texteSur(f.candidats)) h += `<p class="jm-o-double jm-o-cand">${icone('profil')}<span>${esc(texteSur(f.candidats))}</span></p>`;
+    // (0.2.0 : « proche de ton parcours », et pourquoi en une phrase : d'après la fiche de ton CV, jamais un chiffre ;
+    // Rust n'envoie rien quand l'offre est loin de ton parcours ou que ton CV manque)
+    const pr = objet(f.proche);
+    if (PROCHES.includes(pr.niveau) && texteSur(pr.nom)) h += `<p class="jm-o-proche ${pr.niveau}">${icone('cible')}<span><b>${esc(texteSur(pr.nom))}.</b> ${esc(texteSur(pr.raison))}</span></p>`;
     // (étape 8 : « L'offre » et « Ma candidature »)
     const p = prDe(f);
     if (p) {
@@ -1071,6 +1075,8 @@
     const t = tC();
     return `<div class="jm-fiche-nav">${bouton('cs-retour', 'cs:retour', t('retour_liste') || 'Retour à la liste', 'gauche', 'second')}<span class="jm-fiche-nav-d">${bouton('cs-voisine', 'cs:avant', t('offre_avant') || 'Offre précédente', 'gauche', 'discret', ` data-d="-1"${c.fiche_avant === true ? '' : ' disabled'}`)}${bouton('cs-voisine', 'cs:apres', t('offre_apres') || 'Offre suivante', 'droite', 'discret', ` data-d="1"${c.fiche_apres === true ? '' : ' disabled'}`)}</span></div>`;
   }
+  // 0.2.0 : les trois niveaux de « proche de ton parcours » (le bandeau d'une carte, la ligne de l'offre ouverte)
+  const PROCHES = ['tres', 'proche', 'peu'];
   // 0.2.0 : les offres d'un site en cartes, sur toute la largeur, par pages (un double clic ouvre l'offre en grand)
   function cartesHTML(l, s) {
     const { esc } = O, t = tC();
@@ -1084,6 +1090,10 @@
     if (texteSur(l.attente_texte)) h += `<p class="jm-cartes-attente pale" role="status">${esc(texteSur(l.attente_texte))}</p>`;
     if (!lignes.length) return `${h}<div class="jm-vide"><div class="jm-v-ic plasma-bord">${icone('globe')}</div><p>${esc(texteSur(l.vide_texte))}</p></div></div>`;
     const tRetirer = t('l_retirer') || 'Retirer de ma liste', tRemettre = t('l_remettre') || 'Remettre', tVue = t('deja_vue') || 'Déjà vue';
+    // (0.2.0 : sans CV, ou avec un CV que Jobmind n'a pas su lire : une ligne discrète au-dessus des cartes, et le
+    // bouton qui mène à Mon profil ; aucun bandeau sur les cartes, le tri par parcours n'est pas proposé)
+    const inv = objet(l.parcours);
+    if (texteSur(inv.invite)) h += `<p class="jm-cartes-invite"><span>${esc(texteSur(inv.invite))}</span>${bouton('cs-profil', 'cs:profil', texteSur(inv.bouton) || 'Ouvrir Mon profil', 'profil', 'discret')}</p>`;
     h += '<div class="jm-cartes">';
     for (const r of lignes) {
       if (!r || typeof r !== 'object' || !Number.isInteger(r.i) || r.i < 0) continue;
@@ -1094,11 +1104,16 @@
       // (0.2.0 : le contrat, la distance connue et « 2 annonces identiques » sont des étiquettes aussi ; celle des
       // doublons a sa couleur)
       const tags = liste(r.etiquettes).map((e) => (texteSur(e?.nom) ? `<span class="jm-tag${e.bon === true ? ' bon' : ''}${e.genre === 'double' ? ' double' : ''}">${esc(texteSur(e.nom))}</span>` : '')).join('');
+      // (0.2.0 : le bandeau « proche de ton parcours », tout en haut de la carte, sur toute sa largeur : en mots
+      // seulement, vert, jaune ou gris ; « Déjà vue » s'y range à droite. Sans bandeau, « Déjà vue » reste la pastille
+      // du coin en haut à droite)
+      const pc = objet(r.proche), niveau = !retiree && PROCHES.includes(pc.niveau) && texteSur(pc.nom) ? pc.niveau : '';
+      const bandeau = niveau ? `<span class="jm-carte-bandeau ${niveau}"><span>${esc(texteSur(pc.nom))}</span>${vue ? `<span class="jm-carte-bandeau-vue">${esc(tVue)}</span>` : ''}</span>` : '';
       const cote = retiree
         ? `<button type="button" class="jm-off-remettre f" data-perso="cs-remettre" data-i="${r.i}" data-k="csx:${r.i}" title="${esc(tRemettre)}" aria-label="${esc(`${tRemettre} : ${titre}`)}">${esc(tRemettre)}</button>`
         : `<button type="button" class="jm-off-x f" data-perso="cs-retirer" data-i="${r.i}" data-k="csx:${r.i}" title="${esc(tRetirer)}" aria-label="${esc(`${tRetirer} : ${titre}`)}">${icone('croix')}</button>`;
-      h += `<div class="jm-carte-l${retiree ? ' retiree' : ''}${vue ? ' vue' : ''}"><button type="button" class="jm-carte f${sel ? ' sel' : ''}" data-perso="cs-ouvrir" data-i="${r.i}" data-k="csl:${r.i}" aria-current="${sel}">
-        <b class="jm-carte-t">${vue ? `<span class="jm-carte-vue">${esc(tVue)}</span>` : ''}${esc(titre)}</b><span class="jm-carte-e">${esc(texteSur(r.sous))}</span><span class="jm-carte-d pale">${esc([texteSur(r.lieu), texteSur(r.l3)].filter(Boolean).join(' · '))}</span>
+      h += `<div class="jm-carte-l${retiree ? ' retiree' : ''}${vue ? ' vue' : ''}${niveau ? ' bandee' : ''}"><button type="button" class="jm-carte f${sel ? ' sel' : ''}" data-perso="cs-ouvrir" data-i="${r.i}" data-k="csl:${r.i}" aria-current="${sel}">
+        ${bandeau}<b class="jm-carte-t">${vue && !niveau ? `<span class="jm-carte-vue">${esc(tVue)}</span>` : ''}${esc(titre)}</b><span class="jm-carte-e">${esc(texteSur(r.sous))}</span><span class="jm-carte-d pale">${esc([texteSur(r.lieu), texteSur(r.l3)].filter(Boolean).join(' · '))}</span>
         ${r.etat === 'sautee' ? `<span class="jm-carte-n pale">${esc(t('l_sautee') || "Pas analysée, clique pour l'ouvrir")}</span>` : ''}<span class="jm-carte-tags">${tags}</span></button>${cote}</div>`;
     }
     h += '</div>';
@@ -1324,6 +1339,8 @@
       }
       // (le tri des cartes se choisit dans sa liste déroulante : voir surSaisie)
       case 'cs-tri': return true;
+      // (0.2.0 : « Ouvrir Mon profil », sous la ligne qui invite à ajouter son CV : l'onglet Mon profil, rubrique Mon CV)
+      case 'cs-profil': O.son?.ok?.(); montrer('profil'); ouvrirRubrique('cv', 'cv:importer'); return true;
       case 'cs-ajouter': if (!el.disabled) { el.disabled = true; O.son?.ok?.(); O.action('cs-ajouter'); } return true;
       case 'cs-voir': O.son?.ok?.(); O.action('cs-voir'); return true;
       case 'cs-offre': { const id = Number(d.id); if (numSur(id)) { O.son?.ok?.(); O.action('cs-offre', { id }); } return true; }
@@ -1839,6 +1856,7 @@
   const cvEdits = {};      // le nom et le texte corrigés, par CV : { nom, texte }
   let cvColle = null;      // le CV en train d'être collé : { nom, texte }
   let cvConfirme = false;  // « Supprimer ce CV ? »
+  const pcSaisie = {};     // 0.2.0 : ce qui est tapé dans chaque case d'ajout de « Ce que Jobmind a compris de ton CV »
   let rch = null;          // Ce que je cherche, en cours de saisie (une copie des valeurs reçues)
   let styleForm = null;    // le texte en train d'être ajouté : { titre, texte }
   let styleConfirme = null; // le texte dont la suppression est demandée
@@ -1859,7 +1877,7 @@
     const { esc } = O, t = tx(d), v = objet(d.vide);
     return `<div class="jm-vide${anime()}">
         <div class="jm-v-ic plasma-bord">${icone('cv')}</div>
-        <h1>${esc(texteSur(v.titre))}</h1><p>${esc(texteSur(v.texte))}</p>
+        <h1>${esc(texteSur(v.titre))}</h1><p>${esc(texteSur(v.texte))}</p>${texteSur(v.parcours) ? `<p>${esc(texteSur(v.parcours))}</p>` : ''}
         ${imp ? attenteHTML(imp) : ''}
         <div class="jm-btns centre">${bouton('cv-importer', 'cv:importer', t('importer'), 'importer', 'principal grand', imp ? ' disabled' : '')}${bouton('cv-coller', 'cv:coller', t('coller'), 'coller', 'second grand')}</div>
         <p class="jm-note">${esc(t('formats'))} ${esc(texteSur(v.note))}</p></div>`;
@@ -1875,6 +1893,42 @@
         <label class="jm-champ"><span>${esc(t('texte'))}</span><textarea class="f jm-cv-texte" data-perso="p-champ" data-zone="colle" data-champ="texte" data-k="cv:texte" maxlength="${P_LONGUEURS.texte}" spellcheck="true" placeholder="${esc(t('i_texte'))}">${esc(v.texte || '')}</textarea></label></div>
       <p class="jm-err" role="alert"></p>
       <div class="jm-btns">${bouton('cv-enregistrer', 'cv:enreg', t('enregistrer'), 'coche', 'principal')}${bouton('cv-annuler', 'cv:annuler', t('annuler'), '', 'second')}</div></form>`;
+  }
+
+  // 0.2.0 : « Ce que Jobmind a compris de ton CV » : la fiche du CV principal, en quatre petites listes (métiers,
+  // compétences, diplômes, permis et habilitations). Chaque ligne a sa croix pour la retirer, chaque liste sa case
+  // pour en ajouter une : Rust garde les corrections ('pc-retirer', 'pc-ajouter') et renvoie la fiche. Le data-k de
+  // chaque croix : « pc », la première lettre de la liste, puis son rang (« pcm:0 »).
+  const PC_LISTES = ['metiers', 'savoirs', 'diplomes', 'permis'];
+  function parcoursHTML(pc) {
+    const { esc } = O, t = tx(pc);
+    if (!texteSur(pc.titre)) return '';
+    const listes = liste(pc.listes).filter((x) => PC_LISTES.includes(x?.id));
+    const tAjouter = t('ajouter') || 'Ajouter', tRetirer = t('retirer') || 'Retirer';
+    let h = `<section class="jm-pc" aria-label="${esc(texteSur(pc.titre))}"><h2 class="jm-h2">${esc(texteSur(pc.titre))}</h2><p class="jm-petit">${esc(texteSur(pc.intro))}</p>`;
+    if (texteSur(pc.note)) h += `<p class="jm-petit">${esc(texteSur(pc.note))}</p>`;
+    if (texteSur(pc.vide)) h += `<p class="jm-alerte">${icone('attention')}<span>${esc(texteSur(pc.vide))}</span></p>`;
+    h += '<div class="jm-pc-listes">';
+    for (const x of listes) {
+      const lignes = liste(x.lignes).filter((y) => typeof y?.cle === 'string' && y.cle && y.cle.length <= 200 && texteSur(y.nom)), titre = texteSur(x.titre);
+      h += `<div class="jm-pc-liste"><h3>${esc(titre)}</h3>`;
+      h += lignes.length
+        ? `<ul>${lignes.map((y, i) => `<li><span class="jm-pc-nom">${esc(texteSur(y.nom))}${texteSur(y.sous) ? ` <small>${esc(texteSur(y.sous))}</small>` : ''}</span><button type="button" class="jm-pc-x f" data-perso="pc-retirer" data-liste="${x.id}" data-cle="${esc(y.cle)}" data-k="pc${x.id[0]}:${i}" title="${esc(tRetirer)}" aria-label="${esc(`${tRetirer} : ${texteSur(y.nom)}`)}">${icone('croix')}</button></li>`).join('')}</ul>`
+        : `<p class="jm-petit">${esc(texteSur(x.rien))}</p>`;
+      h += `<div class="jm-pc-ajout"><input class="f" ${pChamp('pc', x.id, `pc:i-${x.id}`, pcSaisie[x.id] || '', ` maxlength="60" autocomplete="off" spellcheck="true" aria-label="${esc(`${tAjouter} : ${titre}`)}" placeholder="${esc(texteSur(x.i_ajout))}"`)}>${bouton('pc-ajouter', `pc:a-${x.id}`, tAjouter, 'plus', 'second', ` data-liste="${x.id}"`)}</div></div>`;
+    }
+    return `${h}</div></section>`;
+  }
+
+  // 0.2.0 : envoie la ligne tapée dans la case d'ajout d'une liste (rien de tapé : la case reprend la main)
+  function parcoursAjouter(id) {
+    if (!PC_LISTES.includes(id)) return;
+    const texte = String(pcSaisie[id] || '').trim();
+    if (!texte) { hote.querySelector(`[data-k="pc:i-${id}"]`)?.focus({ preventScroll: false }); O.son?.retour?.(); return; }
+    if (Date.now() < envoiJusqua) return;
+    envoiJusqua = Date.now() + 500;
+    O.son?.ok?.();
+    O.action('pc-ajouter', { liste: id, texte: texte.slice(0, 60) });
   }
 
   function cvHTML(d) {
@@ -1908,7 +1962,8 @@
     h += cvConfirme
       ? `<div class="jm-suppr"><p>${esc(texteSur(c.question))}</p><div class="jm-btns">${bouton('cv-suppr-oui', 'cv:oui', t('oui'), 'poubelle', 'danger')}${bouton('cv-suppr-non', 'cv:non', t('non'), '', 'second')}</div></div>`
       : `<div class="jm-d-bas">${bouton('cv-supprimer', 'cv:suppr', t('supprimer'), 'poubelle', 'discret danger')}</div>`;
-    return `${h}</div></div>`;
+    // (0.2.0 : sous le CV, ce que Jobmind en a compris, à corriger)
+    return `${h}</div>${parcoursHTML(objet(d.parcours))}</div>`;
   }
 
   // Le CV montré (pour l'enregistrer, le supprimer...)
@@ -2231,6 +2286,8 @@
     switch (d.perso) {
       case 'p-champ': {   // (Entrée dans un champ d'une ligne : le champ suivant)
         if (el.tagName !== 'INPUT') return true;
+        // (0.2.0 : Entrée dans une case d'ajout de la fiche du CV : la ligne est ajoutée)
+        if (d.zone === 'pc') { parcoursAjouter(d.champ); return true; }
         const els = [...hote.querySelectorAll('#jm .jm-dossier .f')], i = els.indexOf(el);
         els[i + 1]?.focus({ preventScroll: false });
         return true;
@@ -2244,6 +2301,16 @@
       case 'cv-principal': { const c = objet(cvDossier().ouvert); if (numSur(c.id)) { O.son?.ok?.(); O.action('cv-principal', { id: c.id }); } return true; }
       case 'cv-supprimer': O.son?.ok?.(); cvConfirme = true; dessinerTout('cv:non'); hote.querySelector('.jm-suppr')?.scrollIntoView({ block: 'nearest' }); return true;
       case 'cv-suppr-non': O.son?.retour?.(); cvConfirme = false; dessinerTout('cv:suppr'); return true;
+      // (0.2.0 : « Ce que Jobmind a compris de ton CV » : une ligne retirée (la croix voisine reprend la main), une
+      // ligne ajoutée)
+      case 'pc-retirer': {
+        const cle = typeof d.cle === 'string' ? d.cle : '';
+        if (!PC_LISTES.includes(d.liste) || !cle || cle.length > 200) return true;
+        mainVoisine(el, `.jm-pc-x[data-liste="${d.liste}"]`);
+        O.son?.ok?.(); O.action('pc-retirer', { liste: d.liste, cle });
+        return true;
+      }
+      case 'pc-ajouter': parcoursAjouter(d.liste); return true;
       case 'cv-suppr-oui': { const c = objet(cvDossier().ouvert); if (numSur(c.id) && cvConfirme) { cvConfirme = false; el.disabled = true; O.action('cv-supprimer', { id: c.id }); } return true; }
       // Ce que je cherche
       case 'rc-lieu': if (rch && codeSurP(d.id)) { rch.lieu = d.id; O.son?.bascule?.(); dessinerTout(el.dataset.k); } return true;
@@ -2332,6 +2399,7 @@
       cvEdits[c.id] = { ...e, [d.champ]: v };
       return;
     }
+    if (d.zone === 'pc' && PC_LISTES.includes(d.champ)) { pcSaisie[d.champ] = v; return; }
     if (d.zone === 'rc' && rch && ['postes', 'ville', 'salaire', 'departement', 'region'].includes(d.champ)) { rch[d.champ] = v; return; }
     if (d.zone === 'st' && styleForm && (d.champ === 'titre' || d.champ === 'texte')) { styleForm[d.champ] = v; return; }
     if (d.zone === 'sr' && (d.champ === 'motif' || d.champ === 'remplacement')) { stAjout[d.champ] = v; return; }
@@ -2360,6 +2428,8 @@
       if (rubriqueOuverte('cv')) dessinerTout('cv:enreg');
       return true;
     }
+    // (0.2.0 : une ligne ajoutée à la fiche du CV : sa case se vide et garde la main, pour en ajouter une autre)
+    if (PC_LISTES.includes(o.parcours)) { pcSaisie[o.parcours] = ''; if (rubriqueOuverte('cv')) dessinerTout(`pc:i-${o.parcours}`); return true; }
     if (numSur(o.cv_supprime)) { delete cvEdits[o.cv_supprime]; cvConfirme = false; if (rubriqueOuverte('cv')) dessinerTout(); return true; }
     if (o.recherche === 'enregistree') { rch = null; if (rubriqueOuverte('recherche')) dessinerTout('rc:enreg'); return true; }
     if (numSur(o.style)) { styleForm = null; if (rubriqueOuverte('style')) dessinerTout('st:ajouter'); return true; }

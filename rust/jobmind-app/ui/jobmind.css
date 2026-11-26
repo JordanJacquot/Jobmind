@@ -1117,3 +1117,42 @@ button.jm-bilan.f:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(-
 /* (0.2.0 : le tri des cartes, à droite de leur titre ; l'étiquette des annonces identiques ou « Doublon ») */
 .jm-cartes-tri { margin-left: auto; }
 .jm-tag.double { border-color: color-mix(in srgb, var(--jm) 45%, transparent); color: var(--jm); }
+/* (0.2.0 : « proche de ton parcours ». Sur une carte : un fin bandeau tout en haut, sur toute la largeur, en mots
+   seulement (très proche : vert ; proche : jaune ; un peu proche : gris), « Déjà vue » rangé à droite dans ce même
+   bandeau. Les marges négatives annulent le remplissage de la carte ; son coin du haut suit celui de la carte) */
+.jm-carte-bandeau { align-self: stretch; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: -13px -38px 5px -14px; padding: 4px 12px 4px 14px; border-radius: 13px 13px 0 0; font-size: 11.5px; font-weight: 650; line-height: 1.4; border-bottom: 1px solid transparent; }
+.jm-carte-bandeau.tres { color: var(--vert); background: color-mix(in srgb, var(--vert) 13%, transparent); border-bottom-color: color-mix(in srgb, var(--vert) 30%, transparent); }
+.jm-carte-bandeau.proche { color: var(--orange); background: color-mix(in srgb, var(--orange) 12%, transparent); border-bottom-color: color-mix(in srgb, var(--orange) 28%, transparent); }
+.jm-carte-bandeau.peu { color: var(--doux); background: rgba(255, 255, 255, 0.05); border-bottom-color: var(--ligne); }
+.jm-carte-bandeau-vue { flex: none; font-weight: 600; color: var(--pale); white-space: nowrap; }
+.jm-carte-l.bandee .jm-carte-t { margin-right: -24px; }
+/* (0.2.0 : dans l'offre ouverte en grand, la ligne qui dit pourquoi elle est proche du parcours) */
+.jm-o-proche { display: flex; align-items: flex-start; gap: 9px; margin: 12px 0 0; padding: 9px 13px; border-radius: 11px; font-size: 14px; line-height: 1.45; color: var(--texte); border: 1px solid var(--ligne); background: rgba(255, 255, 255, 0.035); }
+.jm-o-proche svg { width: 16px; height: 16px; flex: none; margin-top: 2px; }
+.jm-o-proche.tres { border-color: color-mix(in srgb, var(--vert) 40%, transparent); background: color-mix(in srgb, var(--vert) 8%, transparent); }
+.jm-o-proche.tres svg, .jm-o-proche.tres b { color: var(--vert); }
+.jm-o-proche.proche { border-color: color-mix(in srgb, var(--orange) 40%, transparent); background: color-mix(in srgb, var(--orange) 7%, transparent); }
+.jm-o-proche.proche svg, .jm-o-proche.proche b { color: var(--orange); }
+.jm-o-proche.peu svg, .jm-o-proche.peu b { color: var(--doux); }
+/* (0.2.0 : sans CV, la ligne discrète au-dessus des cartes qui invite à l'ajouter) */
+.jm-cartes-invite { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 4px 0 2px; font-size: 13px; color: var(--pale); }
+/* (0.2.0 : Mon profil, « Ce que Jobmind a compris de ton CV » : quatre petites listes côte à côte, chaque ligne avec
+   sa croix, et sous chaque liste sa case pour ajouter une ligne) */
+.jm-pc { margin-top: 26px; padding-top: 20px; border-top: 1px solid color-mix(in srgb, var(--ligne) 60%, transparent); max-width: 900px; }
+.jm-pc > .jm-h2 { margin-top: 0; }
+.jm-pc-listes { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; margin-top: 14px; }
+.jm-pc-liste { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--ligne); background: rgba(255, 255, 255, 0.03); }
+.jm-pc-liste h3 { margin: 0; font-size: 14px; font-weight: 650; color: var(--doux); }
+.jm-pc-liste ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.jm-pc-liste li { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; padding: 2px 2px 2px 10px; border-radius: 9px; background: rgba(255, 255, 255, 0.04); font-size: 14px; }
+.jm-pc-nom { min-width: 0; overflow-wrap: anywhere; }
+.jm-pc-nom small { margin-left: 6px; font-size: 12.5px; color: var(--pale); white-space: nowrap; }
+.jm-pc-x { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; color: var(--pale); transition: background 180ms ease, color 180ms ease; }
+.jm-pc-x svg { width: 14px; height: 14px; }
+.jm-pc-x:hover, .jm-pc-x:focus { background: rgba(255, 255, 255, 0.08); color: var(--rouge); }
+.jm-pc-x.f:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--jm) 60%, transparent); }
+.jm-pc-liste > .jm-petit { margin: 0; }
+.jm-pc-ajout { display: flex; gap: 8px; align-items: center; margin-top: auto; padding-top: 4px; }
+.jm-pc-ajout input { flex: 1; min-width: 0; height: 38px; padding: 0 12px; border-radius: 10px; border: 1px solid transparent; background: rgba(255, 255, 255, 0.055); color: var(--texte); font: inherit; font-size: 14px; }
+.jm-pc-ajout input::placeholder { color: var(--pale); }
+.jm-pc-ajout input:focus { border-color: color-mix(in srgb, var(--jm) 50%, transparent); background: rgba(255, 255, 255, 0.075); outline: none; }

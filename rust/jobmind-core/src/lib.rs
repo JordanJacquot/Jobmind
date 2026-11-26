@@ -33,7 +33,10 @@
 //! - [`postuler`] (étape 11) : l'envoi sur le site : ce que Jordan tape dans le récapitulatif vérifié, ses coordonnées
 //!   trouvées dans son CV, une question du site rapprochée d'une réponse préparée, le choix d'une liste ;
 //! - [`rubriques`] (0.1.4) : le texte d'une offre rangé en onglets (le poste, ce qu'ils demandent, horaires et
-//!   salaire, l'entreprise), avec « Exigé » et « Souhaité » notés à part.
+//!   salaire, l'entreprise), avec « Exigé » et « Souhaité » notés à part ;
+//! - [`parcours`] (0.2.0) : la fiche tirée d'un CV par des règles (les métiers exercés et leur durée, les compétences,
+//!   les diplômes, les permis et habilitations), corrigée par la personne, et une offre comparée à cette fiche (très
+//!   proche, proche, un peu proche, loin), avec sa raison en une phrase.
 
 pub mod candidature;
 pub mod cle;
@@ -45,6 +48,7 @@ pub mod lecture;
 pub mod lieux;
 pub mod mails;
 pub mod offre;
+pub mod parcours;
 pub mod pertinence;
 pub mod postuler;
 pub mod preparation;

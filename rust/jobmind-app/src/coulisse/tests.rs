@@ -786,3 +786,4 @@ mod analyses;
 mod doublons_filtres;
 mod garde;
 mod lecture_auto;
+mod parcours;

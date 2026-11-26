@@ -1624,6 +1624,8 @@ impl Etat {
         // (étape 5 bis : les sites lus en coulisse, la carte de connexion, la petite fenêtre du site)
         if let Some(perso) = e.pointer_mut("/accueil/perso").and_then(Value::as_object_mut) {
             self.coulisse.filtres = (self.offres.filtres.sans_diplome, self.offres.filtres.debutant);
+            // (0.2.0 : la fiche du CV principal, corrigée par la personne, pour « proche de ton parcours »)
+            self.coulisse.poser_parcours(vue.parcours.as_ref(), self.jour);
             // (0.1.4 : une offre gardée retirée de ma liste dans l'autre liste compte aussi pour les sites)
             self.coulisse.relire_retirees(d.base.as_ref());
             let vue_coulisse = self.coulisse.vue(self.jour);

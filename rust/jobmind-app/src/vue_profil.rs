@@ -8,6 +8,7 @@
 use jobmind_core::Jour;
 use jobmind_core::cle::{Cle, Service};
 use jobmind_core::lieux::{DEPARTEMENTS, REGIONS};
+use jobmind_core::parcours::{Liste, Parcours, cle_ligne};
 use jobmind_core::profil::{CV_NOMBRE_MAX, CV_TEXTE_MAX, STYLE_NOMBRE_MAX, STYLE_TEXTE_MAX, debut, mots};
 use jobmind_core::recherche::{Contrat, Criteres, GenreLieu, RAYONS, Recherche, Teletravail, milliers};
 use jobmind_storage::cles::EtatCle;
@@ -30,6 +31,8 @@ pub struct VueProfil {
     pub regles: Value,
     /// Chaque partie de clé, et ce que l'écran en sait (rien : pas encore donnée)
     pub cles: Vec<(Cle, Option<EtatCle>)>,
+    /// 0.2.0 : la fiche du CV principal, corrigée par la personne (rien : aucun CV)
+    pub parcours: Option<Parcours>,
 }
 
 /// Rien encore (les tests, une base qui ne s'ouvre pas).
@@ -49,6 +52,7 @@ pub static VIDE: VueProfil = VueProfil {
     },
     regles: Value::Null,
     cles: Vec::new(),
+    parcours: None,
 };
 
 /// Les textes d'une rubrique (la page les pose tels quels), en objet.
@@ -92,6 +96,52 @@ fn cv_ouvert(v: &VueProfil) -> Option<&Cv> {
         .and_then(|id| v.cvs.iter().find(|c| c.id == id))
         .or_else(|| v.cvs.iter().find(|c| c.principal))
         .or(v.cvs.first())
+}
+
+/// 0.2.0 : « Ce que Jobmind a compris de ton CV » : les quatre listes de la fiche du CV principal, chaque ligne avec
+/// sa clé (pour la retirer), et pour chaque liste l'exemple de sa case d'ajout. Rien sans CV.
+fn parcours_json(v: &VueProfil, aujourdhui: Jour) -> Value {
+    let Some(p) = &v.parcours else { return Value::Null };
+    let ligne = |l: Liste, nom: &str, sous: String| json!({ "cle": cle_ligne(l, nom), "nom": nom, "sous": sous });
+    let lignes = |l: Liste| -> Vec<Value> {
+        match l {
+            Liste::Metiers => p.metiers.iter().map(|m| ligne(l, &m.nom, m.duree_texte(aujourdhui))).collect(),
+            Liste::Competences => p.competences.iter().map(|x| ligne(l, x, String::new())).collect(),
+            Liste::Diplomes => p.diplomes.iter().map(|x| ligne(l, x, String::new())).collect(),
+            Liste::Permis => p.permis.iter().map(|x| ligne(l, x, String::new())).collect(),
+        }
+    };
+    let listes: Vec<Value> = Liste::TOUTES
+        .iter()
+        .map(|l| {
+            let (exemple, rien) = match l {
+                Liste::Metiers => ("Par exemple : Cariste, 3 ans", "Aucun métier trouvé dans ton CV."),
+                Liste::Competences => ("Par exemple : Conduite de chariot", "Aucune compétence trouvée dans ton CV."),
+                Liste::Diplomes => ("Par exemple : CAP Cuisine", "Aucun diplôme trouvé dans ton CV."),
+                Liste::Permis => ("Par exemple : Permis B", "Aucun permis trouvé dans ton CV."),
+            };
+            json!({ "id": l.code(), "titre": l.nom(), "lignes": lignes(*l), "i_ajout": exemple, "rien": rien })
+        })
+        .collect();
+    let principal = v.cvs.iter().find(|c| c.principal);
+    let note = match principal {
+        Some(c) if v.cvs.len() > 1 => format!("D'après ton CV principal, « {} ».", c.nom),
+        _ => String::new(),
+    };
+    let vide = if p.vide() {
+        "Jobmind n'a rien réussi à lire dans ton CV. Ajoute toi-même tes métiers, ce que tu sais faire et tes permis."
+    } else {
+        ""
+    };
+    json!({
+        "titre": "Ce que Jobmind a compris de ton CV",
+        "intro": "Jobmind s'en sert pour te montrer d'abord les offres qui ressemblent à ce que tu as déjà fait. \
+                  Retire ce qui est faux, ajoute ce qui manque.",
+        "note": note,
+        "vide": vide,
+        "listes": listes,
+        "textes": { "ajouter": "Ajouter", "retirer": "Retirer" },
+    })
 }
 
 fn rubrique_cv(v: &VueProfil, aujourdhui: Jour) -> Value {
@@ -143,11 +193,15 @@ fn rubrique_cv(v: &VueProfil, aujourdhui: Jour) -> Value {
             "import": import,
             "plein": v.cvs.len() >= CV_NOMBRE_MAX,
             "longueur": CV_TEXTE_MAX,
+            // (0.2.0 : « Ce que Jobmind a compris de ton CV »)
+            "parcours": parcours_json(v, aujourdhui),
             "vide": {
                 "titre": "Aucun CV pour l'instant.",
                 "texte": "Donne ton CV à Jobmind : elle s'en servira pour préparer chaque candidature. Choisis le \
                           fichier de ton CV, ou colle son texte.",
                 "note": "Le fichier reste sur ce PC. Il sera joint à tes candidatures.",
+                // (0.2.0 : sans CV, pas de fiche : la phrase qui dit à quoi elle servira)
+                "parcours": "Jobmind y lira aussi ton parcours, pour te montrer d'abord les offres qui te ressemblent.",
             },
             "textes": textes(&[
                 ("importer", "Importer un fichier"),
@@ -496,6 +550,10 @@ pub(crate) mod tests {
             recherche: Some(r),
             regles: Value::Null,
             cles: vec![(Cle::Claude, Some(EtatCle::Illisible))],
+            // (0.2.0 : la fiche du CV principal, avec une ligne ajoutée à la main)
+            parcours: Some(jobmind_core::parcours::lire(
+                "Jordan Exemple\n2019 - 2022 : Cariste chez Logi-Exemple\nPermis B, CACES 1, 3 et 5\nCAP Logistique",
+            )),
         }
     }
 

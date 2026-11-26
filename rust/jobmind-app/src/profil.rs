@@ -8,11 +8,19 @@
 //! revient ici ([`Profil::import_fini`]) : le fichier est copié dans le dossier `cv` des données, son texte remis au
 //! propre et montré pour être corrigé. Un import a son numéro (`jeton`) : un résultat arrivé trop tard est laissé.
 //!
+//! 0.2.0, « Ce que Jobmind a compris de ton CV » : la fiche du CV principal (jobmind_core::parcours : les métiers
+//! exercés, les compétences, les diplômes, les permis et habilitations) est refaite d'après son texte chaque fois
+//! qu'il change (elle est gardée en mémoire tant qu'il ne change pas), puis corrigée par ce que la personne y a retiré
+//! ([`PC_RETIRER`]) ou ajouté ([`PC_AJOUTER`]), gardé dans la base (jobmind_storage::parcours). Les corrections suivent
+//! la personne : un autre CV principal, ou le même corrigé, donne une fiche refaite où les mêmes corrections
+//! s'appliquent.
+//!
 //! Le journal ne reçoit jamais un texte de Jordan ni une clé : seulement ce qui a été fait.
 
 use std::path::Path;
 
 use jobmind_core::cle::{Cle, Service, verifier_cle};
+use jobmind_core::parcours::{self as regles_parcours, Correction, Liste, Parcours};
 use jobmind_core::profil::{
     CV_NOMBRE_MAX, CV_TEXTE_MAX, STYLE_NOMBRE_MAX, couper, nettoyer_texte, nom_depuis_fichier, verifier_nom_cv,
     verifier_style, verifier_texte_cv,
@@ -20,6 +28,7 @@ use jobmind_core::profil::{
 use jobmind_core::recherche::{SaisieRecherche, verifier_criteres};
 use jobmind_lecture::{Erreur, Format, Lu, TAILLE_MAX};
 use jobmind_storage::cles::Cles;
+use jobmind_storage::parcours as base_parcours;
 use jobmind_storage::profil::{self, GenreCv, NouveauCv};
 use jobmind_storage::rusqlite;
 use jobmind_storage::{Base, Moment};
@@ -41,7 +50,11 @@ pub const STYLE_SUPPRIMER: &str = "style-supprimer";
 pub const CLE_GARDER: &str = "cle-enregistrer";
 pub const CLE_EFFACER: &str = "cle-effacer";
 pub const COPIE: &str = "p-copie";
-const GESTES: [&str; 12] = [
+/// 0.2.0 : une ligne ajoutée à « Ce que Jobmind a compris de ton CV » (`liste`, `texte`), une ligne retirée (`liste`,
+/// `cle`).
+pub const PC_AJOUTER: &str = "pc-ajouter";
+pub const PC_RETIRER: &str = "pc-retirer";
+const GESTES: [&str; 14] = [
     IMPORTER,
     CV_OUVRIR,
     CV_ENREGISTRER,
@@ -54,6 +67,8 @@ const GESTES: [&str; 12] = [
     CLE_GARDER,
     CLE_EFFACER,
     COPIE,
+    PC_AJOUTER,
+    PC_RETIRER,
 ];
 
 /// Un geste du profil.
@@ -131,6 +146,9 @@ pub struct Profil {
     pub import: Option<EnCours>,
     /// Le numéro du prochain import
     jetons: u64,
+    /// 0.2.0 : la fiche lue dans le CV principal, avant les corrections, et l'empreinte du texte dont elle vient
+    /// (jobmind_core::parcours::empreinte) : refaite seulement quand le texte change
+    fiche: Option<(u64, Parcours)>,
 }
 
 impl Profil {
@@ -168,7 +186,21 @@ impl Profil {
                 v.recherche = recherche;
                 v.criteres = profil::lire_criteres(c).unwrap_or_default();
                 v.regles = crate::style::vue(Some(b));
-                (v, None)
+                // (0.2.0 : la fiche du CV principal, corrigée par la personne ; des corrections illisibles : la
+                // fiche telle que lue, et une ligne au journal)
+                let principal = v.cvs.iter().find(|x| x.principal).map(|x| x.texte.clone());
+                let mut raison = None;
+                v.parcours = principal.map(|texte| {
+                    let lue = self.fiche_lue(&texte);
+                    match base_parcours::lire(c) {
+                        Ok(corrections) => lue.corrige(&corrections),
+                        Err(e) => {
+                            raison = Some(format!("Profil : corrections du parcours illisibles ({e})"));
+                            lue
+                        }
+                    }
+                });
+                (v, raison)
             }
             Err(e) => (v, Some(format!("Profil : base illisible ({e})"))),
         }
@@ -206,9 +238,76 @@ impl Profil {
                 Ok(Fait { change: true, ..Fait::default() })
             }
             STYLE_SUPPRIMER => self.style_supprimer(base, valeur),
+            PC_AJOUTER => self.parcours_ajouter(base, valeur, maintenant),
+            PC_RETIRER => self.parcours_retirer(base, valeur, maintenant),
             _ => Ok(Fait::default()),
         };
         r.unwrap_or_else(|e| Fait::refus(PAS_ENREGISTRE, format!("Profil : {id} non enregistré ({e})")))
+    }
+
+    /// 0.2.0 : la fiche lue dans ce texte de CV, avant les corrections (refaite seulement si le texte a changé).
+    fn fiche_lue(&mut self, texte: &str) -> Parcours {
+        let empreinte = regles_parcours::empreinte(texte);
+        match &self.fiche {
+            Some((e, p)) if *e == empreinte => p.clone(),
+            _ => {
+                let p = regles_parcours::lire(texte);
+                self.fiche = Some((empreinte, p.clone()));
+                p
+            }
+        }
+    }
+
+    /// 0.2.0 : la fiche lue dans le CV principal, avant les corrections (rien : aucun CV).
+    fn fiche_du_principal(&mut self, base: &Base) -> rusqlite::Result<Option<Parcours>> {
+        let principal = profil::lister_cv(base.connexion())?.into_iter().find(|x| x.principal);
+        Ok(principal.map(|cv| self.fiche_lue(&cv.texte)))
+    }
+
+    /// 0.2.0 : une ligne ajoutée à la fiche : vérifiée, puis gardée. Le journal dit la liste, jamais la ligne.
+    fn parcours_ajouter(&mut self, base: &Base, v: &Value, maintenant: Moment) -> rusqlite::Result<Fait> {
+        let Some(liste) = Liste::depuis_code(&texte(v, "liste")) else { return Ok(Fait::default()) };
+        if self.fiche_du_principal(base)?.is_none() {
+            return Ok(message("Ajoute d'abord ton CV : Jobmind y lira ton parcours."));
+        }
+        let t = match regles_parcours::verifier_ajout(liste, &texte(v, "texte")) {
+            Ok(t) => t,
+            Err(r) => return Ok(message(r)),
+        };
+        let c = base.connexion();
+        if base_parcours::nombre_ajouts(c, liste)? >= regles_parcours::AJOUTS_MAX {
+            return Ok(message("Cette liste est pleine : retire une ligne pour en ajouter une autre."));
+        }
+        let x = Correction { liste, ajout: true, cle: regles_parcours::cle_ligne(liste, &t), texte: t };
+        base_parcours::garder(c, &x, maintenant)?;
+        Ok(Fait {
+            ordre: Some(json!({ "kit": "accueil", "parcours": liste.code() })),
+            journal: Some(format!("Profil : parcours, une ligne ajoutée ({})", liste.code())),
+            change: true,
+            ..Fait::default()
+        })
+    }
+
+    /// 0.2.0 : une ligne retirée de la fiche. Une ligne lue dans le CV : le retrait est gardé (elle ne reviendra pas
+    /// à la prochaine lecture) ; une ligne ajoutée à la main : elle est effacée, il n'en reste rien.
+    fn parcours_retirer(&mut self, base: &Base, v: &Value, maintenant: Moment) -> rusqlite::Result<Fait> {
+        let Some(liste) = Liste::depuis_code(&texte(v, "liste")) else { return Ok(Fait::default()) };
+        let cle = texte(v, "cle");
+        if cle.is_empty() || cle.chars().count() > 200 {
+            return Ok(Fait::default());
+        }
+        let c = base.connexion();
+        let lue = self.fiche_du_principal(base)?.is_some_and(|p| p.cles(liste).contains(&cle));
+        if lue {
+            base_parcours::garder(c, &Correction { liste, ajout: false, cle, texte: String::new() }, maintenant)?;
+        } else if !base_parcours::effacer(c, liste, &cle)? {
+            return Ok(Fait { change: true, ..Fait::default() });
+        }
+        Ok(Fait {
+            journal: Some(format!("Profil : parcours, une ligne retirée ({})", liste.code())),
+            change: true,
+            ..Fait::default()
+        })
     }
 
     fn importer(&mut self, base: &Base) -> rusqlite::Result<Fait> {
@@ -795,6 +894,131 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    /// 0.2.0 : « Ce que Jobmind a compris de ton CV » : la fiche du CV principal, les lignes retirées et ajoutées
+    /// gardées dans la base (elles survivent à la fermeture), la fiche refaite quand le CV change, plusieurs CV (le
+    /// principal sert), plus aucun CV (plus de fiche). Le journal ne reçoit jamais une ligne de la fiche.
+    #[test]
+    fn parcours_lu_corrige_et_garde() {
+        use jobmind_core::parcours::Liste;
+        let d = essai("profil-parcours");
+        let (b, _) = Base::en_memoire(m(9)).unwrap();
+        let mut p = Profil::default();
+        let mut ctx = Contexte { base: Some(&b), dossier: &d, cles: None };
+        // Sans CV : pas de fiche, et rien ne s'ajoute
+        assert_eq!(p.vue(Some(&b), None).0.parcours, None);
+        let f = p.geste(&mut ctx, PC_AJOUTER, &json!({ "liste": "permis", "texte": "Permis B" }), m(9));
+        assert_eq!(f.message.as_deref(), Some("Ajoute d'abord ton CV : Jobmind y lira ton parcours."));
+        // Un CV collé : sa fiche
+        let cv = "Lucien Tartempion\nEXPERIENCES\n2019 - 2022 : Cariste chez Logi-Fiction\n2015 : Manutentionnaire en intérim\n\
+                  FORMATION\nCAP Agent d'entreposage\nPermis B, CACES 3";
+        p.geste(&mut ctx, CV_ENREGISTRER, &json!({ "nom": "CV logistique", "texte": cv }), m(9));
+        let noms = |v: &VueProfil| -> Vec<String> {
+            v.parcours.as_ref().unwrap().metiers.iter().map(|x| x.nom.clone()).collect()
+        };
+        let (v, _) = p.vue(Some(&b), None);
+        assert_eq!(noms(&v), ["Cariste", "Manutentionnaire"]);
+        assert_eq!(v.parcours.as_ref().unwrap().permis, ["Permis B", "CACES 3"]);
+        // Une ligne retirée, des lignes ajoutées ; le journal dit la liste, jamais la ligne
+        let f = p.geste(&mut ctx, PC_RETIRER, &json!({ "liste": "metiers", "cle": "manutentionnaire" }), m(10));
+        assert_eq!(f.journal.as_deref(), Some("Profil : parcours, une ligne retirée (metiers)"));
+        assert!(f.change && f.message.is_none());
+        let f = p.geste(&mut ctx, PC_AJOUTER, &json!({ "liste": "metiers", "texte": "magasinier, 2 ans" }), m(10));
+        assert_eq!(f.journal.as_deref(), Some("Profil : parcours, une ligne ajoutée (metiers)"));
+        assert_eq!(f.ordre, Some(json!({ "kit": "accueil", "parcours": "metiers" })));
+        p.geste(&mut ctx, PC_AJOUTER, &json!({ "liste": "permis", "texte": "ce" }), m(10));
+        p.geste(&mut ctx, PC_AJOUTER, &json!({ "liste": "savoirs", "texte": "Inventaire" }), m(10));
+        p.geste(&mut ctx, PC_AJOUTER, &json!({ "liste": "diplomes", "texte": "Bac pro Logistique" }), m(10));
+        let (v, _) = p.vue(Some(&b), None);
+        let fiche = v.parcours.clone().unwrap();
+        assert_eq!(noms(&v), ["Cariste", "Magasinier"]);
+        assert_eq!(fiche.metiers[1].mois, Some(24));
+        assert_eq!(fiche.permis, ["Permis B", "CACES 3", "Permis CE"]);
+        assert_eq!(fiche.competences, ["Inventaire"]);
+        assert_eq!(fiche.diplomes, ["CAP Agent d'entreposage", "Bac pro Logistique"]);
+        // Des saisies refusées : une phrase simple, rien de gardé
+        for (liste, texte) in [("metiers", " "), ("savoirs", "x"), ("permis", ""), ("diplomes", &"a".repeat(80))] {
+            let f = p.geste(&mut ctx, PC_AJOUTER, &json!({ "liste": liste, "texte": texte }), m(10));
+            assert!(f.message.is_some() && f.ordre.is_none() && !f.change, "{liste} {texte:?} : {f:?}");
+        }
+        for v in [json!({ "liste": "autre", "texte": "Cariste" }), json!(null), json!({ "liste": "permis" })] {
+            assert!(p.geste(&mut ctx, PC_AJOUTER, &v, m(10)).ordre.is_none());
+            assert!(p.geste(&mut ctx, PC_RETIRER, &v, m(10)).journal.is_none());
+        }
+        assert_eq!(p.vue(Some(&b), None).0.parcours, Some(fiche.clone()));
+        // L'appli fermée puis rouverte (un profil neuf sur la même base) : la même fiche corrigée
+        let mut p = Profil::default();
+        assert_eq!(p.vue(Some(&b), None).0.parcours, Some(fiche.clone()));
+        // Le texte du CV corrigé : la fiche est refaite, les corrections tiennent (la ligne retirée ne revient pas,
+        // les lignes ajoutées restent), ce qui est nouveau dans le CV arrive
+        let cv2 = cv.replace("\nFORMATION", "\n2022 - 2024 : Agent de quai chez Trans-Fiction\nFORMATION");
+        p.geste(&mut ctx, CV_ENREGISTRER, &json!({ "id": 1, "nom": "CV logistique", "texte": cv2 }), m(11));
+        let (v, _) = p.vue(Some(&b), None);
+        assert_eq!(noms(&v), ["Cariste", "Agent de quai", "Magasinier"]);
+        assert_eq!(v.parcours.as_ref().unwrap().permis, ["Permis B", "CACES 3", "Permis CE"]);
+        // Une ligne ajoutée à la main puis retirée : il n'en reste rien ; une ligne retirée puis ajoutée : elle revient
+        p.geste(&mut ctx, PC_RETIRER, &json!({ "liste": "permis", "cle": "permis ce" }), m(11));
+        p.geste(&mut ctx, PC_AJOUTER, &json!({ "liste": "metiers", "texte": "Manutentionnaire" }), m(11));
+        let (v, _) = p.vue(Some(&b), None);
+        assert_eq!(v.parcours.as_ref().unwrap().permis, ["Permis B", "CACES 3"]);
+        assert_eq!(noms(&v), ["Cariste", "Manutentionnaire", "Agent de quai", "Magasinier"]);
+        assert_eq!(base_parcours::nombre_ajouts(b.connexion(), Liste::Permis).unwrap(), 0);
+        // Plusieurs CV : c'est le principal qui sert ; les lignes ajoutées suivent la personne
+        p.geste(
+            &mut ctx,
+            CV_ENREGISTRER,
+            &json!({ "nom": "CV vente", "texte": "Lucien Tartempion\nExpérience\n2010 - 2014 : Vendeur en boulangerie\nPermis B" }),
+            m(12),
+        );
+        assert_eq!(noms(&p.vue(Some(&b), None).0), ["Cariste", "Manutentionnaire", "Agent de quai", "Magasinier"]);
+        p.geste(&mut ctx, CV_PRINCIPAL, &json!({ "id": 2 }), m(12));
+        let (v, _) = p.vue(Some(&b), None);
+        assert_eq!(noms(&v), ["Vendeur en boulangerie", "Manutentionnaire", "Magasinier"]);
+        assert_eq!(v.parcours.as_ref().unwrap().permis, ["Permis B"]);
+        // Ce que la page reçoit : le bloc, ses quatre listes, la durée en mots, la clé de chaque ligne
+        let r = crate::vue_profil::rubriques(&v, m(12).jour());
+        let bloc = &r[0]["dossier"]["parcours"];
+        assert_eq!(bloc["titre"], "Ce que Jobmind a compris de ton CV");
+        assert_eq!(bloc["note"], "D'après ton CV principal, « CV vente ».");
+        let ids: Vec<&str> = bloc["listes"].as_array().unwrap().iter().map(|l| l["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["metiers", "savoirs", "diplomes", "permis"]);
+        assert_eq!(
+            bloc["listes"][0]["lignes"][0],
+            json!({ "cle": "vendeur boulangerie", "nom": "Vendeur en boulangerie", "sous": "4 ans" })
+        );
+        // Le principal supprimé : l'autre CV redevient principal, sa fiche revient avec les corrections
+        p.geste(&mut ctx, CV_SUPPRIMER, &json!({ "id": 2 }), m(13));
+        assert_eq!(noms(&p.vue(Some(&b), None).0), ["Cariste", "Manutentionnaire", "Agent de quai", "Magasinier"]);
+        // Plus aucun CV : plus de fiche (les corrections restent dans la base pour le prochain CV)
+        p.geste(&mut ctx, CV_SUPPRIMER, &json!({ "id": 1 }), m(13));
+        let (v, _) = p.vue(Some(&b), None);
+        assert_eq!(v.parcours, None);
+        assert_eq!(crate::vue_profil::rubriques(&v, m(13).jour())[0]["dossier"]["parcours"], Value::Null);
+        p.geste(
+            &mut ctx,
+            CV_ENREGISTRER,
+            &json!({ "nom": "Nouveau CV", "texte": "Lucien Tartempion, cariste depuis 2024" }),
+            m(14),
+        );
+        assert_eq!(noms(&p.vue(Some(&b), None).0), ["Cariste", "Manutentionnaire", "Magasinier"]);
+        // Un CV sans texte (un PDF scanné) ou presque vide : une fiche vide, que la personne remplit à la main
+        let dernier = p.vue(Some(&b), None).0.cvs[0].id;
+        p.geste(&mut ctx, CV_SUPPRIMER, &json!({ "id": dernier }), m(15));
+        b.connexion().execute("DELETE FROM parcours_corrections", []).unwrap();
+        p.geste(
+            &mut ctx,
+            CV_ENREGISTRER,
+            &json!({ "nom": "CV court", "texte": "Lucien Tartempion, 06 00 00 00 00, bonjour" }),
+            m(15),
+        );
+        let (v, _) = p.vue(Some(&b), None);
+        assert!(v.parcours.as_ref().unwrap().vide());
+        let bloc = &crate::vue_profil::rubriques(&v, m(15).jour())[0]["dossier"]["parcours"];
+        assert!(bloc["vide"].as_str().unwrap().starts_with("Jobmind n'a rien réussi à lire dans ton CV."));
+        p.geste(&mut ctx, PC_AJOUTER, &json!({ "liste": "metiers", "texte": "Cariste" }), m(15));
+        assert!(p.vue(Some(&b), None).0.parcours.unwrap().utilisable());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     /// Contre-épreuve : des gestes mal formés ne changent rien et ne plantent pas.
     #[test]
     fn gestes_mal_formes() {
@@ -822,6 +1046,7 @@ mod tests {
         }
         assert_eq!(profil::nombre_cv(b.connexion()).unwrap(), 0);
         assert!(est_geste(IMPORTER) && est_geste(COPIE) && !est_geste("c-ouvrir"));
+        assert!(est_geste(PC_AJOUTER) && est_geste(PC_RETIRER));
         // Sans base : la phrase de la suite
         let mut ctx = Contexte { base: None, dossier: &d, cles: None };
         assert_eq!(p.geste(&mut ctx, IMPORTER, &Value::Null, m(9)).message.as_deref(), Some(crate::suivi::SANS_BASE));

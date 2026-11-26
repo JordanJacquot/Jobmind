@@ -15,9 +15,9 @@ use super::*;
 const METZ: (f64, f64) = (49.1193, 6.1757);
 
 /// Une offre écrite à la main : (poste, entreprise, lieu, contrat dit par le site, jour de publication, texte).
-type Ecrite<'a> = (&'a str, &'a str, &'a str, &'a str, &'a str, &'a str);
+pub(super) type Ecrite<'a> = (&'a str, &'a str, &'a str, &'a str, &'a str, &'a str);
 
-fn page(o: &Ecrite, point: Option<(f64, f64)>) -> PageLue {
+pub(super) fn page(o: &Ecrite, point: Option<(f64, f64)>) -> PageLue {
     PageLue {
         site: Site::FranceTravail,
         offre: OffreTrouvee {
@@ -38,7 +38,7 @@ fn page(o: &Ecrite, point: Option<(f64, f64)>) -> PageLue {
 }
 
 /// Une liste de France Travail écrite à la main (autour de Metz), dont chaque offre est analysée et a sa page lue.
-fn liste_de_pages(offres: &[(Ecrite, Option<(f64, f64)>)]) -> Coulisse {
+pub(super) fn liste_de_pages(offres: &[(Ecrite, Option<(f64, f64)>)]) -> Coulisse {
     let mut c = liste_a_la_main(offres.len());
     for (i, (o, point)) in offres.iter().enumerate() {
         let u = url(&c, i);
@@ -59,7 +59,7 @@ fn etiquettes(carte: &Value, genre: &str) -> Vec<String> {
 }
 
 /// La carte de l'offre de rang `i`.
-fn carte(c: &Coulisse, i: usize) -> Value {
+pub(super) fn carte(c: &Coulisse, i: usize) -> Value {
     lignes(c).into_iter().find(|l| l["i"] == i).unwrap_or_else(|| panic!("pas de carte pour l'offre {i}"))
 }
 

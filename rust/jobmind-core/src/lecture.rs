@@ -1768,6 +1768,13 @@ pub fn diplome_le_plus_haut(t: &str) -> Option<Diplome> {
         .max()
 }
 
+/// 0.2.0 : les permis et les CACES cités dans un texte (« Permis B », « CACES 1, 3, 5 »), par la même règle que pour
+/// une offre : sert à lire ceux d'un CV (crate::parcours).
+pub fn permis_et_caces(t: &str) -> Vec<String> {
+    let ps: Vec<Phrase> = phrases(t).into_iter().map(decouper).filter(|p| !p.mots.is_empty()).collect();
+    autres(&ps)
+}
+
 /// Une citation se trouve vraiment dans le texte : mot pour mot (sans tenir compte des accents, des majuscules, de la
 /// ponctuation ni des espaces), et au moins deux mots. Sert à vérifier ce que rend Claude (rien d'inventé).
 pub fn citation_presente(texte: &str, citation: &str) -> bool {

@@ -49,6 +49,13 @@
 //! ([`Coulisse::choix`]), les filtres et le tri repartent de zéro à chaque nouvelle recherche. Tout passe par
 //! `Coulisse::montrees` : les pages de cartes, « Offre précédente » et « Offre suivante », le chiffre de l'onglet.
 //!
+//! 0.2.0, « proche de ton parcours » (demande de Jordan du 25/11/2026) : le programme pose ici la fiche du CV
+//! principal, corrigée par la personne ([`Coulisse::poser_parcours`], jobmind_core::parcours) ; chaque offre analysée
+//! lui est comparée une fois ([`FicheSite::proche`]). Sa carte porte un bandeau en mots (très proche, proche, un peu
+//! proche ; rien quand elle est loin), l'offre ouverte dit pourquoi en une phrase, et les cartes se trient « Les plus
+//! proches de ton parcours d'abord ». Sans CV, ou avec une fiche qui ne dit rien : aucun bandeau, pas ce tri, et une
+//! ligne au-dessus des cartes qui invite à ajouter son CV. La distance n'entre jamais dans cette comparaison.
+//!
 //! Ce module ne fait que décider (testable sans fenêtre) : chaque geste donne des [`Ordre`] que le programme exécute
 //! sur la vue des sites (src\programme.rs), et ce que la vue rapporte (une page chargée, une page lue) revient ici.
 
@@ -57,6 +64,7 @@ use std::time::{Duration, Instant};
 
 use jobmind_core::Jour;
 use jobmind_core::lecture::{self, Confiance, LectureOffre};
+use jobmind_core::parcours::{self, Parcours, Proximite, Rapprochement};
 use jobmind_core::recherche::{Contrat, Lieu};
 use jobmind_sources::page::{PageLue, Site};
 use jobmind_sources::sites::{self, Comprise, Ecran, LieuSite, Resultat};
@@ -531,13 +539,16 @@ pub struct FicheSite {
     pub ajoutee: Option<i64>,
     /// 0.2.0 : ce que Jobmind en retient pour les doublons, les filtres et le tri (calculé une fois, ici)
     pub faits: choix::Faits,
+    /// 0.2.0 : l'offre comparée au parcours de la personne (rien : pas encore comparée, ou pas de fiche pour
+    /// comparer) ; posé par [`Coulisse::poser_parcours`]
+    pub proche: Option<Rapprochement>,
 }
 
 impl FicheSite {
     /// La fiche d'une offre qui vient d'être lue (ou retrouvée dans la base), pas encore gardée.
     pub fn nouvelle(site: Site, url: String, lue: PageLue) -> FicheSite {
         let faits = choix::Faits::de(&lue.offre);
-        FicheSite { site, url, lue, ajoutee: None, faits }
+        FicheSite { site, url, lue, ajoutee: None, faits, proche: None }
     }
 }
 
@@ -621,6 +632,12 @@ pub struct Coulisse {
     pub choix: choix::Choix,
     /// 0.2.0 : le ménage des analyses de plus de 30 jours est fait (une fois par lancement, à la première liste lue)
     menage_fait: bool,
+    /// 0.2.0 : la fiche du CV principal, corrigée par la personne (rien : aucun CV) ; posée par le programme avant
+    /// chaque dessin ([`Coulisse::poser_parcours`]), jamais lue dans la base d'ici
+    pub parcours: Option<Parcours>,
+    /// 0.2.0 : le jour où les offres ont été comparées à cette fiche (un poste en cours compte ses mois jusqu'à ce
+    /// jour : un autre jour, tout est comparé de nouveau)
+    compare_le: Option<Jour>,
 }
 
 /// Une ligne de journal, avec une seconde à sa suite s'il y en a une.
@@ -961,6 +978,33 @@ impl Coulisse {
             Err(e) => notes.push(format!("analyses gardées non relues ({e})")),
         }
         (!notes.is_empty()).then(|| notes.join(" ; "))
+    }
+
+    /// 0.2.0 : pose la fiche du CV principal (rien : aucun CV) et compare les offres analysées à cette fiche. Une
+    /// offre déjà comparée ne l'est pas de nouveau, sauf si la fiche ou le jour ont changé. Sans fiche qui dise de
+    /// quoi comparer, aucune offre n'est comparée et le tri par parcours retombe sur l'ordre du site.
+    pub fn poser_parcours(&mut self, fiche: Option<&Parcours>, aujourdhui: Jour) {
+        if self.parcours.as_ref() != fiche || self.compare_le != Some(aujourdhui) {
+            self.parcours = fiche.cloned();
+            self.compare_le = Some(aujourdhui);
+            self.offres_lues.iter_mut().chain(self.fiche.as_mut()).for_each(|f| f.proche = None);
+        }
+        let Some(p) = self.parcours.as_ref().filter(|p| p.utilisable()) else {
+            if self.choix.tri == choix::TriSite::Parcours {
+                self.choix.tri = choix::TriSite::Site;
+            }
+            return;
+        };
+        for f in self.offres_lues.iter_mut().chain(self.fiche.as_mut()).filter(|f| f.proche.is_none()) {
+            let o = &f.lue.offre;
+            let lu = lecture::lire(&o.titre, &o.description);
+            f.proche = Some(parcours::comparer(p, &o.titre, &o.description, &lu, aujourdhui));
+        }
+    }
+
+    /// 0.2.0 : la fiche de la personne dit de quoi comparer les offres.
+    fn parcours_pret(&self) -> bool {
+        self.parcours.as_ref().is_some_and(Parcours::utilisable)
     }
 
     /// Ce que les règles ont lu dans cette offre (rien : pas encore lue).
@@ -1434,6 +1478,8 @@ impl Coulisse {
                 _ => return Fait::default(),
             },
             TRI => match choix::TriSite::depuis_code(&texte_de(v, "tri")) {
+                // (0.2.0 : « Les plus proches de ton parcours d'abord » seulement avec une fiche pour comparer)
+                Some(choix::TriSite::Parcours) if !self.parcours_pret() => return Fait::default(),
                 Some(t) if t != choix::TriSite::Pres || ville => self.choix.tri = t,
                 _ => return Fait::default(),
             },
@@ -1601,6 +1647,8 @@ impl Coulisse {
                 };
                 let faits = lu.and_then(|_| fiches.get(r.url.as_str())).map(|f| &f.faits);
                 let distance = l.depart.as_ref().zip(faits).and_then(|(d, f)| d.distance(&f.lieu));
+                // (0.2.0 : son rang de proximité avec le parcours, pour le tri)
+                let rang = lu.and_then(|_| fiches.get(r.url.as_str())).and_then(|f| f.proche.as_ref()).map(|p| p.rang);
                 choix::Ligne::nouvelle(
                     self.est_retiree(&r.url),
                     l.ouvert == Some(i),
@@ -1609,6 +1657,7 @@ impl Coulisse {
                     faits,
                     distance,
                 )
+                .avec_parcours(rang)
             })
             .collect();
         choix::grouper(&mut lignes);
@@ -1755,6 +1804,7 @@ impl Coulisse {
         let tris: Vec<Value> = choix::TriSite::TOUS
             .iter()
             .filter(|t| **t != choix::TriSite::Pres || l.depart.is_some())
+            .filter(|t| **t != choix::TriSite::Parcours || self.parcours_pret())
             .map(|t| json!({ "v": t.code(), "nom": t.nom() }))
             .collect();
         json!({
@@ -1774,6 +1824,13 @@ impl Coulisse {
         let page = (l.carte_page.max(1) as usize).min(pages);
         let debut = (page - 1) * CARTES_PAR_PAGE;
         let s = |k: usize| if k > 1 { "s" } else { "" };
+        // (0.2.0 : la proximité de chaque offre avec le parcours, par son adresse)
+        let proches: HashMap<&str, &Rapprochement> = self
+            .offres_lues
+            .iter()
+            .filter(|f| f.site == l.site)
+            .filter_map(|f| f.proche.as_ref().map(|p| (f.url.as_str(), p)))
+            .collect();
         let lignes: Vec<Value> = m
             .iter()
             .skip(debut)
@@ -1808,7 +1865,13 @@ impl Coulisse {
                     .filter(|x| !x.is_empty())
                     .collect::<Vec<_>>()
                     .join(" · ");
-                json!({
+                // (0.2.0 : le bandeau « proche de ton parcours » : seulement en mots, rien quand l'offre est loin,
+                // jamais sur une offre retirée ou pas analysée)
+                let proche = lu
+                    .and_then(|_| proches.get(r.url.as_str()))
+                    .filter(|p| p.niveau != Proximite::Loin && !x.retiree)
+                    .map(|p| json!({ "niveau": p.niveau.code(), "nom": p.niveau.nom() }));
+                let mut carte = json!({
                     "i": i,
                     "titre": r.titre,
                     "sous": r.entreprise,
@@ -1821,7 +1884,12 @@ impl Coulisse {
                     // (0.2.0 : « Déjà vue » : Jordan a ouvert cette offre lui-même, aujourd'hui ou un jour d'avant ;
                     // ou une annonce identique : « Déjà vue » se partage entre doublons)
                     "vue": x.vue_groupe,
-                })
+                });
+                // (le champ n'existe que sur une carte qui a son bandeau : l'état reste léger)
+                if let Some(p) = proche {
+                    carte["proche"] = p;
+                }
+                carte
             })
             .collect();
         // (les offres analysées, retirées à part)
@@ -1912,6 +1980,18 @@ impl Coulisse {
         v["suivante"] = json!(page < pages);
         // (0.2.0 : la colonne de gauche : « Cacher les doublons », les filtres avec leurs nombres, et le tri)
         v["filtres"] = self.filtres_vue(l, &lg, &regles);
+        // (0.2.0 : sans CV, ou avec une fiche qui ne dit rien : la ligne qui invite à l'ajouter, au-dessus des cartes)
+        v["parcours"] = match &self.parcours {
+            Some(p) if p.utilisable() => Value::Null,
+            Some(_) => json!({
+                "invite": "Jobmind n'a pas réussi à lire ton parcours dans ton CV. Complète-le dans Mon profil pour voir les offres qui te ressemblent.",
+                "bouton": "Ouvrir Mon profil",
+            }),
+            None => json!({
+                "invite": "Ajoute ton CV dans Mon profil pour voir les offres qui te ressemblent.",
+                "bouton": "Ouvrir Mon profil",
+            }),
+        };
     }
 
     /// 0.1.13 : « Lire toutes les offres » : les pages déjà vues sont mises bout à bout dans une seule liste (dans
@@ -3505,6 +3585,12 @@ fn fiche_vue(f: &FicheSite, aujourdhui: jobmind_core::Jour, annuaire: Option<&cr
         "bref": bref,
         "rangee": rangee,
         "ajoutee": f.ajoutee,
+        // (0.2.0 : « proche de ton parcours », et pourquoi en une phrase ; rien quand l'offre est loin ou pas comparée)
+        "proche": f.proche.as_ref().filter(|p| p.niveau != Proximite::Loin).map(|p| json!({
+            "niveau": p.niveau.code(),
+            "nom": p.niveau.nom(),
+            "raison": p.raison,
+        })),
         // (étape 6 : le diplôme et l'expérience lus par les règles, avec leur preuve)
         "lecture": lecture_vue(&lecture::lire(&o.titre, &o.description)),
     })
