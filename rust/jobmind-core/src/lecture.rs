@@ -20,8 +20,10 @@ use crate::offre::normaliser;
 
 /// La version des règles : une offre lue par une version plus ancienne est relue (la base le note).
 /// (2 : la rubrique « Profil souhaité » des offres France Travail, 20/11/2026 ; 3 : un âge n'est plus une durée
-/// d'expérience, les lettres et les listes de permis, 26/11/2026)
-pub const VERSION_REGLES: i64 = 3;
+/// d'expérience, les lettres et les listes de permis, 26/11/2026 ; 4 : les avantages, l'expérience de l'entreprise, le
+/// fourgon « Master », les négations de « débutant accepté » et les durées seulement souhaitées ne trompent plus,
+/// 26/11/2026)
+pub const VERSION_REGLES: i64 = 4;
 
 /// Le diplôme demandé.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -332,6 +334,43 @@ impl Phrase<'_> {
         a >= 0 && (de..=a as usize).any(|i| mots.contains(&self.mots[i].as_str()))
     }
 
+    /// Ce qui est écrit entre le mot `x` et le suivant, tel quel (« , », « + », « : »).
+    fn joint(&self, x: usize) -> &str {
+        match (self.places.get(x), self.places.get(x + 1)) {
+            (Some(a), Some(b)) => &self.brut[a.1..b.0],
+            _ => "",
+        }
+    }
+
+    /// Rien que des espaces entre le mot `x` et le suivant.
+    fn colle(&self, x: usize) -> bool {
+        self.joint(x).chars().all(char::is_whitespace)
+    }
+
+    /// Le mot `x`, tel qu'écrit dans l'offre.
+    fn ecrit(&self, x: usize) -> &str {
+        self.places.get(x).map_or("", |(d, f)| &self.brut[*d..*f])
+    }
+
+    /// Le morceau de phrase où se trouve le mot `i` (entre deux virgules, deux parenthèses ou deux tirets isolés) :
+    /// son premier et son dernier mot.
+    fn morceau(&self, i: usize) -> (usize, usize) {
+        let coupe = |x: usize| {
+            let s = self.joint(x);
+            let seul = s.trim();
+            s.contains([',', '(', ')']) || (matches!(seul, "-" | "\u{2013}" | "\u{2014}") && seul.len() < s.len())
+        };
+        let n = self.mots.len();
+        let (mut a, mut b) = (i.min(n.saturating_sub(1)), i.min(n.saturating_sub(1)));
+        while a > 0 && !coupe(a - 1) {
+            a -= 1;
+        }
+        while b + 1 < n && !coupe(b) {
+            b += 1;
+        }
+        (a, b)
+    }
+
     /// Le bout de phrase autour des mots `i` à `j`, tel qu'écrit dans l'offre (8 mots de chaque côté au plus).
     fn preuve(&self, i: usize, j: usize) -> String {
         if self.places.is_empty() {
@@ -585,6 +624,129 @@ fn niveau_bac(n: u32) -> Diplome {
     }
 }
 
+/// Le chiffre d'un « Bac+2 » écrit en deux mots (« Bac+2 », « Bac + 2 », « bac 2 ») : entre « bac » et le chiffre, rien
+/// qu'un « + » ou des espaces (pas « Bac, 3 ans d'expérience »), et pas une durée d'expérience (« Bac + 2 ans
+/// d'expérience » : le bac, et deux ans).
+fn chiffre_du_bac(p: &Phrase, i: usize) -> Option<u32> {
+    if p.mot(i) != "bac" {
+        return None;
+    }
+    let n = chiffre(p.mot(i + 1))?;
+    let colle = p.joint(i).chars().all(|c| c.is_whitespace() || c == '+');
+    let duree = UNITES.contains(&p.mot(i + 2))
+        && (MOTS_EXPERIENCE.contains(&p.mot(i + 3))
+            || (["d", "de"].contains(&p.mot(i + 3)) && MOTS_EXPERIENCE.contains(&p.mot(i + 4))));
+    (colle && !duree).then_some(n)
+}
+
+/// Les mots qui disent qu'un « Master » est un fourgon, à coup sûr.
+const VEHICULES: [&str; 22] = [
+    "renault",
+    "fourgon",
+    "fourgons",
+    "fourgonnette",
+    "camion",
+    "camions",
+    "camionnette",
+    "camionnettes",
+    "utilitaire",
+    "utilitaires",
+    "vehicule",
+    "vehicules",
+    "vul",
+    "trafic",
+    "kangoo",
+    "iveco",
+    "jumper",
+    "boxer",
+    "sprinter",
+    "ducato",
+    "crafter",
+    "volant",
+];
+
+/// Les mots qui le laissent penser (sauf si la phrase parle de diplôme).
+const VEHICULES_PEUT_ETRE: [&str; 11] = [
+    "livraison",
+    "livraisons",
+    "livreur",
+    "livreuse",
+    "chauffeur",
+    "chauffeuse",
+    "conduite",
+    "conduire",
+    "conduisez",
+    "tournee",
+    "tournees",
+];
+
+/// Ce qui suit « master » quand ce n'est pas le diplôme (« master data », « master class », un fourgon « Master L2H2 »).
+const MASTER_AUTRE_CHOSE: [&str; 20] = [
+    "data",
+    "class",
+    "classe",
+    "classes",
+    "planner",
+    "scheduler",
+    "franchise",
+    "franchisee",
+    "black",
+    "plan",
+    "batch",
+    "l1h1",
+    "l2h2",
+    "l3h2",
+    "l3h3",
+    "benne",
+    "frigo",
+    "frigorifique",
+    "dci",
+    "chef",
+];
+
+/// Le mot « master » de place `i` est le diplôme : sûr (la phrase parle de diplôme, « Master 2 », « un master en... »)
+/// ou seulement probable ; rien : un fourgon (« Renault Master »), un « scrum master », une « master class ».
+fn master(p: &Phrase, i: usize, contexte: bool) -> Option<bool> {
+    let (suiv, prec) = (p.mot(i + 1), if i > 0 { p.mot(i - 1) } else { "" });
+    if ["scrum", "web", "quiz", "grand", "dock", "brew"].contains(&prec) || MASTER_AUTRE_CHOSE.contains(&suiv) {
+        return None;
+    }
+    // (« Master 20 m3 », « Master 3T5 » : un fourgon ; « Master 1 », « Master 2 » : le diplôme)
+    let annee = matches!(chiffre(suiv), Some(1 | 2));
+    if suiv.starts_with(|c: char| c.is_ascii_digit()) && !annee {
+        return None;
+    }
+    let avant = |mots: &[&str]| p.entre(i as isize - 5, i as isize - 1, mots);
+    if avant(&VEHICULES) || p.a(&["renault"]) {
+        return None;
+    }
+    let diplome = contexte
+        || annee
+        || [
+            "en",
+            "ou",
+            "pro",
+            "professionnel",
+            "specialise",
+            "specialisee",
+            "mention",
+            "meef",
+            "recherche",
+            "universitaire",
+            "of",
+            "degree",
+            "d",
+            "de",
+        ]
+        .contains(&suiv)
+        || ["un", "du", "niveau", "ou", "bac", "titulaire", "le", "son", "votre"].contains(&prec)
+        || p.a(&["bac", "ingenieur", "ingenieurs", "ecole", "universite", "licence", "doctorat", "bac5"]);
+    if avant(&VEHICULES_PEUT_ETRE) && !(contexte || annee) {
+        return None;
+    }
+    Some(diplome)
+}
+
 /// Un niveau trouvé : le diplôme, ses mots (de `i` à `j`), sûr (un mot qui ne peut être que ça), nié (« bac non
 /// exigé ») ou seulement souhaité.
 struct Niveau {
@@ -610,8 +772,11 @@ fn niveaux_avec(p: &Phrase, force: bool) -> Vec<Niveau> {
         let (suiv, prec) = (p.mot(i + 1), if i > 0 { p.mot(i - 1) } else { "" });
         let trouve: Option<(Diplome, usize, bool)> = match w {
             "bac" => {
-                if let Some(n) = chiffre(suiv) {
+                if let Some(n) = chiffre_du_bac(p, i) {
                     Some((niveau_bac(n), i + 1, true))
+                } else if chiffre(suiv).is_some() {
+                    // (« Niveau Bac, 3 ans d'expérience » : le bac, puis une durée)
+                    contexte.then_some((Diplome::Bac, i, false))
                 } else if [
                     "pro",
                     "professionnel",
@@ -653,7 +818,7 @@ fn niveaux_avec(p: &Phrase, force: bool) -> Vec<Niveau> {
                     contexte.then_some((Diplome::Bac3, i, false))
                 }
             }
-            "master" | "mastere" if prec != "scrum" => Some((Diplome::Bac5, i, true)),
+            "master" | "mastere" => master(p, i, contexte).map(|sur| (Diplome::Bac5, i, sur)),
             "doctorat" | "phd" | "mba" | "dess" => Some((Diplome::Bac5, i, true)),
             "ingenieur" | "ingenieurs"
                 if prec == "d"
@@ -832,6 +997,12 @@ const PAS_DE_DEBUTANT: &[&str] = &[
     "debutants refuses",
     "debutants non admis",
     "pas ouvert aux debutants",
+    "non ouvert aux debutants",
+    "pas accessible aux debutants",
+    "non accessible aux debutants",
+    "pas adapte aux debutants",
+    "pas un poste pour debutant",
+    "pas un poste de debutant",
 ];
 
 /// Débutant accepté, dit en clair.
@@ -984,17 +1155,14 @@ const DEMANDEE: &[&str] = &[
     "justifiez d une experience",
     "justifier d une experience",
     "justifiant d une experience",
-    "vous justifiez",
+    "justifiez d experience",
+    "justifiez d experiences",
     "experience similaire exigee",
     "experimente",
     "experimentee",
     "experimentes",
     "experimentees",
     "experimente e",
-    "confirme",
-    "confirmee",
-    "confirmes",
-    "confirme e",
 ];
 
 /// Une expérience appréciée, pas exigée, en clair.
@@ -1022,17 +1190,9 @@ const SOUHAITEE: &[&str] = &[
     "une experience serait",
 ];
 
-const MOTS_EXPERIENCE: [&str; 9] = [
-    "experience",
-    "experiences",
-    "exp",
-    "experimente",
-    "experimentee",
-    "experimentes",
-    "experimentees",
-    "anciennete",
-    "expertise",
-];
+/// (« ancienneté » n'en est pas : elle ne compte que dans une phrase qui exige, voir `durees`)
+const MOTS_EXPERIENCE: [&str; 8] =
+    ["experience", "experiences", "exp", "experimente", "experimentee", "experimentes", "experimentees", "expertise"];
 
 /// Ce qui précède une durée qui n'est pas une expérience (un contrat, un essai, l'âge, l'âge de l'entreprise).
 const PAS_UNE_EXPERIENCE: [&str; 27] = [
@@ -1123,19 +1283,190 @@ fn nombre(m: &str) -> Option<u16> {
     })
 }
 
-/// La plus petite durée d'expérience d'une phrase (en mois), avec ses mots.
-fn duree(p: &Phrase) -> Option<(u16, usize, usize)> {
-    let mut meilleure: Option<(u16, usize, usize)> = None;
+/// Les unités d'une durée.
+const UNITES: [&str; 5] = ["an", "ans", "annee", "annees", "mois"];
+
+/// Les mots d'un avantage : dans leur morceau de phrase, une durée n'est pas une expérience demandée (« rémunération
+/// sur 13 mois », « prime après 6 mois », « mutuelle au bout de 3 mois »).
+const AVANTAGES: [&str; 28] = [
+    "salaire",
+    "salaires",
+    "remuneration",
+    "remunerations",
+    "prime",
+    "primes",
+    "mutuelle",
+    "interessement",
+    "participation",
+    "paie",
+    "paye",
+    "brut",
+    "bruts",
+    "brute",
+    "net",
+    "nets",
+    "euro",
+    "euros",
+    "smic",
+    "treizieme",
+    "13e",
+    "13eme",
+    "conges",
+    "rtt",
+    "ticket",
+    "tickets",
+    "avantage",
+    "avantages",
+];
+
+/// « Salaire selon expérience », « en fonction de votre expérience ».
+const SELON: [&str; 3] = ["selon", "fonction", "suivant"];
+
+/// Les mots qui disent qu'une durée n'est que souhaitée (« 2 ans d'expérience souhaités », « idéalement 2 ans »).
+const SOUHAITS_DUREE: [&str; 19] = [
+    "souhaite",
+    "souhaitee",
+    "souhaites",
+    "souhaitees",
+    "souhaitable",
+    "apprecie",
+    "appreciee",
+    "apprecies",
+    "appreciees",
+    "appreciable",
+    "idealement",
+    "ideal",
+    "ideale",
+    "atout",
+    "bienvenu",
+    "bienvenue",
+    "preference",
+    "serait",
+    "seraient",
+];
+
+/// Ceux qui parlent de l'entreprise (« notre agence », « le groupe »), et ceux qui parlent du candidat.
+const ENTREPRISE: [&str; 8] = ["notre", "nos", "nous", "groupe", "societe", "entreprise", "enseigne", "cabinet"];
+const CANDIDAT: [&str; 9] =
+    ["vous", "votre", "vos", "candidat", "candidate", "candidats", "profil", "collaborateur", "collaboratrice"];
+/// « Notre agence compte 15 ans d'expérience », « nous avons 20 ans d'expérience ».
+const POSSEDE: [&str; 24] = [
+    "a",
+    "ont",
+    "avons",
+    "compte",
+    "comptons",
+    "comptent",
+    "cumule",
+    "cumulons",
+    "cumulent",
+    "possede",
+    "possedons",
+    "possedent",
+    "totalise",
+    "totalisons",
+    "totalisent",
+    "affiche",
+    "beneficie",
+    "beneficions",
+    "capitalise",
+    "capitalisons",
+    "dispose",
+    "disposons",
+    "fete",
+    "fetons",
+];
+/// « Nous recherchons un vendeur qui a 2 ans d'expérience » : là, c'est le candidat.
+const RECHERCHE: [&str; 12] = [
+    "recherche",
+    "recherchons",
+    "recherchent",
+    "recrute",
+    "recrutons",
+    "recrutent",
+    "cherche",
+    "cherchons",
+    "souhaitons",
+    "attendons",
+    "poste",
+    "pour",
+];
+
+/// Le nombre de place `i` ouvre une fourchette (« 2 à 3 ans », « 2 ou 3 ans », « 2-3 ans », « 2/3 ans », « entre 2 et
+/// 5 ans ») : la place du second nombre. Entre les deux, tel qu'écrit, rien d'autre : « Bac+2, 5 ans » et « Bac+2 et
+/// 3 ans » ne sont pas des fourchettes.
+fn fourchette(p: &Phrase, i: usize) -> Option<usize> {
+    nombre(p.mot(i))?;
+    let m = p.mot(i + 1);
+    let lie = ["a", "ou"].contains(&m) || (m == "et" && i > 0 && p.mot(i - 1) == "entre");
+    if lie && nombre(p.mot(i + 2)).is_some() && p.colle(i) && p.colle(i + 1) {
+        return Some(i + 2);
+    }
+    let signe = matches!(p.joint(i).trim(), "-" | "/" | "\u{2013}" | "\u{2014}");
+    (signe && nombre(m).is_some() && !["un", "une"].contains(&p.mot(i))).then_some(i + 1)
+}
+
+/// La durée qui commence au mot `tete` et finit au mot `k` est l'expérience de l'entreprise, pas celle demandée :
+/// « Forte de 15 ans d'expérience, notre agence recrute », « 20 ans d'existence », « le groupe compte 30 ans
+/// d'expérience ».
+fn experience_de_l_entreprise(p: &Phrase, tete: usize, k: usize) -> bool {
+    if p.mot(k + 1) == "existence" || (["d", "de"].contains(&p.mot(k + 1)) && p.mot(k + 2) == "existence") {
+        return true;
+    }
+    let dernier = |mots: &[&str]| (0..tete).rev().find(|&x| mots.contains(&p.mot(x)));
+    let (entreprise, candidat) = (dernier(&ENTREPRISE), dernier(&CANDIDAT));
+    // « Fort(e) de 15 ans d'expérience », « riche d'une expérience de 15 ans » : celui dont on parle ensuite
+    let fort_de = (tete.saturating_sub(6)..tete).any(|x| {
+        ["fort", "forte", "forts", "fortes", "riche", "riches"].contains(&p.mot(x))
+            && ["de", "d"].contains(&p.mot(x + 1))
+    });
+    if fort_de {
+        if entreprise.is_some() && candidat.is_none() && !p.entre(0, tete as isize - 1, &RECHERCHE) {
+            return true;
+        }
+        for x in k + 1..p.mots.len() {
+            if CANDIDAT.contains(&p.mot(x)) || EXIGENCES.contains(&p.mot(x)) {
+                return false;
+            }
+            if ENTREPRISE.contains(&p.mot(x)) {
+                return true;
+            }
+        }
+        return candidat.is_none();
+    }
+    // « Notre agence compte plus de 15 ans d'expérience » : l'entreprise, puis un verbe juste avant la durée
+    let Some(e) = entreprise else { return false };
+    if p.entre(e as isize, tete as isize - 1, &CANDIDAT) || p.entre(e as isize, tete as isize - 1, &RECHERCHE) {
+        return false;
+    }
+    let mut x = tete;
+    while x > e + 1 && ["plus", "de", "d", "pres", "deja", "environ", "presque"].contains(&p.mot(x - 1)) {
+        x -= 1;
+    }
+    // (« a », pas « à »)
+    x > e && POSSEDE.contains(&p.mot(x - 1)) && p.ecrit(x - 1).is_ascii()
+}
+
+/// Une durée d'expérience : en mois, ses premier et dernier mots, et si elle n'est que souhaitée.
+type Duree = (u16, usize, usize, bool);
+
+/// Les durées d'une phrase : celles d'expérience (la durée en mois, ses mots, et si elle n'est que souhaitée, « une
+/// expérience de 2 ans serait un plus »), et les mots écartés parce qu'ils parlent de l'entreprise ou d'un avantage
+/// (« Forte de 15 ans d'expérience, notre agence recrute » : ce mot « expérience » n'en demande pas une).
+fn durees(p: &Phrase) -> (Vec<Duree>, Vec<(usize, usize)>) {
+    let mut l = Vec::new();
+    let mut ecartes = Vec::new();
     let n = p.mots.len();
     for i in 0..n {
         let Some(n1) = nombre(p.mot(i)) else { continue };
-        // « 2 à 3 ans », « 2 ou 3 ans », « 2-3 ans »
-        let mut k = i + 1;
-        if ["a", "ou", "et"].contains(&p.mot(k)) && nombre(p.mot(k + 1)).is_some() {
-            k += 2;
-        } else if nombre(p.mot(k)).is_some() && p.mot(i) != "un" && p.mot(i) != "une" {
-            k += 1;
+        // (le chiffre d'un « Bac+2 » ou d'un « Bac+2/3 » : un niveau, pas une durée ; « Bac+5 - 3 ans » : une durée)
+        if (i >= 1 && chiffre_du_bac(p, i - 1).is_some())
+            || (i >= 2 && chiffre_du_bac(p, i - 2).is_some() && matches!(p.joint(i - 1), "/" | "-"))
+        {
+            continue;
         }
+        // « 2 à 3 ans », « 2 ou 3 ans », « 2-3 ans »
+        let k = fourchette(p, i).map_or(i + 1, |f| f + 1);
         let mois = match p.mot(k) {
             "an" | "ans" | "annee" | "annees" => {
                 let demi = p.mot(k + 1) == "et" && p.mot(k + 2) == "demi";
@@ -1151,9 +1482,9 @@ fn duree(p: &Phrase) -> Option<(u16, usize, usize)> {
         // (un âge, pas une durée : « enfants de 3 à 6 ans », « enfants (0-3 ans) », « jeunes de moins de 26 ans »,
         // « âgé de 16 à 25 ans », « 18 ans révolus », « 18 ans minimum » ; le second nombre d'une tranche, « 0 à
         // 3 ans », se juge d'après ce qui précède le premier)
-        let tete = if ["a", "ou", "et"].contains(&avant(1)) && nombre(avant(2)).is_some() {
+        let tete = if i >= 2 && fourchette(p, i - 2) == Some(i) {
             i - 2
-        } else if nombre(avant(1)).is_some() {
+        } else if i >= 1 && fourchette(p, i - 1) == Some(i) {
             i - 1
         } else {
             i
@@ -1173,6 +1504,16 @@ fn duree(p: &Phrase) -> Option<(u16, usize, usize)> {
         let collee = suite(k + 1)
             || (["d", "de"].contains(&p.mot(k + 1)) && suite(k + 2))
             || p.entre(tete as isize - 2, tete as isize - 1, &MOTS_EXPERIENCE);
+        let (ma, mb) = (p.morceau(tete).0 as isize, p.morceau(k).1 as isize);
+        // (les mots écartés avec la durée : jusqu'à 3 mots devant et 6 derrière, sans sortir de son morceau de phrase)
+        let ecart = (tete.saturating_sub(3).max(ma as usize), (k + 6).min(mb as usize));
+        // (« 25 ans d'existence et d'expérience » : l'âge de l'entreprise)
+        let existence =
+            p.mot(k + 1) == "existence" || (["d", "de"].contains(&p.mot(k + 1)) && p.mot(k + 2) == "existence");
+        if existence {
+            ecartes.push(ecart);
+            continue;
+        }
         if age && !collee {
             continue;
         }
@@ -1187,26 +1528,129 @@ fn duree(p: &Phrase) -> Option<(u16, usize, usize)> {
         if n1 >= 16 && mois >= 192 && p.a(&["age", "agee", "majeur", "majeure", "avoir"]) {
             continue;
         }
-        // (sans le mot « expérience » : seulement « 2 ans minimum », « au moins 6 mois », dans une phrase sans contrat)
+        // (un avantage, pas une exigence : « rémunération sur 13 mois », « prime après 6 mois d'ancienneté », « au bout
+        // d'un an », ou une durée dans le morceau de phrase d'un salaire, d'une prime, d'une mutuelle)
+        let de = ["de", "d"].contains(&devant(1));
+        if ["sur", "apres"].contains(&devant(1)) || (de && ["bout", "issue"].contains(&devant(2))) {
+            ecartes.push(ecart);
+            continue;
+        }
+        if p.entre(ma, mb, &AVANTAGES) && (!collee || p.entre(ma, mb, &SELON)) {
+            ecartes.push(ecart);
+            continue;
+        }
+        // (l'expérience de l'entreprise : « Forte de 15 ans d'expérience, notre agence recrute »)
+        if experience_de_l_entreprise(p, tete, k) {
+            ecartes.push(ecart);
+            continue;
+        }
+        // (sans le mot « expérience » : seulement « 2 ans minimum », « au moins 6 mois », dans une phrase sans contrat ;
+        // « ancienneté » ne vaut « expérience » que dans une phrase qui exige, sans avantage)
         let minimum = ["mini", "minimum", "min"].contains(&p.mot(k + 1))
             || (avant(1) == "moins" && avant(2) == "au")
             || ["minimum", "mini"].contains(&avant(1));
         let sans_contrat = !p.a(&PAS_UNE_EXPERIENCE) && mois <= 180;
-        if !p.entre(i as isize - 8, k as isize + 5, &MOTS_EXPERIENCE) && !(minimum && sans_contrat) {
+        let proche = |mots: &[&str]| p.entre(i as isize - 8, k as isize + 5, mots);
+        // (« salaire selon expérience » ne parle pas d'une expérience demandée)
+        let experience_proche = (i.saturating_sub(8)..(k + 6).min(n))
+            .any(|x| MOTS_EXPERIENCE.contains(&p.mot(x)) && !p.entre(x as isize - 3, x as isize - 1, &SELON));
+        let anciennete = proche(&["anciennete"]) && p.a(&EXIGENCES) && !p.a(&AVANTAGES);
+        if !(experience_proche || anciennete) && !(minimum && sans_contrat) {
             continue;
         }
-        if meilleure.is_none_or(|(m, ..)| mois < m) {
-            meilleure = Some((mois, i, k));
-        }
+        // (seulement souhaitée : un mot de souhait dans le même morceau de phrase, sans mot d'exigence)
+        let un_plus = (ma..mb).any(|x| {
+            let (a, b) = (p.mot(x as usize), p.mot(x as usize + 1));
+            (a == "un" && b == "plus") || (a == "si" && b == "possible")
+        });
+        let souhaitee = (p.entre(ma, mb, &SOUHAITS_DUREE) || un_plus) && !p.entre(ma, mb, &EXIGENCES[..12]);
+        l.push((mois, i, k, souhaitee));
     }
-    meilleure
+    (l, ecartes)
+}
+
+/// Un « débutant accepté » dit en clair : sa place, sa longueur en mots, et s'il est nié (« débutant accepté : non »,
+/// « poste non ouvert aux débutants », « pas accessible aux débutants », « sans expérience significative s'abstenir »).
+fn debutant_dit(p: &Phrase) -> Option<(usize, usize, bool)> {
+    let (i, n) = p.premier(DEBUTANT)?;
+    // (« non », « pas » juste devant, sans signe entre les deux ; pas « Diplôme : non Débutant accepté »)
+    let nie_avant = i > 0 && {
+        let nouvelle = p.ecrit(i).starts_with(char::is_uppercase) && p.ecrit(i - 1).chars().any(char::is_lowercase);
+        ["non", "pas", "ne", "jamais"].contains(&p.mot(i - 1)) && p.colle(i - 1) && !nouvelle
+    };
+    // (après le motif et ses « (e)(s) » : « non », ou « s'abstenir » un peu plus loin)
+    let mut f = i + n;
+    while ["e", "s", "es"].contains(&p.mot(f)) && p.mot(f + 1) != "abstenir" {
+        f += 1;
+    }
+    let signes = p.joint(f - 1).chars().all(|c| c.is_whitespace() || matches!(c, ':' | '(' | ')' | '=' | '?'));
+    let autre = ["fumeur", "fumeuse", "fumeurs", "exhaustif", "exhaustive", "contractuel", "negociable", "seulement"];
+    let non = p.mot(f) == "non" && signes && !autre.contains(&p.mot(f + 1));
+    let abstenir = p.entre(f as isize, f as isize + 5, &["abstenir", "abstenant"]);
+    Some((i, n, nie_avant || non || abstenir))
+}
+
+/// Un profil « confirmé » (« Cariste confirmé », « profil confirmé(e) ») : la place du mot. Il doit être écrit avec
+/// son accent (ou tout en capitales), et ne pas être le verbe ni parler d'autre chose (« le groupe confirme sa
+/// croissance », « votre rendez-vous sera confirmé par téléphone », « CDI confirmé »).
+fn profil_confirme(p: &Phrase) -> Option<usize> {
+    (0..p.mots.len()).find(|&i| {
+        if !["confirme", "confirmee", "confirmes", "confirmees"].contains(&p.mot(i)) {
+            return false;
+        }
+        let ecrit = p.ecrit(i);
+        if !ecrit.contains(['é', 'É']) && ecrit.chars().any(char::is_lowercase) {
+            return false;
+        }
+        let avant = |x: usize| if i >= x { p.mot(i - x) } else { "" };
+        let verbe = [
+            "est", "sera", "ete", "sont", "seront", "soit", "etre", "ont", "avons", "avez", "ai", "fut", "serait",
+            "seraient", "ayant", "se", "nous", "je", "il", "elle", "on", "qui", "ne", "n", "non", "pas", "vous",
+            "bien", "deja",
+        ];
+        let a = avant(1) == "a" && i >= 1 && p.ecrit(i - 1).is_ascii();
+        let chose = [
+            "cdi",
+            "cdd",
+            "contrat",
+            "poste",
+            "embauche",
+            "rdv",
+            "commande",
+            "commandes",
+            "date",
+            "dates",
+            "candidature",
+            "inscription",
+            "reservation",
+            "croissance",
+            "succes",
+            "engagement",
+            "interet",
+            "cas",
+            "diagnostic",
+            "depart",
+            "entretien",
+            "essai",
+            "mission",
+            "groupe",
+            "societe",
+            "entreprise",
+            "direction",
+        ];
+        let suite = [
+            "par", "que", "qu", "sa", "son", "ses", "la", "le", "les", "l", "un", "une", "notre", "nos", "votre",
+            "vos", "leur",
+        ];
+        !(verbe.contains(&avant(1)) || a || chose.contains(&avant(1)) || suite.contains(&p.mot(i + 1)))
+    })
 }
 
 /// Le mot « expérience » d'une phrase dit qu'une expérience est voulue (« une expérience dans la vente »), et pas
-/// « salaire selon expérience » ni « expérience client ».
-fn experience_voulue(p: &Phrase) -> Option<usize> {
+/// « salaire selon expérience » ni « expérience client », ni un mot `ecarte` (l'expérience de l'entreprise).
+fn experience_voulue(p: &Phrase, ecarte: impl Fn(usize) -> bool) -> Option<usize> {
     for i in 0..p.mots.len() {
-        if !["experience", "experiences"].contains(&p.mot(i)) {
+        if !["experience", "experiences"].contains(&p.mot(i)) || ecarte(i) {
             continue;
         }
         let avant = |x: usize| if i >= x { p.mot(i - x) } else { "" };
@@ -1300,8 +1744,8 @@ fn experience_voulue(p: &Phrase) -> Option<usize> {
     None
 }
 
-/// L'expérience demandée, d'après toutes les phrases. Débutant accepté en clair l'emporte, puis la plus petite durée,
-/// puis une expérience exigée, puis appréciée, puis une tournure comme « formation assurée ».
+/// L'expérience demandée, d'après toutes les phrases. Débutant accepté en clair l'emporte, puis la plus petite durée
+/// exigée, puis une expérience exigée, puis appréciée, puis une tournure comme « formation assurée ».
 fn experience(ps: &[Phrase]) -> Option<Trouve<Experience>> {
     let mut debutant: Option<Trouve<Experience>> = None;
     let mut pas_debutant: Option<Trouve<Experience>> = None;
@@ -1311,22 +1755,42 @@ fn experience(ps: &[Phrase]) -> Option<Trouve<Experience>> {
     let mut debutant_moyen: Option<Trouve<Experience>> = None;
     let t = |v, p: &Phrase, i, j, c| Trouve { valeur: v, preuve: p.preuve(i, j), confiance: c };
     for p in ps {
+        // (un « débutant accepté » nié, « débutant accepté : non », demande une expérience ; la durée dite dans la même
+        // phrase, « débutants s'abstenir, 3 ans minimum », est lue quand même)
         if let Some((i, n)) = p.premier(PAS_DE_DEBUTANT) {
             pas_debutant.get_or_insert(t(Experience::Demandee, p, i, i + n - 1, Confiance::Forte));
-            continue;
-        }
-        if let Some((i, n)) = p.premier(DEBUTANT).or_else(|| rubrique_non(p, "experience")) {
+        } else if let Some((i, n, nie)) = debutant_dit(p) {
+            if nie {
+                pas_debutant.get_or_insert(t(Experience::Demandee, p, i, i + n - 1, Confiance::Forte));
+            } else {
+                debutant.get_or_insert(t(Experience::Debutant, p, i, i + n - 1, Confiance::Forte));
+            }
+        } else if let Some((i, n)) = rubrique_non(p, "experience") {
             debutant.get_or_insert(t(Experience::Debutant, p, i, i + n - 1, Confiance::Forte));
         }
-        if let Some((m, i, j)) = duree(p)
-            && plus_courte.as_ref().is_none_or(|x| matches!(x.valeur, Experience::Duree(y) if m < y))
-        {
-            plus_courte = Some(t(Experience::Duree(m), p, i, j, Confiance::Forte));
+        // (une durée seulement souhaitée, « une expérience de 2 ans serait un plus », n'est pas exigée)
+        let (ds, ecartes) = durees(p);
+        let ecarte = |x: usize| ecartes.iter().any(|&(a, b)| (a..=b).contains(&x));
+        for &(m, i, j, souhait) in &ds {
+            if souhait {
+                souhaitee.get_or_insert(t(Experience::Souhaitee, p, i, j, Confiance::Forte));
+            } else if plus_courte.as_ref().is_none_or(|x| matches!(x.valeur, Experience::Duree(y) if m < y)) {
+                plus_courte = Some(t(Experience::Duree(m), p, i, j, Confiance::Forte));
+            }
         }
+        // (une phrase dont toutes les durées sont seulement souhaitées, « 6 mois d'expérience souhaités », ne demande
+        // pas non plus d'expérience par ses autres mots)
+        // (sauf si elle exige ailleurs, « Expérience exigée, 5 ans souhaités » ; pas « souhaitée mais pas obligatoire »)
+        let exige = (0..p.mots.len()).any(|x| {
+            let nie = |d: usize| x >= d && ["non", "pas"].contains(&p.mot(x - d));
+            EXIGENCES[..12].contains(&p.mot(x)) && !nie(1) && !nie(2)
+        });
+        let que_souhaits = !ds.is_empty() && ds.iter().all(|d| d.3) && !exige;
         let doux = p.a(&SOUHAITS) || p.trouver("un plus").is_some();
+        let demande = p.premier(DEMANDEE).filter(|&(i, _)| !ecarte(i));
         if let Some((i, n)) = p.premier(SOUHAITEE) {
             souhaitee.get_or_insert(t(Experience::Souhaitee, p, i, i + n - 1, Confiance::Forte));
-        } else if let Some((i, n)) = p.premier(DEMANDEE) {
+        } else if !que_souhaits && let Some((i, n)) = demande.or_else(|| profil_confirme(p).map(|i| (i, 1))) {
             let fin = (i + n + 2).min(p.mots.len());
             let fort = ["exigee", "obligatoire", "requise", "indispensable", "imperative", "necessaire", "oui"]
                 .iter()
@@ -1336,7 +1800,7 @@ fn experience(ps: &[Phrase]) -> Option<Trouve<Experience>> {
             } else {
                 demandee.get_or_insert(t(Experience::Demandee, p, i, i + n - 1, Confiance::Forte));
             }
-        } else if let Some(i) = experience_voulue(p) {
+        } else if !que_souhaits && let Some(i) = experience_voulue(p, ecarte) {
             if doux {
                 souhaitee.get_or_insert(t(Experience::Souhaitee, p, i, i, Confiance::Moyenne));
             } else {
@@ -1872,8 +2336,11 @@ pub fn lire(titre: &str, texte: &str) -> LectureOffre {
     let fiche = profil(texte);
     let experience = fiche.experience.or_else(|| experience(&ps));
     let mut diplome = fiche.diplome.or_else(|| diplome(&ps));
-    // « Débutants acceptés, formation assurée » : aucun diplôme demandé, déduit
-    if diplome.is_none() && experience.as_ref().is_some_and(|e| e.valeur == Experience::Debutant) {
+    // « Débutants acceptés, formation assurée » : aucun diplôme demandé, déduit. Seulement quand « débutant accepté » est
+    // dit en clair : « Infirmier H/F. Vous serez formé à nos protocoles. » ne dit rien du diplôme.
+    let debutant_sur =
+        experience.as_ref().is_some_and(|e| e.valeur == Experience::Debutant && e.confiance == Confiance::Forte);
+    if diplome.is_none() && debutant_sur {
         for p in &ps {
             if let Some((i, n)) = p.premier(&DEBUTANT_MOYEN[..20]) {
                 diplome = Some(Trouve {
@@ -1895,13 +2362,27 @@ pub fn lire(titre: &str, texte: &str) -> LectureOffre {
     LectureOffre { diplome, experience, autres }
 }
 
-/// Le plus haut diplôme cité dans un texte (un CV) : les niveaux trouvés, sauf ceux qui sont niés.
+/// Le plus haut diplôme cité dans un texte (un CV) : les niveaux trouvés, sauf ceux qui sont niés et ceux qui n'ont
+/// pas été obtenus (« BTS MCO (non obtenu) », « échec au BTS »).
 pub fn diplome_le_plus_haut(t: &str) -> Option<Diplome> {
-    phrases(t)
-        .into_iter()
-        .map(decouper)
-        .flat_map(|p| niveaux(&p).into_iter().filter(|n| !n.nie).map(|n| n.diplome).collect::<Vec<_>>())
-        .max()
+    let mut haut = None;
+    for p in phrases(t).into_iter().map(decouper) {
+        let ns = niveaux(&p);
+        for (x, n) in ns.iter().enumerate() {
+            // (ce qui suit ce diplôme, jusqu'au diplôme suivant)
+            let fin = ns.get(x + 1).map_or(p.mots.len(), |s| s.i).min(n.j + 7);
+            let rate = ["echec", "echoue", "echouee", "abandon", "abandonne", "abandonnee", "interrompu", "inacheve"];
+            let pas_obtenu = (n.j + 1..fin).any(|k| {
+                rate.contains(&p.mot(k))
+                    || (["non", "pas"].contains(&p.mot(k))
+                        && ["obtenu", "obtenue", "valide", "validee", "acquis", "eu"].contains(&p.mot(k + 1)))
+            }) || p.entre(n.i as isize - 3, n.i as isize - 1, &["echec", "abandon"]);
+            if !n.nie && !pas_obtenu {
+                haut = haut.max(Some(n.diplome));
+            }
+        }
+    }
+    haut
 }
 
 /// 0.2.0 : les permis et les CACES cités dans un texte (« Permis B », « CACES 1, 3, 5 »), par la même règle que pour

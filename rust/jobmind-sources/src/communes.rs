@@ -69,9 +69,9 @@ pub fn centre(insee: &str) -> Option<(f64, f64)> {
 pub fn cle_nom(t: &str) -> String {
     let s: String = simple(t)
         .chars()
+        // (« œ » et « æ » sont déjà écrits « oe » et « ae » par `simple` : « Vandœuvre » et « Vandoeuvre » donnent
+        // la même clé)
         .map(|c| match c {
-            'œ' => 'o',
-            'æ' => 'a',
             'ÿ' => 'y',
             c if c.is_alphanumeric() => c,
             _ => ' ',
@@ -87,42 +87,161 @@ pub fn cle_nom(t: &str) -> String {
         .join(" ")
 }
 
-/// Ce qu'une ville tapée dit d'elle : son nom, un code postal (5 chiffres), un département (« (57) »).
-fn lire_ville(t: &str) -> (String, Option<String>, Option<String>) {
-    let mut cp = None;
-    let mut dep = None;
-    let mut nom = Vec::new();
-    for m in t.split(|c: char| c.is_whitespace() || c == ',' || c == '(' || c == ')') {
-        if m.is_empty() {
-            continue;
-        }
-        if m.len() == 5 && m.chars().all(|c| c.is_ascii_digit()) {
-            cp = Some(m.to_string());
-        } else if (m.len() == 2 || m.len() == 3)
-            && (m.chars().all(|c| c.is_ascii_digit()) || ["2a", "2b"].contains(&m.to_ascii_lowercase().as_str()))
-        {
-            dep = Some(m.to_ascii_uppercase());
-        } else {
-            nom.push(m);
-        }
-    }
-    (cle_nom(&nom.join(" ")), cp, dep)
-}
+/// Paris, Lyon et Marseille : le nom remis au propre, le début de leurs codes postaux (suivi du numéro de
+/// l'arrondissement sur deux chiffres : « 75015 », « 69003 », « 13008 »), leur département et leur nombre
+/// d'arrondissements. La table n'a que la commune entière (75056, 69123, 13055), avec les codes postaux de tous ses
+/// arrondissements : « Paris 15 » est donc la commune de Paris.
+const GRANDES_VILLES: [(&str, &str, u32, u32); 3] =
+    [("paris", "750", 75, 20), ("lyon", "690", 69, 9), ("marseille", "130", 13, 16)];
 
-/// La commune d'une ville tapée (« Sarrebourg », « 57400 Sarrebourg », « St-Avold », « Saint-Denis (93) ») ; rien si
-/// elle n'existe pas, ou si plusieurs communes portent ce nom sans rien pour les départager.
-pub fn trouver(ville: &str) -> Option<Commune> {
-    let (nom, cp, dep) = lire_ville(ville);
-    if nom.is_empty() && cp.is_none() {
+/// Le numéro d'arrondissement écrit dans un mot remis au propre (« 15 », « 03 », « 15e », « 1er », « 3eme ») : le
+/// numéro, et s'il est écrit avec sa fin (« e », « er », « eme »...).
+fn numero_arrondissement(mot: &str) -> Option<(u32, bool)> {
+    let chiffres = mot.chars().take_while(char::is_ascii_digit).count();
+    if !(1..=2).contains(&chiffres) {
         return None;
     }
-    let l: Vec<Commune> = index()
+    let fin = &mot[chiffres..];
+    if !matches!(fin, "" | "e" | "er" | "ere" | "eme" | "ieme" | "nd" | "nde") {
+        return None;
+    }
+    Some((mot[..chiffres].parse().ok()?, !fin.is_empty()))
+}
+
+/// Les mots d'une ville tapée ou écrite par un site, remis au propre, sans ce qui n'est pas la commune.
+struct MotsVille {
+    /// Les mots qui restent (le nom, un code postal, un département), dans l'ordre
+    mots: Vec<String>,
+    /// « Cedex » était écrit (le code postal est alors souvent celui d'un service de courrier, absent de la table)
+    cedex: bool,
+    /// L'arrondissement de Paris, Lyon ou Marseille qui était écrit : la ville (son rang dans [`GRANDES_VILLES`]) et
+    /// le numéro
+    arrondissement: Option<(usize, u32)>,
+}
+
+/// Retire d'une ville « cedex » et son numéro (« Metz Cedex 1 »), et l'arrondissement de Paris, Lyon ou Marseille
+/// (« Paris 15 », « 69 - LYON 03 », « Paris 15e Arrondissement », « Marseille 8ème ») : un nombre qui suit le nom
+/// d'une de ces trois villes est un arrondissement s'il en a le numéro, pas un département. « Marseille 13 » et
+/// « Lyon 69 » gardent leur nombre : c'est leur département.
+fn mots_ville(t: &str) -> MotsVille {
+    let cle = cle_nom(t);
+    let mut mots: Vec<&str> = cle.split(' ').filter(|m| !m.is_empty()).collect();
+    let nombre = |m: &str| m.chars().all(|c| c.is_ascii_digit());
+    let mut cedex = false;
+    if let Some(k) = mots.iter().position(|m| *m == "cedex") {
+        cedex = true;
+        mots.remove(k);
+        // (le numéro du cedex : un chiffre, ou deux chiffres quand le département ou le code postal est écrit
+        // ailleurs ; « Saint-Denis Cedex (93) » garde son département)
+        let ailleurs = mots.iter().enumerate().any(|(i, m)| i != k && m.len() >= 2 && nombre(m));
+        if mots
+            .get(k)
+            .is_some_and(|m| nombre(m) && (m.len() == 1 || (m.len() == 2 && (ailleurs || m.starts_with('0')))))
+        {
+            mots.remove(k);
+        }
+    }
+    let mut arrondissement = None;
+    // (le nom : le premier mot qui n'est pas un nombre ; devant lui, un code postal ou un département)
+    if let Some(k) = mots.iter().position(|m| !nombre(m))
+        && let Some(g) = GRANDES_VILLES.iter().position(|v| v.0 == mots[k])
+    {
+        let (_, _, dep, max) = GRANDES_VILLES[g];
+        let mut garder = vec![true; mots.len()];
+        let mut numero = None;
+        let mut bon = true;
+        for (i, m) in mots.iter().enumerate().skip(k + 1) {
+            if matches!(*m, "arrondissement" | "arrondissements" | "arr" | "arrdt") {
+                garder[i] = false;
+            } else if let Some((n, ecrit)) = numero_arrondissement(m)
+                && (1..=max).contains(&n)
+                && (ecrit || n != dep)
+            {
+                garder[i] = false;
+                numero = numero.or(Some(n));
+            } else if !nombre(m) {
+                // (un autre mot : une autre commune, « Paris-l'Hôpital », « Marseille-en-Beauvaisis »)
+                bon = false;
+                break;
+            }
+        }
+        if bon {
+            let mut i = 0;
+            mots.retain(|_| {
+                i += 1;
+                garder[i - 1]
+            });
+            arrondissement = numero.map(|n| (g, n));
+        }
+    }
+    MotsVille { mots: mots.into_iter().map(str::to_string).collect(), cedex, arrondissement }
+}
+
+/// Ce qu'une ville tapée dit d'elle.
+struct VilleLue {
+    /// Son nom remis au propre
+    nom: String,
+    /// Un code postal (5 chiffres)
+    cp: Option<String>,
+    /// Un département (« (57) », « 75 - PARIS ») : le premier écrit
+    dep: Option<String>,
+    cedex: bool,
+}
+
+fn lire_ville(t: &str) -> VilleLue {
+    let m = mots_ville(t);
+    let mut cp = None;
+    let mut dep: Option<String> = None;
+    let mut nom = Vec::new();
+    for m in &m.mots {
+        if m.len() == 5 && m.chars().all(|c| c.is_ascii_digit()) {
+            cp = Some(m.clone());
+        } else if (m.len() == 2 || m.len() == 3) && (m.chars().all(|c| c.is_ascii_digit()) || m == "2a" || m == "2b") {
+            // (le premier département lu est gardé : dans « 57 - METZ 02 », le second nombre n'en est pas un)
+            if dep.is_none() {
+                dep = Some(m.to_ascii_uppercase());
+            }
+        } else {
+            nom.push(m.as_str());
+        }
+    }
+    VilleLue { nom: nom.join(" "), cp, dep, cedex: m.cedex }
+}
+
+/// Les communes de ce nom, de ce code postal et de ce département (ce qui est donné).
+fn communes_de(nom: &str, cp: Option<&str>, dep: Option<&str>) -> Vec<Commune> {
+    index()
         .iter()
         .filter(|(_, k)| nom.is_empty() || *k == nom)
         .map(|(c, _)| *c)
-        .filter(|c| cp.as_deref().is_none_or(|p| c.codes_postaux.split(',').any(|x| x == p)))
-        .filter(|c| dep.as_deref().is_none_or(|d| c.departement() == d))
-        .collect();
+        .filter(|c| cp.is_none_or(|p| c.codes_postaux.split(',').any(|x| x == p)))
+        .filter(|c| dep.is_none_or(|d| c.departement() == d))
+        .collect()
+}
+
+/// La commune d'une ville tapée (« Sarrebourg », « 57400 Sarrebourg », « St-Avold », « Saint-Denis (93) ») ou écrite
+/// par un site (« 75 - PARIS 15 », « Paris 15e Arrondissement », « 57000 Metz Cedex 1 ») ; rien si elle n'existe pas,
+/// ou si plusieurs communes portent ce nom sans rien pour les départager. Paris, Lyon et Marseille : la commune
+/// entière, quel que soit l'arrondissement.
+pub fn trouver(ville: &str) -> Option<Commune> {
+    let v = lire_ville(ville);
+    if v.nom.is_empty() && v.cp.is_none() {
+        return None;
+    }
+    let mut l = communes_de(&v.nom, v.cp.as_deref(), v.dep.as_deref());
+    // (« 57045 Metz Cedex 1 » : le code d'un service de courrier n'est celui d'aucune commune ; son département reste)
+    if l.is_empty()
+        && v.cedex
+        && !v.nom.is_empty()
+        && let Some(d) = v.cp.as_deref().and_then(crate::page::departement_postal)
+        && v.dep.as_deref().is_none_or(|x| x == d)
+    {
+        l = communes_de(&v.nom, None, Some(&d));
+    }
+    // (« Metz Cedex 15 », sans rien d'autre : ce nombre était le numéro du cedex, pas un département)
+    if l.is_empty() && v.cedex && !v.nom.is_empty() && v.cp.is_none() && v.dep.is_some() {
+        l = communes_de(&v.nom, None, None);
+    }
     match l.as_slice() {
         [c] => Some(*c),
         _ => None,
@@ -131,7 +250,7 @@ pub fn trouver(ville: &str) -> Option<Commune> {
 
 /// Les communes de ce nom (pour dire lesquelles existent quand il y en a plusieurs).
 pub fn homonymes(ville: &str) -> Vec<Commune> {
-    let (nom, _, _) = lire_ville(ville);
+    let nom = lire_ville(ville).nom;
     index().iter().filter(|(_, k)| !nom.is_empty() && *k == nom).map(|(c, _)| *c).collect()
 }
 
@@ -186,21 +305,26 @@ fn index() -> &'static [(Commune, String)] {
 /// accents, des tirets ni des apostrophes, « st » pour « saint ». À pertinence égale, les villes à plusieurs codes
 /// postaux (les grandes) d'abord, puis le nom le plus court, puis l'ordre alphabétique. Un code postal tapé, même en partie (« 574 »,
 /// « Sarrebourg 57400 », « Sarrebourg (57400) ») : seulement les communes d'un code qui commence ainsi, ce code montré.
-/// Une ligne par commune.
+/// Une ligne par commune. Un arrondissement de Paris, Lyon ou Marseille (« Paris 15 », « Lyon 3e ») : la ville, avec
+/// le code postal de l'arrondissement.
 pub fn proposer(tape: &str, max: usize) -> Vec<Proposition> {
+    let lus = mots_ville(tape);
     let mut cp: Option<String> = None;
     let mut mots = Vec::new();
-    for m in tape.split(|c: char| c.is_whitespace() || c == ',' || c == '(' || c == ')') {
-        if m.is_empty() {
-            continue;
-        }
+    for m in &lus.mots {
         if (1..=5).contains(&m.len()) && m.chars().all(|c| c.is_ascii_digit()) && cp.is_none() {
-            cp = Some(m.to_string());
+            cp = Some(m.clone());
         } else {
-            mots.push(m);
+            mots.push(m.as_str());
         }
     }
-    let nom = cle_nom(&mots.join(" "));
+    // (« Paris 15 », « Lyon 3e » : le code postal de l'arrondissement, « 75015 », « 69003 »)
+    if cp.is_none()
+        && let Some((g, n)) = lus.arrondissement
+    {
+        cp = Some(format!("{}{n:02}", GRANDES_VILLES[g].1));
+    }
+    let nom = mots.join(" ");
     let cp = cp.filter(|p| p.len() >= 2 || !nom.is_empty());
     if nom.chars().count() < 2 && cp.as_ref().is_none_or(|p| p.len() < 2) {
         return Vec::new();
@@ -299,6 +423,148 @@ mod tests {
         assert_eq!(trouver(""), None);
         assert_eq!(trouver("()"), None);
         assert_eq!(cle_nom("L'Hôpital"), "l hopital");
+    }
+
+    /// Audit du 26/11/2026 : « œ » et « æ » s'écrivent aussi « oe » et « ae » ; les deux écritures trouvent la
+    /// commune, tapées ou écrites par un site.
+    #[test]
+    fn oe_et_ae_dans_les_noms() {
+        for (ville, insee) in [
+            ("Vandœuvre-lès-Nancy", "54547"),
+            ("Vandoeuvre-lès-Nancy", "54547"),
+            ("VANDOEUVRE LES NANCY", "54547"),
+            ("VANDŒUVRE-LÈS-NANCY", "54547"),
+            ("54 - VANDOEUVRE LES NANCY", "54547"),
+            ("Schœneck", "57638"),
+            ("Schoeneck", "57638"),
+            ("Œting", "57521"),
+            ("Oeting", "57521"),
+            ("OETING (57)", "57521"),
+        ] {
+            assert_eq!(trouver(ville).map(|c| c.insee), Some(insee), "{ville}");
+        }
+        assert_eq!(cle_nom("Vandœuvre"), cle_nom("Vandoeuvre"));
+        assert_eq!(cle_nom("Œting"), "oeting");
+        assert_eq!(cle_nom("Ældre"), "aeldre");
+        assert_eq!(textes("vandoeuvre")[0], "Vandœuvre-lès-Nancy (54500)");
+        assert_eq!(textes("Vandœ")[0], "Vandœuvre-lès-Nancy (54500)");
+        assert_eq!(textes("oeting")[0], "Œting (57600)");
+        // (contre-épreuve : l'ancienne écriture sans « e » ne trouve plus rien, et les autres noms ne bougent pas)
+        assert_eq!(trouver("Vandouvre-lès-Nancy"), None);
+        assert_eq!(cle_nom("L'Haÿ-les-Roses"), "l hay les roses");
+        assert_eq!(trouver("L'Haÿ-les-Roses").map(|c| c.insee), Some("94038"));
+        // (chaque commune de la table se retrouve toujours par son nom et son premier code postal)
+        for c in communes().filter(|c| c.nom.contains(['œ', 'Œ', 'æ', 'Æ'])) {
+            let cp = c.codes_postaux.split(',').next().unwrap();
+            assert_eq!(trouver(&format!("{} ({cp})", c.nom)).map(|x| x.insee), Some(c.insee), "{}", c.nom);
+            let deux = c.nom.replace('œ', "oe").replace('Œ', "Oe").replace('æ', "ae").replace('Æ', "Ae");
+            assert_eq!(trouver(&format!("{deux} ({cp})")).map(|x| x.insee), Some(c.insee), "{deux}");
+        }
+    }
+
+    /// Audit du 26/11/2026 : les arrondissements de Paris, Lyon et Marseille. La table n'a que la commune entière :
+    /// c'est elle qui est trouvée, et la distance se calcule depuis son centre.
+    #[test]
+    fn arrondissements_de_paris_lyon_marseille() {
+        for (ville, insee) in [
+            ("75 - PARIS 15", "75056"),
+            ("69 - LYON 03", "69123"),
+            ("13 - MARSEILLE 08", "13055"),
+            ("13 - MARSEILLE 13", "13055"),
+            ("Paris 15e Arrondissement", "75056"),
+            ("PARIS 15E ARRONDISSEMENT", "75056"),
+            ("Paris 1er", "75056"),
+            ("Paris 1er Arrondissement (75)", "75056"),
+            ("Lyon 3ème", "69123"),
+            ("Lyon 3e arrondissement", "69123"),
+            ("Lyon 03", "69123"),
+            ("Lyon 3", "69123"),
+            ("Marseille 8ème arrondissement", "13055"),
+            ("Marseille 13", "13055"),
+            ("Marseille 13e", "13055"),
+            ("Paris 15", "75056"),
+            ("Paris (15e)", "75056"),
+            ("75015 Paris 15", "75056"),
+            ("Paris 15 (75015)", "75056"),
+            ("Paris-15", "75056"),
+            // (contre-épreuves : ce qui marchait)
+            ("Paris", "75056"),
+            ("Paris (75)", "75056"),
+            ("Paris (75015)", "75056"),
+            ("75 - PARIS", "75056"),
+            ("Lyon", "69123"),
+            ("Lyon (69)", "69123"),
+            ("69003 Lyon", "69123"),
+            ("Marseille (13)", "13055"),
+            ("Marseille (13008)", "13055"),
+            ("Paris-l'Hôpital", "71343"),
+            ("Paris-l'Hôpital (71)", "71343"),
+            ("Marseille-en-Beauvaisis", "60387"),
+        ] {
+            assert_eq!(trouver(ville).map(|c| c.insee), Some(insee), "{ville}");
+        }
+        for insee in ["75056", "69123", "13055"] {
+            assert!(centre(insee).is_some(), "{insee}");
+        }
+        // (un arrondissement qui n'existe pas, une ville du mauvais département : toujours rien)
+        assert_eq!(trouver("Paris 25e"), None);
+        assert_eq!(trouver("Lyon 12"), None);
+        assert_eq!(trouver("Paris (69)"), None);
+        assert_eq!(trouver("69 - PARIS 15"), None);
+        // (le nombre qui suit une autre ville reste un département)
+        assert_eq!(trouver("Saint-Denis 93").map(|c| c.insee), Some("93066"));
+        assert_eq!(trouver("Metz 15"), None);
+        // (le premier département lu est gardé)
+        assert_eq!(trouver("57 - METZ 02").map(|c| c.insee), Some("57463"));
+        assert_eq!(trouver("93 - SAINT DENIS 02").map(|c| c.insee), Some("93066"));
+        assert_eq!(homonymes("75 - PARIS 15").len(), 1);
+        // Les propositions pendant la frappe : la ville, avec le code postal de l'arrondissement
+        assert_eq!(textes("Paris 15"), ["Paris (75015)"]);
+        assert_eq!(textes("Lyon 3"), ["Lyon (69003)"]);
+        assert_eq!(textes("Lyon 3e"), ["Lyon (69003)"]);
+        assert_eq!(textes("Paris 1er arrondissement"), ["Paris (75001)"]);
+        assert_eq!(textes("marseille 8ème"), ["Marseille (13008)"]);
+        assert_eq!(textes("Paris 16"), ["Paris (75016)"]);
+        for t in ["Paris 15", "Lyon 3", "marseille 8ème"] {
+            let p = proposer(t, 1)[0];
+            assert_eq!(trouver(&p.texte()).map(|c| c.insee), Some(p.insee), "{t}");
+        }
+        // (contre-épreuves : un code postal tapé en partie reste un code postal)
+        assert_eq!(textes("Paris 7501")[0], "Paris (75010)");
+        assert_eq!(textes("Paris 75")[0], "Paris (75001)");
+        assert_eq!(textes("Marseille 13")[0], "Marseille (13001)");
+        assert_eq!(textes("Lyon 69")[0], "Lyon (69001)");
+        assert_eq!(textes("Lyon 69003"), ["Lyon (69003)"]);
+        assert!(textes("Paris 25").is_empty() && textes("Lyon 12").is_empty());
+    }
+
+    /// Audit du 26/11/2026 : « Cedex » et son numéro ne font pas partie du nom.
+    #[test]
+    fn cedex_retire() {
+        for (ville, insee) in [
+            ("57000 Metz Cedex 1", "57463"),
+            ("57000 METZ CEDEX 01", "57463"),
+            ("Metz Cedex", "57463"),
+            ("Metz cedex 3", "57463"),
+            ("54 - NANCY CEDEX", "54395"),
+            ("Saint-Denis Cedex (93)", "93066"),
+            // (le code d'un service de courrier, absent de la table : le département du code départage)
+            ("57045 Metz Cedex 1", "57463"),
+            ("93207 Saint-Denis Cedex", "93066"),
+            ("75 - PARIS CEDEX 15", "75056"),
+            ("Metz Cedex 15", "57463"),
+            ("METZ CEDEX 03", "57463"),
+        ] {
+            assert_eq!(trouver(ville).map(|c| c.insee), Some(insee), "{ville}");
+        }
+        assert_eq!(textes("Metz Cedex 1")[0], "Metz (57000)");
+        assert_eq!(textes("57000 Metz Cedex")[0], "Metz (57000)");
+        // (contre-épreuves : sans « cedex », un code postal qui n'est pas celui de la ville ne donne rien ; avec,
+        // un code d'un autre département non plus, et les homonymes restent sans réponse)
+        assert_eq!(trouver("57045 Metz"), None);
+        assert_eq!(trouver("54045 Metz Cedex"), None);
+        assert_eq!(trouver("Saint-Denis Cedex"), None);
+        assert_eq!(trouver("Cedex"), None);
     }
 
     fn textes(tape: &str) -> Vec<String> {

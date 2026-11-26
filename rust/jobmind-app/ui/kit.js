@@ -291,8 +291,30 @@
   const signaler = (texte) => { try { webview?.postMessage({ type: 'erreur', texte: String(texte).slice(0, 300) }); } catch (e) {} };
   addEventListener('error', (e) => signaler(`${e.message} (${(e.filename || '').split('/').pop()}:${e.lineno})`));
   addEventListener('unhandledrejection', (e) => signaler(e.reason?.message || e.reason));
+  // L'appui en cours (souris, doigt, stylet). Un clic n'est compté qu'au relâchement, sur l'élément appuyé : si
+  // l'écran est redessiné entre l'appui et le relâchement, cet élément n'existe plus et le clic est perdu. Tant qu'un
+  // appui dure, ce qui vient de l'appli (un état, un ordre) attend donc son tour, dans l'ordre d'arrivée, et passe
+  // juste après le relâchement (APRES_APPUI plus tard : le clic est alors déjà compté). Délai de garde : si le
+  // relâchement n'arrive pas (souris relâchée hors de la fenêtre, barre de défilement tenue), tout passe quand même
+  // GARDE_APPUI après l'appui, et l'écran n'attend plus jusqu'à l'appui suivant.
+  const GARDE_APPUI = 1000, APRES_APPUI = 40;
+  let appui = false, minuterieAppui = 0;
+  const enRetard = [];
+  const plusTard = (f) => { if (!appui) return false; enRetard.push(f); return true; };
+  function finAppui() {
+    clearTimeout(minuterieAppui); minuterieAppui = 0;
+    if (!appui) return;
+    appui = false;
+    for (const f of enRetard.splice(0)) { try { f(); } catch (e) { signaler(e?.message || e); } }
+  }
+  const relache = () => { if (!appui) return; clearTimeout(minuterieAppui); minuterieAppui = setTimeout(finAppui, APRES_APPUI); };
+  addEventListener('pointerdown', (e) => { if (e.button > 0) return; appui = true; clearTimeout(minuterieAppui); minuterieAppui = setTimeout(finAppui, GARDE_APPUI); }, true);
+  addEventListener('pointerup', relache, true); addEventListener('pointercancel', relache, true); addEventListener('blur', relache);
   webview?.addEventListener('message', (e) => {
     const d = e.data; if (!d || typeof d !== 'object') return;
+    if (!plusTard(() => recevoir(d))) recevoir(d);
+  });
+  function recevoir(d) {
     if (d.kit === 'message') kit.message(d.texte, d.bravo);
     else if (d.kit === 'aller') kit.aller(d.ecran);
     else if (d.kit === 'pause') kit.pause();
@@ -302,13 +324,14 @@
     else if (d.kit === 'question') kit.question(d);
     else if (d.kit === 'accueil') window.kitAccueil?.ordre?.(d);
     else if (!d.kit) kit.etat(d);
-  });
+  }
 
   // ---------------------------------------------------------------- l'état
   const ecran = document.getElementById('ecran'), haut = document.getElementById('haut');
   let E = { app: { nom: '' }, accueil: { tuiles: [], ronds: [] }, pages: {} };
   const nav = { ecran: 'accueil', onglets: {}, sel: 0, deplies: {} };   // deplies : les cartes ouvertes, par page   // onglets : les pastilles choisies, par page
   let enAttente = false;    // un nouvel état arrivé pendant qu'on tape dans un champ
+  const SAISIE = /^(INPUT|TEXTAREA)$/;   // ce où l'on tape : un champ, une zone de texte
   const plasma = () => (window.kitPlasma?.ok ? window.kitPlasma : null);
 
   // ---------------------------------------------------------------- le thème perso (images, police)
@@ -884,7 +907,12 @@
   ecran.addEventListener('focusout', (e) => {
     const el = e.target;
     if (el.dataset?.champ && !el.dataset.direct && el.value !== el.defaultValue) { el.defaultValue = el.value; action(el.dataset.champ, el.value); }
-    if (enAttente && el.tagName === 'INPUT') setTimeout(() => { if (document.activeElement?.tagName !== 'INPUT') { enAttente = false; dessiner(false); } });
+    // (le champ ou la zone de texte quitté : l'état qui attendait est dessiné ; quitté par un clic sur un bouton,
+    // seulement après le relâchement, sinon ce bouton serait remplacé sous la souris et le clic perdu)
+    if (enAttente && SAISIE.test(el.tagName)) setTimeout(() => {
+      const rattraper = () => { if (!enAttente || SAISIE.test(document.activeElement?.tagName || '')) return; enAttente = false; dessiner(false); };
+      if (!plusTard(rattraper)) rattraper();
+    });
   });
   // Une recherche part pendant qu'on tape (un court instant après la dernière touche)
   let tape = 0;
@@ -955,6 +983,8 @@
   const kit = window.kit = {
     surMessage: null,
     etat(nouveau) {
+      // (pendant un appui, l'état attend le relâchement : voir « L'appui en cours »)
+      if (plusTard(() => kit.etat(nouveau))) return;
       normaliser(nouveau);
       const avantTheme = E.theme;
       E = { ...E, ...nouveau };
@@ -988,7 +1018,9 @@
         if (n) { if (tape !== null) n.value = tape; n.focus({ preventScroll: true }); try { if (tape !== null) n.setSelectionRange(debut, fin); else n.setSelectionRange(n.value.length, n.value.length); } catch (_) { /* (rien) */ } }
         return;
       }
-      if (saisie?.tagName === 'INPUT') { enAttente = true; enTete(); return; }
+      // (une zone de texte attend comme un champ : redessinée pendant la frappe, elle perdrait son défilement, sa
+      // taille étirée à la main, Ctrl+Z et la sélection à la souris)
+      if (saisie && SAISIE.test(saisie.tagName)) { enAttente = true; enTete(); return; }
       dessiner(false);
       choisir();
     },

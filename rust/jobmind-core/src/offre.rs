@@ -6,8 +6,9 @@
 //! La règle des doublons ([`empreinte`], [`meme_offre`]) : deux offres sont la même si l'entreprise, le titre et la
 //! ville, remis au propre (sans accents ni majuscules, sans « H/F », sans « CDI » dans le titre, sans « SAS » dans le
 //! nom, sans code postal), sont les mêmes. Jamais sans entreprise (deux « Cariste » à Metz d'entreprises cachées ne sont
-//! pas forcément la même offre). Deux offres du même site, sous deux numéros, ne sont fusionnées que si leurs textes se
-//! ressemblent aussi (une entreprise peut chercher deux caristes pour deux équipes).
+//! pas forcément la même offre). Deux offres, du même site ou de deux sites, ne sont fusionnées que si leurs textes se
+//! ressemblent aussi quand ils sont assez longs pour en juger (une entreprise peut chercher deux caristes pour deux
+//! équipes), et jamais si leurs titres disent deux contrats différents (« CDI » et « CDD »).
 
 use std::collections::HashSet;
 
@@ -68,12 +69,17 @@ pub fn cle_entreprise(e: &str) -> String {
     sans(e, &FORMES)
 }
 
-/// La ville d'un lieu (« Metz, Moselle », « Metz (57) », « 57000 Metz Cedex », « St-Avold ») : « metz », « saint avold ».
+/// La ville d'un lieu (« Metz, Moselle », « Metz (57) », « 57000 Metz Cedex », « St-Avold », « 2A - Ajaccio ») :
+/// « metz », « saint avold », « ajaccio ». Les numéros de la Corse, « 2A » et « 2B », sont retirés comme les autres
+/// numéros de département (sauf seuls : il resterait une clé vide).
 pub fn cle_ville(lieu: &str) -> String {
-    let premier = lieu.split([',', '(']).next().unwrap_or_default();
-    normaliser(premier)
+    let premier = normaliser(lieu.split([',', '(']).next().unwrap_or_default());
+    let numero = |m: &str| m.chars().all(|c| c.is_ascii_digit()) || m == "cedex";
+    let corse = |m: &str| m == "2a" || m == "2b";
+    let autre_mot = premier.split(' ').any(|m| !m.is_empty() && !numero(m) && !corse(m));
+    premier
         .split(' ')
-        .filter(|m| !m.is_empty() && !m.chars().all(|c| c.is_ascii_digit()) && *m != "cedex")
+        .filter(|m| !m.is_empty() && !numero(m) && !(autre_mot && corse(m)))
         .map(|m| match m {
             "st" => "saint",
             "ste" => "sainte",
@@ -114,13 +120,24 @@ pub struct Comparee<'a> {
     pub description: &'a str,
 }
 
-/// La règle des doublons : la même adresse d'offre, ou la même empreinte (et, du même site, des textes proches).
+/// Les deux titres disent chacun leur contrat, et pas le même (« Cariste H/F CDI » et « Cariste CDD ») : deux
+/// missions. L'empreinte ne le voit pas, elle retire le contrat du titre.
+fn contrats_differents(a: &str, b: &str) -> bool {
+    matches!((contrat_dans(a), contrat_dans(b)), (Some(x), Some(y)) if x != y)
+}
+
+/// La règle des doublons : la même adresse d'offre, ou la même empreinte, sans deux contrats différents dans les
+/// titres, avec des textes proches. Du même site comme entre deux sites : une agence publie souvent plusieurs missions
+/// sous le même titre dans la même ville. Un texte trop court pour en juger (l'extrait d'un site) ne sépare rien
+/// ([`textes_proches`]).
 pub fn meme_offre(a: &Comparee, b: &Comparee) -> bool {
     if !a.url.is_empty() && a.url == b.url {
         return true;
     }
     match (empreinte(a.entreprise, a.titre, a.lieu), empreinte(b.entreprise, b.titre, b.lieu)) {
-        (Some(x), Some(y)) if x == y => a.source != b.source || textes_proches(a.description, b.description),
+        (Some(x), Some(y)) if x == y => {
+            !contrats_differents(a.titre, b.titre) && textes_proches(a.description, b.description)
+        }
         _ => false,
     }
 }
@@ -730,6 +747,19 @@ mod tests {
         assert_eq!(cle_ville("57000 Metz Cedex 1"), "metz");
         assert_eq!(cle_ville("St-Avold"), "saint avold");
         assert_eq!(cle_ville("Saint-Avold, Moselle"), "saint avold");
+        // (la Corse : « 2A », « 2B » retirés comme « 57 »)
+        assert_eq!(cle_ville("57 - Metz"), "metz");
+        assert_eq!(cle_ville("2A - AJACCIO"), "ajaccio");
+        assert_eq!(cle_ville("2B - Bastia"), "bastia");
+        assert_eq!(cle_ville("Ajaccio (2A)"), "ajaccio");
+        assert_eq!(cle_ville("Ajaccio 2A"), "ajaccio");
+        assert_eq!(cle_ville("20000 Ajaccio"), "ajaccio");
+        assert_eq!(cle_ville("Porto-Vecchio"), "porto vecchio");
+        assert_eq!(cle_ville("2A"), "2a");
+        assert_eq!(
+            empreinte("Hôtel Inventé", "Réceptionniste H/F", "2A - AJACCIO"),
+            empreinte("Hôtel Inventé", "Réceptionniste", "Ajaccio, Corse-du-Sud")
+        );
         assert_eq!(empreinte("", "Cariste", "Metz"), None);
         assert_eq!(empreinte("Sarl", "Cariste", "Metz"), None);
     }
@@ -800,6 +830,50 @@ mod tests {
         );
         assert!(!meme_offre(&jour, &nuit));
         assert!(meme_offre(&jour, &encore));
+    }
+
+    /// Entre deux sites aussi, la même empreinte ne suffit pas : deux missions d'une agence sous le même titre dans la
+    /// même ville restent deux offres. Contre-épreuve : la même offre venue de deux sites reste reconnue.
+    #[test]
+    fn doublons_entre_deux_sites() {
+        let cdi = "Notre client, un industriel de l'agroalimentaire, recrute en CDI un cariste pour son entrepôt \
+                   frigorifique. Horaires du matin, chargement des camions, prime de froid, treizième mois.";
+        let cdd = "Mission de trois semaines dans un magasin de bricolage : réception des livraisons de carrelage, \
+                   rangement en réserve au chariot frontal, travail le samedi, indemnités de fin de mission.";
+        // Les deux titres disent deux contrats : jamais la même offre, même avec des textes courts ou vides
+        let a = c("francetravail", "Adecco", "Cariste H/F CDI", "Metz", cdi);
+        let b = c("indeed", "Adecco", "Cariste CDD", "Metz", cdd);
+        assert_eq!(empreinte(a.entreprise, a.titre, a.lieu), empreinte(b.entreprise, b.titre, b.lieu));
+        assert!(!meme_offre(&a, &b));
+        assert!(!meme_offre(&Comparee { description: "", ..a }, &Comparee { description: "", ..b }));
+        assert!(!meme_offre(&Comparee { source: "indeed", ..a }, &b));
+        // Le même titre, deux textes longs qui ne se ressemblent pas : deux missions
+        let a2 = c("francetravail", "Adecco", "Cariste H/F", "Metz", cdi);
+        let b2 = c("indeed", "Adecco", "Cariste (H/F)", "Metz", cdd);
+        assert!(!meme_offre(&a2, &b2));
+        // Contre-épreuve : la même offre sur deux sites (le texte entier et son début coupé, un extrait trop court,
+        // pas de texte du tout, le contrat dit d'un seul côté ou des deux côtés pareil)
+        let debut: String = cdi.chars().take(120).collect();
+        for (titre, texte) in [
+            ("Cariste (H/F)", cdi),
+            ("CARISTE H/F", debut.as_str()),
+            ("Cariste", "...un cariste pour son entrepôt..."),
+            ("Cariste", ""),
+            ("Cariste H/F - CDI", cdi),
+            ("Cariste : CDI", debut.as_str()),
+        ] {
+            let x = c("linkedin", "ADECCO", titre, "Metz (57)", texte);
+            assert!(meme_offre(&a2, &x), "{titre} / {texte}");
+            assert!(meme_offre(&x, &a2), "{titre} / {texte}");
+            assert!(meme_offre(&a, &x), "{titre} / {texte}");
+        }
+        // La même offre corse venue de deux sites
+        let texte = "Accueil des clients de l'hôtel, réservations, tenue de la caisse, service du petit déjeuner.";
+        let x = c("francetravail", "Hôtel Inventé", "Réceptionniste H/F", "2A - AJACCIO", texte);
+        let y = c("indeed", "Hôtel Inventé", "Réceptionniste", "Ajaccio, Corse-du-Sud", texte);
+        assert!(meme_offre(&x, &y));
+        // (et Bastia n'est pas Ajaccio)
+        assert!(!meme_offre(&x, &c("indeed", "Hôtel Inventé", "Réceptionniste", "2B - Bastia", texte)));
     }
 
     /// 0.2.0 : la même annonce publiée deux fois sur un site (les doublons cachés dans les offres d'un site), et sa

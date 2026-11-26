@@ -52,7 +52,6 @@ pub mod envoi;
 #[cfg(feature = "essai")]
 pub mod essai;
 pub mod fenetre;
-pub mod illisibles;
 pub mod mail;
 pub mod offres;
 pub mod pack;

@@ -279,3 +279,75 @@ fn mesurer(nom_dossier: &str) {
         println!("  {x}");
     }
 }
+
+/// Audit du 26/11/2026 : le site confirme la candidature et montre sur la même page un autre formulaire (créer un
+/// compte, recevoir des offres). La confirmation est lue à côté du formulaire, jamais dedans.
+#[test]
+fn confirmation_a_cote_d_un_formulaire() {
+    let compte = "<form id=\"compte\"><h2>Créez votre espace candidat</h2>\
+        <label>Prénom <input name=\"prenom\"></label><label>Nom <input name=\"nom\"></label>\
+        <label>Adresse e-mail <input type=\"email\" name=\"mail\"></label>\
+        <button type=\"submit\">Envoyer</button></form>";
+    // La confirmation et un formulaire qui ressemble à une candidature (prénom, nom, mail)
+    let page = format!(
+        "<html><body><main><div class=\"bandeau\"><p>Votre candidature a bien été envoyée à Exemple Transports.</p>\
+         </div>{compte}</main></body></html>"
+    );
+    let f = lire("https://recrutement.exemple.invalid/merci", &page);
+    assert!(f.present(), "{}", f.trace);
+    assert_eq!(f.confirmation, None, "avec un formulaire, l'ancien champ reste vide");
+    assert_eq!(
+        f.confirmation_a_cote.as_deref(),
+        Some("Votre candidature a bien été envoyée à Exemple Transports."),
+        "{}",
+        f.trace
+    );
+    assert_eq!(f.confirmee(), Some("Votre candidature a bien été envoyée à Exemple Transports."));
+    assert!(f.trace.contains("confirmation à côté du formulaire"), "{}", f.trace);
+    // Les cases hors de toute balise <form> : la confirmation est avant la première case
+    let sans_form = "<html><body><h1>Merci d'avoir postulé !</h1><div><label>Prénom <input name=\"prenom\"></label>\
+        <label>Nom <input name=\"nom\"></label><label>Adresse e-mail <input type=\"email\" name=\"mail\"></label>\
+        <button>Envoyer</button></div></body></html>";
+    let f = lire("x", sans_form);
+    assert!(f.present(), "{}", f.trace);
+    assert_eq!(f.confirmee(), Some("Merci d'avoir postulé !"), "{}", f.trace);
+    // Une erreur du site sur la même page : un refus, pas une confirmation
+    let refus = page.replace("<main>", "<main><p role=\"alert\">Le CV est obligatoire.</p>");
+    let f = lire("x", &refus);
+    assert!(f.confirmation_a_cote.is_some() && !f.erreurs.is_empty(), "{}", f.trace);
+    assert_eq!(f.confirmee(), None);
+
+    // Contre-épreuves. Une phrase DANS le formulaire explique la suite : ce n'est pas une confirmation
+    let dedans = "<html><body><form><p>Merci de votre candidature : remplissez ces cases.</p>\
+        <p>Votre candidature a bien été préparée, il reste à l'envoyer.</p>\
+        <label>Prénom <input name=\"prenom\"></label><label>Nom <input name=\"nom\"></label>\
+        <label>Adresse e-mail <input type=\"email\" name=\"mail\"></label>\
+        <button type=\"submit\">Envoyer ma candidature</button></form></body></html>";
+    let f = lire("x", dedans);
+    assert!(f.present(), "{}", f.trace);
+    assert_eq!((f.confirmation.as_deref(), f.confirmation_a_cote.as_deref(), f.confirmee()), (None, None, None));
+    // Une phrase à côté du formulaire qui annonce seulement la suite : pas une confirmation non plus
+    let annonce = "<html><body><p>Une fois votre candidature envoyée, vous recevrez un accusé de réception.</p>\
+        <form><label>Prénom <input name=\"prenom\"></label><label>Nom <input name=\"nom\"></label>\
+        <label>Adresse e-mail <input type=\"email\" name=\"mail\"></label>\
+        <button type=\"submit\">Envoyer ma candidature</button></form></body></html>";
+    let f = lire("x", annonce);
+    assert!(f.present(), "{}", f.trace);
+    assert_eq!((f.confirmation_a_cote.as_deref(), f.confirmee()), (None, None), "{}", f.trace);
+    // Les formulaires de candidature des exemples n'ont aucune confirmation à côté
+    for html in
+        [indeed_coordonnees(), indeed_cv(false), indeed_verifier(false), ft_formulaire(None), inconnu_formulaire()]
+    {
+        let f = lire("x", &html);
+        assert!(f.present() && f.confirmee().is_none(), "{}", f.trace);
+    }
+    // Sans formulaire de candidature (une simple alerte mail à côté), rien ne change : l'ancien champ
+    let alerte = "<html><body><h1>Votre candidature a bien été envoyée à Exemple</h1>\
+        <form><label>Recevoir les offres par mail <input type=\"email\" name=\"alerte\"></label>\
+        <button>Créer mon alerte</button></form></body></html>";
+    let f = lire("x", alerte);
+    assert!(!f.present(), "{}", f.trace);
+    assert_eq!(f.confirmation.as_deref(), Some("Votre candidature a bien été envoyée à Exemple"));
+    assert_eq!(f.confirmation_a_cote, None);
+    assert_eq!(f.confirmee(), Some("Votre candidature a bien été envoyée à Exemple"));
+}

@@ -10,13 +10,19 @@ pub const BOITE_MDP: &str = "essaiessaiessaii";
 /// journal.
 pub const BOITE_DEMANDE: &str = "boite.demande";
 
-/// Un mail brut (RFC 5322) : texte seul, ou HTML et texte (multipart/alternative), en UTF-8.
+/// Un mail brut (RFC 5322) : texte seul, ou HTML et texte (multipart/alternative), en UTF-8. Un mail d'un des sites
+/// porte en haut l'en-tête Authentication-Results que Gmail aurait ajouté (la signature DKIM du site, vérifiée).
 pub fn mail_brut(id: &str, de: &str, objet: &str, date: &str, texte: &str, html: Option<&str>) -> Vec<u8> {
-    let mut m = format!(
+    let signature = jobmind_sources::alertes::exemples::signature_gmail(de);
+    let mut m = String::new();
+    if !signature.is_empty() {
+        m.push_str(&format!("Authentication-Results: {signature}\r\n"));
+    }
+    m.push_str(&format!(
         "Message-ID: <{id}>\r\nFrom: {de}\r\nTo: Jordan Exemple <{BOITE_ADRESSE}>\r\nSubject: =?UTF-8?B?{}?=\r\nDate: \
          {date}\r\nMIME-Version: 1.0\r\n",
         base64(objet.as_bytes())
-    );
+    ));
     match html {
         None => {
             m.push_str("Content-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n");

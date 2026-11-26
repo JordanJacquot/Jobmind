@@ -188,8 +188,14 @@ pub struct Formulaire {
     /// Un captcha visible dans le formulaire, et s'il est fait
     pub captcha: bool,
     pub captcha_fait: bool,
-    /// La phrase de confirmation de la page (« Votre candidature a bien été envoyée »)
+    /// La phrase de confirmation de la page (« Votre candidature a bien été envoyée »), sur une page sans formulaire
+    /// de candidature
     pub confirmation: Option<String>,
+    /// La phrase de confirmation écrite sur la page À CÔTÉ d'un formulaire retenu (hors de ce formulaire) : le site
+    /// confirme l'envoi et montre en même temps un autre formulaire (créer un compte, recevoir des offres par mail).
+    /// Toujours vide sans formulaire ([`Formulaire::confirmation`] sert alors). À ne croire qu'après un envoi : voir
+    /// [`Formulaire::confirmee`].
+    pub confirmation_a_cote: Option<String>,
     /// La phrase d'une page d'erreur du site
     pub erreur_site: Option<String>,
     /// La page demande de se connecter (une case de mot de passe)
@@ -203,6 +209,18 @@ impl Formulaire {
     /// Un formulaire de candidature est là.
     pub fn present(&self) -> bool {
         !self.champs.is_empty()
+    }
+
+    /// La phrase qui confirme la candidature sur la page lue juste après le clic sur le bouton d'envoi : celle d'une
+    /// page sans formulaire, sinon celle écrite à côté d'un formulaire (audit du 26/11/2026 : un site qui confirme
+    /// en montrant un autre formulaire). Rien si la page montre une erreur du site (`erreurs`) : c'est un refus.
+    /// À n'appeler que sur la page revenue après un envoi : avant, la même phrase peut être une simple explication.
+    pub fn confirmee(&self) -> Option<&str> {
+        match &self.confirmation {
+            Some(c) => Some(c.as_str()),
+            None if self.erreurs.is_empty() => self.confirmation_a_cote.as_deref(),
+            None => None,
+        }
     }
 }
 
@@ -867,6 +885,32 @@ const CONFIRMATIONS: [&str; 25] = [
     "thank you for your application",
 ];
 
+/// Les tournures d'une confirmation qui disent que c'est fait (« a bien été envoyée », « merci d'avoir postulé »),
+/// les seules crues sur une page qui montre aussi un formulaire. Sans celles de [`CONFIRMATIONS`] qui servent aussi
+/// à annoncer la suite (« vous recevrez un accusé de réception », « une fois votre candidature envoyée »).
+const CONFIRMATIONS_FAITES: [&str; 20] = [
+    "c est bien recu",
+    "accusons reception",
+    "candidature a bien ete",
+    "candidature a ete envoyee",
+    "candidature a ete transmise",
+    "candidature a ete recue",
+    "candidature a ete enregistree",
+    "candidature est bien",
+    "candidature bien recue",
+    "merci pour votre candidature",
+    "merci de votre candidature",
+    "merci d avoir postule",
+    "nous avons bien recu",
+    "avons bien recu votre",
+    "dossier a bien ete",
+    "application has been submitted",
+    "application has been received",
+    "thanks for applying",
+    "thank you for applying",
+    "thank you for your application",
+];
+
 const ERREURS_SITE: [&str; 13] = [
     "momentanement indisponible",
     "s est mal passe",
@@ -1195,7 +1239,16 @@ pub fn lire_document(adresse: &str, d: &Document) -> Formulaire {
         }
     }
     f.connexion = mot_de_passe;
+    // (la place du formulaire retenu dans la page : sa balise `<form>`, sinon de sa première à sa dernière case)
+    let mut plage_retenue: Option<(usize, usize)> = None;
     if let Some((g, _)) = meilleur {
+        plage_retenue = match g {
+            Some(x) => Some((x, d.fin(x).max(x + 1))),
+            None => {
+                let js = vues.iter().filter(|v| v.form.is_none()).map(|v| v.j);
+                js.clone().min().zip(js.max()).map(|(a, b)| (a, b + 1))
+            }
+        };
         f.champs = champs.into_iter().filter(|(x, _)| *x == g).map(|(_, c)| c).collect();
         // (une seule zone de texte, et aucune lettre : c'est la place du message au recruteur, sauf une question
         // précise)
@@ -1336,6 +1389,10 @@ pub fn lire_document(adresse: &str, d: &Document) -> Formulaire {
             f.erreur_site = phrase_avec(&texte, &ERREURS_SITE);
         }
         f.postuler = postuler.map(|x| x.1);
+    } else if let Some(plage) = plage_retenue {
+        // (une confirmation écrite à côté du formulaire retenu, jamais dedans : le texte d'un formulaire explique
+        // souvent ce qui se passera après l'envoi)
+        f.confirmation_a_cote = phrase_avec(&d.texte_page_sauf(Some(plage), 60_000), &CONFIRMATIONS_FAITES);
     }
 
     trace.push(format!("titre « {} »", ligne(&f.titre, 80)));
@@ -1375,6 +1432,9 @@ pub fn lire_document(adresse: &str, d: &Document) -> Formulaire {
     }
     if let Some(c) = &f.confirmation {
         trace.push(format!("confirmation « {c} »"));
+    }
+    if let Some(c) = &f.confirmation_a_cote {
+        trace.push(format!("confirmation à côté du formulaire « {c} »"));
     }
     if f.connexion {
         trace.push("mot de passe demandé".into());

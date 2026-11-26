@@ -5,6 +5,7 @@
 use super::*;
 use crate::lecture::lire as lire_offre;
 
+mod cinquieme;
 mod quatrieme;
 mod seconde;
 mod troisieme;

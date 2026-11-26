@@ -223,6 +223,20 @@ fn erreur_base(e: impl fmt::Display) -> ErreurSauvegarde {
     ErreurSauvegarde::Base(e.to_string())
 }
 
+/// L'erreur de la copie de la base (`VACUUM INTO`) : un disque plein (SQLITE_FULL) ou une écriture refusée par le
+/// disque (SQLITE_IOERR et ses variantes) est une erreur du disque, avec sa phrase sur la place qui reste, et non une
+/// base illisible. Toute autre erreur reste celle de la base.
+fn erreur_copie(e: rusqlite::Error) -> ErreurSauvegarde {
+    use rusqlite::ErrorCode;
+    match e.sqlite_error_code() {
+        Some(ErrorCode::DiskFull) => {
+            ErreurSauvegarde::Disque(std::io::Error::new(std::io::ErrorKind::StorageFull, e.to_string()))
+        }
+        Some(ErrorCode::SystemIoFailure) => ErreurSauvegarde::Disque(std::io::Error::other(e.to_string())),
+        _ => erreur_base(e),
+    }
+}
+
 /// Un nom de fichier de CV sûr : les règles de [`profil::chemin_fichier`], sans nom réservé de Windows (CON, NUL,
 /// COM1...) ni point à la fin (Windows l'enlèverait).
 fn nom_cv_sur(nom: &str) -> bool {
@@ -278,7 +292,7 @@ pub fn faire(base: &Base, dossier_donnees: &Path, maintenant: Moment) -> Result<
     std::fs::create_dir_all(&data)?;
     let copie = Temporaire(data.join(format!("{}.db", unique("sauvegarde"))));
     let chemin = copie.0.to_str().ok_or_else(|| erreur_base("chemin du dossier de données illisible"))?;
-    base.connexion().execute("VACUUM INTO ?1", [chemin]).map_err(erreur_base)?;
+    base.connexion().execute("VACUUM INTO ?1", [chemin]).map_err(erreur_copie)?;
     if std::fs::metadata(&copie.0)?.len() > BASE_MAX {
         return Err(ErreurSauvegarde::DonneesTropGrosses);
     }
@@ -1041,5 +1055,39 @@ mod tests {
         assert!(!est_avant_restauration("avant-restauration-2026-11-19-14050.zip"));
         assert!(!est_avant_restauration("avant-restauration-2026-11-19.zip"));
         assert_eq!(nom_fichier(Moment::nouveau(2026, 11, 19, 8, 0, 0).unwrap()), "Jobmind sauvegarde 2026-11-19.zip");
+    }
+
+    /// Un disque plein pendant la copie de la base : la phrase sur la place du disque, jamais « Tes données n'ont pas
+    /// pu être lues ». L'erreur est une vraie erreur de SQLite (une base bornée à quelques pages, puis remplie).
+    #[test]
+    fn disque_plein_pendant_la_copie() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE t (x TEXT)").unwrap();
+        let _: i64 = c.query_row("PRAGMA max_page_count = 4", [], |r| r.get(0)).unwrap();
+        let mut plein = None;
+        for _ in 0..100 {
+            if let Err(e) = c.execute("INSERT INTO t (x) VALUES (?1)", ["x".repeat(2000)]) {
+                plein = Some(e);
+                break;
+            }
+        }
+        let plein = plein.expect("la base bornée aurait dû se remplir");
+        assert_eq!(plein.sqlite_error_code(), Some(rusqlite::ErrorCode::DiskFull));
+        let e = erreur_copie(plein);
+        assert!(matches!(&e, ErreurSauvegarde::Disque(x) if x.kind() == std::io::ErrorKind::StorageFull), "{e}");
+        assert!(e.message().contains("place sur le disque"), "{}", e.message());
+        assert_eq!(e.message(), ErreurSauvegarde::Disque(std::io::Error::other("x")).message());
+        // Une écriture refusée par le disque (SQLITE_IOERR et ses variantes) : la même phrase
+        for code in [rusqlite::ffi::SQLITE_FULL, rusqlite::ffi::SQLITE_IOERR, rusqlite::ffi::SQLITE_IOERR_WRITE] {
+            let e = erreur_copie(rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(code), None));
+            assert!(matches!(e, ErreurSauvegarde::Disque(_)), "{code} : {e}");
+        }
+        // Contre-épreuve : une autre erreur de SQLite reste celle de la base
+        for code in [rusqlite::ffi::SQLITE_CORRUPT, rusqlite::ffi::SQLITE_BUSY, rusqlite::ffi::SQLITE_CANTOPEN] {
+            let e = erreur_copie(rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(code), None));
+            assert!(matches!(e, ErreurSauvegarde::Base(_)), "{code} : {e}");
+            assert_eq!(e.message(), "Tes données n'ont pas pu être lues pour la sauvegarde.");
+        }
+        assert!(matches!(erreur_copie(rusqlite::Error::QueryReturnedNoRows), ErreurSauvegarde::Base(_)));
     }
 }

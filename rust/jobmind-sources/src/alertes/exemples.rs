@@ -181,9 +181,60 @@ pub struct ExempleMail {
 }
 
 impl ExempleMail {
-    /// Le mail tel que la lecture des alertes le reçoit.
+    /// Le mail tel que la lecture des alertes le reçoit (avec la signature que Gmail aurait vue : [`signature_gmail`]).
     pub fn mail(&self) -> MailAlerte<'static> {
-        MailAlerte { de: self.de, de_nom: self.de_nom, objet: self.objet, html: self.html, texte: self.texte }
+        MailAlerte {
+            de: self.de,
+            de_nom: self.de_nom,
+            objet: self.objet,
+            html: self.html,
+            texte: self.texte,
+            authentification: signature_gmail(self.de),
+        }
+    }
+}
+
+/// L'en-tête Authentication-Results qu'ajouterait Gmail à un vrai mail de ce domaine, signé par lui.
+macro_rules! signe {
+    ($d:literal) => {
+        concat!(
+            "mx.google.com; dkim=pass header.i=@",
+            $d,
+            " header.s=s2048 header.b=ExEmPlE; spf=pass (google.com: domain of bounce@",
+            $d,
+            " designates 192.0.2.1 as permitted sender) smtp.mailfrom=bounce@",
+            $d,
+            "; dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=",
+            $d
+        )
+    };
+}
+
+/// L'en-tête Authentication-Results que Gmail ajouterait à un vrai mail venu de cette adresse : une signature DKIM
+/// valable du site (le domaine du site, ou celui dont l'adresse est un sous-domaine) ; une adresse qui n'est pas d'un
+/// des quatre sites : rien (Gmail n'aurait vu aucune signature du site).
+pub fn signature_gmail(de: &str) -> &'static str {
+    let de = de.trim();
+    let adresse = match (de.rfind('<'), de.rfind('>')) {
+        (Some(a), Some(b)) if a < b => &de[a + 1..b],
+        _ => de,
+    };
+    let domaine = adresse.rsplit('@').next().unwrap_or_default().trim().to_ascii_lowercase();
+    let sous = |d: &str| domaine == d || domaine.ends_with(&format!(".{d}"));
+    if sous("linkedin.com") {
+        signe!("linkedin.com")
+    } else if sous("indeed.com") {
+        signe!("indeed.com")
+    } else if sous("indeed.fr") {
+        signe!("indeed.fr")
+    } else if sous("welcometothejungle.com") {
+        signe!("welcometothejungle.com")
+    } else if sous("francetravail.fr") {
+        signe!("francetravail.fr")
+    } else if sous("pole-emploi.fr") {
+        signe!("pole-emploi.fr")
+    } else {
+        ""
     }
 }
 

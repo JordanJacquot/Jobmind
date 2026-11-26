@@ -147,7 +147,7 @@ fn textes(aujourdhui: Jour) -> Value {
         ("i_ville", "Par exemple : Metz"),
         ("i_date", "JJ/MM/AAAA"),
         ("i_source", "LinkedIn, Indeed, France Travail..."),
-        ("i_lien", "https://..."),
+        ("i_lien", "Colle ici le lien de l'offre."),
         ("i_envoye", "Colle ici ta lettre ou ton message."),
         ("i_cv", "Par exemple : CV 2026.pdf"),
         ("i_notes", "Le nom du contact, ce qu'on t'a dit..."),
@@ -893,5 +893,15 @@ mod tests {
             mails_dossier: &[],
         };
         assert!(etat("0.1.0", &v).to_string().len() < 40_000);
+    }
+
+    /// Audit du 27/11/2026 : l'exemple du lien de l'offre est une phrase simple, pas « https://... ».
+    #[test]
+    fn exemple_du_lien_en_mots_simples() {
+        let t = textes(auj());
+        assert_eq!(t["i_lien"], "Colle ici le lien de l'offre.");
+        let mut l = Vec::new();
+        textes_de(&t, &mut l);
+        assert!(l.iter().all(|x| !x.contains("https://")), "{l:?}");
     }
 }

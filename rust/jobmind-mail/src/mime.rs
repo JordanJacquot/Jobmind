@@ -49,6 +49,8 @@ pub fn lire(uid: u32, octets: &[u8]) -> Mail {
     m.en_reponse_a = references(valeur(&e, "in-reply-to"), valeur(&e, "references"));
     let precedence = valeur(&e, "precedence").trim().to_ascii_lowercase();
     m.masse = e.iter().any(|(n, _)| n == "list-unsubscribe") || precedence == "bulk" || precedence == "list";
+    // (le premier : celui que Gmail a ajouté en haut ; ceux d'en dessous viennent peut-être de l'expéditeur)
+    m.authentification = valeur(&e, "authentication-results").to_string();
 
     let mut etat = Etat::default();
     partie(&e, corps, 0, &mut etat);
@@ -1245,6 +1247,23 @@ jobs/view/4012345678/\">Agent de quai</a></td></tr></table></body></html>\r\n\
         assert!(m.masse);
         assert_eq!(m.html, html);
         assert_eq!(m.texte, "Nouvelles offres\nPr\u{e9}parateur de commandes - CDI\nNancy (54)\nVoir");
+    }
+
+    /// Audit du 27/11/2026 : l'en-tête Authentication-Results est gardé (le premier, celui de Gmail, déplié), pour
+    /// que les alertes ne se reconnaissent plus au seul « From », facile à imiter.
+    #[test]
+    fn authentication_results_le_premier_seulement() {
+        let brut = "Authentication-Results: mx.google.com;\r\n       dkim=pass header.i=@indeed.com header.s=s1;\r\n\
+                    \x20      spf=pass smtp.mailfrom=alert@indeed.com\r\n\
+                    Authentication-Results: faux.exemple; dkim=pass header.d=indeed.com\r\n\
+                    From: Indeed <alert@indeed.com>\r\nSubject: 3 nouveaux emplois\r\n\r\nBonjour\r\n";
+        let m = lire(1, brut.as_bytes());
+        assert!(m.authentification.starts_with("mx.google.com;"), "{}", m.authentification);
+        assert!(m.authentification.contains("dkim=pass header.i=@indeed.com"), "{}", m.authentification);
+        assert!(m.authentification.contains("spf=pass"), "déplié : {}", m.authentification);
+        assert!(!m.authentification.contains("faux.exemple"));
+        // (sans l'en-tête : vide)
+        assert_eq!(lire(2, b"From: alert@indeed.com\r\n\r\nBonjour").authentification, "");
     }
 
     #[test]

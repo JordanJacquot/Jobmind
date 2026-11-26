@@ -634,7 +634,7 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
                 ("facultatif", "facultatif"),
                 ("i_nom", "Par exemple : Quai autour de Metz"),
                 ("mots", "Poste"),
-                ("i_mots", "Par exemple : helpdesk, cariste, vendeur"),
+                ("i_mots", "Par exemple : assistance informatique, cariste, vendeur"),
                 ("mots_aide", "Écris un métier : Jobmind te propose les noms exacts et les métiers voisins. Vide : tous les métiers du lieu."),
                 ("lieu", "Où"),
                 ("rayon", "Jusqu'à"),
@@ -1150,5 +1150,14 @@ mod tests {
         assert_eq!(c["attente"], false);
         // (aucune adresse de site envoyée à la page)
         assert!(!f.to_string().contains("https://www.entrepots"), "{f}");
+    }
+
+    /// Audit du 27/11/2026 : l'exemple du poste est en mots simples (« assistance informatique », pas « helpdesk »).
+    #[test]
+    fn exemple_du_poste_en_mots_simples() {
+        let e = onglet(&exemple(), j(18));
+        let t = e["offres"]["textes"]["i_mots"].as_str().unwrap();
+        assert_eq!(t, "Par exemple : assistance informatique, cariste, vendeur");
+        assert!(!e.to_string().contains("helpdesk"));
     }
 }

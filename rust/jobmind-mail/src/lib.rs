@@ -223,6 +223,10 @@ pub struct Mail {
     pub pieces_jointes: usize,
     /// L'en-tête List-Unsubscribe ou Precedence: bulk existe (un envoi de masse)
     pub masse: bool,
+    /// Le PREMIER en-tête Authentication-Results (le plus haut : celui que Gmail ajoute en recevant le mail, avant
+    /// tous ceux que l'expéditeur aurait pu écrire lui-même), déplié ; vide s'il n'y en a pas. Sert à vérifier que
+    /// l'expéditeur d'une alerte est vraiment le site (signature DKIM)
+    pub authentification: String,
 }
 
 /// Ce qu'une relève a rapporté.

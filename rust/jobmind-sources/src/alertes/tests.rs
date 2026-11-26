@@ -308,6 +308,7 @@ fn linkedin(html: &str) -> Option<Alerte> {
         objet: "« cariste » : nouvelles offres",
         html,
         texte: "",
+        authentification: signature_gmail("jobalerts-noreply@linkedin.com"),
     })
 }
 
@@ -320,6 +321,7 @@ fn les_expediteurs() {
             objet: "« cariste » : 3 nouvelles offres",
             html: LINKEDIN_1,
             texte: "",
+            authentification: signature_gmail(de),
         })
     };
     assert_eq!(avec("jobalerts-noreply@linkedin.com"), Some(Site::LinkedIn));
@@ -347,6 +349,7 @@ fn les_expediteurs() {
         objet: "Nouvelles offres",
         html,
         texte: "",
+        authentification: signature_gmail(de),
     };
     assert_eq!(reconnaitre(&m("donotreply@jobalert.indeed.com", INDEED_1)), Some(Site::Indeed));
     assert_eq!(reconnaitre(&m("alerte@indeed.fr", INDEED_1)), Some(Site::Indeed));
@@ -432,6 +435,7 @@ fn liens_de_suivi_decodes() {
             objet: "Nouvelles offres pour votre alerte",
             html: &html,
             texte: "",
+            authentification: signature_gmail("alerts@welcometothejungle.com"),
         })
         .unwrap_or_else(|| panic!("{href}"));
         assert_eq!(a.offres.len(), 1, "{href}");
@@ -452,7 +456,14 @@ fn liens_de_suivi_decodes() {
 #[test]
 fn indeed_sans_jk_ou_par_un_hote_de_suivi() {
     let m = |html: &str| -> Option<Alerte> {
-        lire(&MailAlerte { de: "alert@indeed.com", de_nom: "", objet: "Nouvelles offres : cariste", html, texte: "" })
+        lire(&MailAlerte {
+            de: "alert@indeed.com",
+            de_nom: "",
+            objet: "Nouvelles offres : cariste",
+            html,
+            texte: "",
+            authentification: signature_gmail("alert@indeed.com"),
+        })
     };
     // Sans jk : ignorée, comptée
     let a = m(
@@ -521,6 +532,7 @@ fn mails_pieges() {
             objet: "offres",
             html: "",
             texte: html,
+            authentification: signature_gmail("jobalerts-noreply@linkedin.com"),
         }) {
             propre(&a);
         }
@@ -587,6 +599,7 @@ fn texte_seul_sans_lignes_vides() {
         objet: "Nouvelles offres : cariste",
         html: "",
         texte: t,
+        authentification: signature_gmail("alert@indeed.com"),
     })
     .expect("alerte");
     propre(&a);
@@ -609,9 +622,15 @@ fn offres_a_la_suite_sans_blocs() {
         <a href=\"https://fr.indeed.com/rc/clk/dl?jk=aaaa000000000002\"><b>Cariste H/F</b></a><br>Transports Moselle Fret<br>Woippy (57)<br>CDI<br><br>\
         <a href=\"https://fr.indeed.com/rc/clk/dl?jk=aaaa000000000003\"><b>Agent de quai</b></a><br><br>\
         <a href=\"https://fr.indeed.com/alert/unsubscribe\">Se désabonner</a></td></tr></table>";
-    let a =
-        lire(&MailAlerte { de: "alert@indeed.com", de_nom: "", objet: "Nouvelles offres : cariste", html, texte: "" })
-            .expect("alerte");
+    let a = lire(&MailAlerte {
+        de: "alert@indeed.com",
+        de_nom: "",
+        objet: "Nouvelles offres : cariste",
+        html,
+        texte: "",
+        authentification: signature_gmail("alert@indeed.com"),
+    })
+    .expect("alerte");
     propre(&a);
     let lues: Vec<(&str, &str, &str, &str)> = a
         .offres
@@ -636,5 +655,74 @@ fn rien_de_tiret_long() {
             let tout = format!("{}{}{}{}{}{}", o.titre, o.entreprise, o.lieu, o.contrat, o.salaire, o.brut);
             assert!(!tout.contains(['\u{2013}', '\u{2014}']), "{}", e.nom);
         }
+    }
+}
+
+/// Audit du 27/11/2026 : le « From » s'imite facilement. Une alerte n'est reconnue que si Gmail a vu une signature
+/// DKIM valable du domaine de l'expéditeur (« dkim=pass », header.d ou header.i), dans le PREMIER en-tête
+/// Authentication-Results, celui de Gmail.
+#[test]
+fn la_signature_dkim_du_site_est_exigee() {
+    let avec = |de: &str, auth: &str| {
+        reconnaitre(&MailAlerte {
+            de,
+            de_nom: "",
+            objet: "« cariste » : 3 nouvelles offres",
+            html: LINKEDIN_1,
+            texte: "",
+            authentification: auth,
+        })
+    };
+    let de = "jobalerts-noreply@linkedin.com";
+    // Le vrai : signé par linkedin.com (header.i ou header.d), commentaires et majuscules compris
+    assert_eq!(avec(de, signature_gmail(de)), Some(Site::LinkedIn));
+    assert_eq!(avec(de, "mx.google.com; dkim=pass header.d=linkedin.com header.s=s1"), Some(Site::LinkedIn));
+    assert_eq!(
+        avec(de, "MX.Google.com; DKIM=Pass (2048-bit key) Header.I=\"@LinkedIn.com\"; spf=pass"),
+        Some(Site::LinkedIn)
+    );
+    // (un sous-domaine du site, dans un sens ou dans l'autre)
+    assert_eq!(avec("jobs@e.linkedin.com", "mx.google.com; dkim=pass header.d=linkedin.com"), Some(Site::LinkedIn));
+    assert_eq!(avec(de, "mx.google.com; dkim=pass header.d=e.linkedin.com"), Some(Site::LinkedIn));
+    // (plusieurs signatures : celle du site suffit)
+    assert_eq!(
+        avec(de, "mx.google.com; dkim=pass header.i=@sendgrid.net; dkim=pass header.i=@linkedin.com; spf=pass"),
+        Some(Site::LinkedIn)
+    );
+    // Sans en-tête : pas une alerte
+    assert_eq!(avec(de, ""), None);
+    // Un faux « From » : signé par un autre domaine
+    assert_eq!(avec(de, "mx.google.com; dkim=pass header.i=@arnaque.ru; spf=pass smtp.mailfrom=arnaque.ru"), None);
+    assert_eq!(avec(de, "mx.google.com; dkim=pass header.d=fauxlinkedin.com"), None);
+    assert_eq!(avec(de, "mx.google.com; dkim=pass header.d=linkedin.com.arnaque.ru"), None);
+    assert_eq!(avec(de, "mx.google.com; dkim=pass header.d=com"), None);
+    // (signé par un autre des sites : non plus)
+    assert_eq!(avec(de, signature_gmail("alert@indeed.com")), None);
+    // La signature ratée ou absente
+    for r in ["fail", "neutral", "none", "temperror", "permerror", "policy"] {
+        assert_eq!(avec(de, &format!("mx.google.com; dkim={r} header.i=@linkedin.com; spf=pass")), None, "{r}");
+    }
+    assert_eq!(
+        avec(de, "mx.google.com; spf=pass smtp.mailfrom=linkedin.com; dmarc=pass header.from=linkedin.com"),
+        None
+    );
+    // (« dkim=pass » caché dans un commentaire, ou dans une autre partie)
+    assert_eq!(avec(de, "mx.google.com; dkim=fail (dkim=pass header.d=linkedin.com) header.i=@linkedin.com"), None);
+    assert_eq!(avec(de, "mx.google.com; spf=pass (dkim=pass header.d=linkedin.com)"), None);
+    // Un en-tête écrit par un autre serveur que Gmail (l'expéditeur lui-même) : pas cru
+    assert_eq!(avec(de, "linkedin.com; dkim=pass header.d=linkedin.com"), None);
+    assert_eq!(avec(de, "dkim=pass header.d=linkedin.com"), None);
+    // Les mails d'exemple d'imitation, même avec une vraie signature de LinkedIn ou d'Indeed : rien
+    for e in IMITATIONS.iter() {
+        for auth in [signature_gmail(de), signature_gmail("alert@indeed.com")] {
+            assert_eq!(reconnaitre(&MailAlerte { authentification: auth, ..e.mail() }), None, "{}", e.nom);
+        }
+    }
+    // Une vraie alerte d'exemple, sans en-tête ou avec dkim=fail : rien
+    for e in ALERTES.iter() {
+        assert!(reconnaitre(&e.mail()).is_some(), "{}", e.nom);
+        assert_eq!(reconnaitre(&MailAlerte { authentification: "", ..e.mail() }), None, "{}", e.nom);
+        let rate = signature_gmail(e.de).replace("dkim=pass", "dkim=fail");
+        assert_eq!(reconnaitre(&MailAlerte { authentification: &rate, ..e.mail() }), None, "{}", e.nom);
     }
 }

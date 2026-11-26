@@ -264,6 +264,30 @@ fn court(t: &str) -> String {
     t.chars().take(120).collect()
 }
 
+/// 0.2.1 : une adresse d'un site pour le journal : son hôte et son chemin seulement (« https://hote/chemin »), jamais
+/// ses paramètres (les mots et la ville de la recherche), coupée.
+fn adresse_journal(u: &str) -> String {
+    match u.parse::<Url>() {
+        Ok(x) => court(&format!("{}://{}{}", x.scheme(), x.host_str().unwrap_or_default(), x.path())),
+        Err(_) => court(u.split(['?', '#']).next().unwrap_or_default()),
+    }
+}
+
+/// 0.2.1 : ce que la page dit d'elle-même (« visible », « hidden ») pour le journal : des lettres simples, coupé.
+fn mot_journal(t: &str) -> String {
+    t.chars().filter(char::is_ascii_alphabetic).take(20).collect()
+}
+
+/// Réessaie un rapport un peu plus tard depuis un autre fil (le fil de la fenêtre est occupé) : jamais en boucle
+/// sur le fil de la fenêtre, jamais d'appel de soi-même sans fin (la pile débordait quand l'état était déjà
+/// emprunté, par exemple un fil d'envoi qui n'a pas pu être créé).
+fn plus_tard(f: impl FnOnce() + Send + 'static) {
+    let _ = std::thread::Builder::new().name("reessai".into()).spawn(move || {
+        std::thread::sleep(Duration::from_millis(20));
+        f();
+    });
+}
+
 /// Une copie que Mindset ne gère pas (`Show-BlocageMindset` de Mindcare) : un message, avec « Ouvrir Mindset » s'il
 /// est installé, sinon l'adresse de sa page. Une fenêtre voulue, pour l'utilisateur.
 #[cfg(not(feature = "essai"))]
@@ -291,6 +315,22 @@ fn bloquee(_mindset_exe: Option<&Path>, _systeme: &mut SystemeWindows) {
     std::process::exit(3);
 }
 
+/// Le dossier des copies des pages mal lues (0.1.6 à 0.2.0), retiré en 0.2.1.
+const PAGES_ILLISIBLES: &str = "pages-illisibles";
+
+/// 0.2.1 : les copies en clair des pages que Jobmind lisait mal (jusqu'à 4 Mo chacune, champs remplis compris) sont
+/// effacées des données : rien n'en garde plus. Sans dossier, rien à faire ni à dire ; un lien n'est jamais suivi.
+/// Rend la ligne du journal.
+fn effacer_pages_illisibles(donnees: &Path) -> Option<String> {
+    let d = donnees.join(PAGES_ILLISIBLES);
+    let m = std::fs::symlink_metadata(&d).ok()?;
+    let r = if m.is_dir() { std::fs::remove_dir_all(&d) } else { std::fs::remove_file(&d) };
+    Some(match r {
+        Ok(()) => "Sites : copies des pages mal lues effacées".to_string(),
+        Err(e) => format!("Sites : copies des pages mal lues pas effacées ({e})"),
+    })
+}
+
 /// Ce qui suit l'ouverture de la base : un envoi par mail ou sur un site resté en cours quand Jobmind s'est arrêtée
 /// devient « incertain » (étapes 10 et 11), puis la copie automatique du jour (étape 12).
 fn base_ouverte(b: &Base, dossier: &Path, journal: &Journal) {
@@ -314,7 +354,42 @@ fn base_ouverte(b: &Base, dossier: &Path, journal: &Journal) {
         }
         Err(e) => journal.ecrire(&format!("Profil : recherches non accordées ({e})")),
     }
+    // (0.2.1 : la réponse brute des sites est retirée des offres de plus de 90 jours, les offres restent)
+    match jobmind_storage::offres::menage(b.connexion(), heure::maintenant()) {
+        Ok(0) => {}
+        Ok(n) => journal.ecrire(&format!("Base : ménage fait, {n} offre(s) de plus de 90 jours allégée(s)")),
+        Err(e) => journal.ecrire(&format!("Base : ménage pas fait ({e})")),
+    }
+    recomprendre_claude(b, journal);
     copie_du_jour(b, dossier, journal);
+}
+
+/// 0.2.1 : les réponses de Claude gardées avant la migration 17 sont comprises une fois, pour qu'une offre ne reste
+/// pas « non dit » quand les règles ne trouvent plus rien (la liste est vide après le premier lancement).
+fn recomprendre_claude(b: &Base, journal: &Journal) {
+    let l = match jobmind_storage::lecture::a_recomprendre(b.connexion(), 5000) {
+        Ok(l) => l,
+        Err(e) => return journal.ecrire(&format!("Lecture : anciennes réponses de Claude pas relues ({e})")),
+    };
+    if l.is_empty() {
+        return;
+    }
+    let mut n = 0;
+    for a in &l {
+        let envoye = jobmind_llm::lecture::texte_envoye(&a.titre, &a.texte);
+        let lu = jobmind_llm::lecture::comprendre(&envoye, &a.reponse).ok();
+        if jobmind_storage::lecture::garder_comprise(
+            b.connexion(),
+            a.lecture_id,
+            lu.as_ref().and_then(|x| x.diplome.as_ref()),
+            lu.as_ref().and_then(|x| x.experience.as_ref()),
+        )
+        .unwrap_or(false)
+        {
+            n += 1;
+        }
+    }
+    journal.ecrire(&format!("Lecture : {n} ancienne(s) réponse(s) de Claude relue(s) sur {}", l.len()));
 }
 
 /// Étape 12 : une sauvegarde toute seule par jour, les 7 dernières gardées dans le dossier des données.
@@ -409,6 +484,10 @@ pub fn lancer() -> ! {
     let theme = themes::charger(Some(&choix), &packs);
     for r in &theme.raisons {
         journal.ecrire(&format!("Thème : {r}"));
+    }
+    // (0.2.1 : les copies des pages mal lues gardées par la 0.1.6 sont effacées, une fois)
+    if let Some(j) = effacer_pages_illisibles(&l.dossier_donnees) {
+        journal.ecrire(&j);
     }
     // Les clés (data\cles.json), chiffrées par DPAPI pour cet utilisateur Windows
     let (cles, raison) = Cles::ouvrir(&l.dossier_donnees, Box::new(Dpapi));
@@ -1312,12 +1391,6 @@ fn lecture_rendue(app: &AppHandle, no: u64, rendu: String) {
     drop(rendu);
     let a = app.clone();
     let vers_site = ETAT.with(|e| e.try_borrow().ok().and_then(|e| e.as_ref().map(Etat::vers_site)));
-    // (0.1.6 : une page mal lue gardée dans les données, pour corriger la lecture : crate::illisibles)
-    let donnees = ETAT.with(|e| {
-        e.try_borrow()
-            .ok()
-            .and_then(|e| e.as_ref()?.donnees.try_borrow().ok()?.as_ref().map(|d| d.dossier().to_path_buf()))
-    });
     let r = std::thread::Builder::new().name("lecture-page".into()).spawn(move || {
         let Some((brute, h, visible)) = lu else {
             rapporter_lecture(&a, no, None, String::new());
@@ -1328,9 +1401,6 @@ fn lecture_rendue(app: &AppHandle, no: u64, rendu: String) {
             None => brute.clone(),
         };
         let comprise = jobmind_sources::sites::comprendre(&u, &h);
-        if let Some(d) = &donnees {
-            crate::illisibles::garder(d, &comprise, &h);
-        }
         // (étape 11 : le formulaire de candidature de la page, s'il y en a un)
         let formulaire = Some(jobmind_sources::formulaire::lire(&u, &h));
         drop(h);
@@ -1356,10 +1426,11 @@ fn rapporter_lecture(app: &AppHandle, no: u64, l: Option<Lecture>, visible: Stri
                         Some(l) => {
                             let montree = etat.montree;
                             let j = format!(
-                                "Sites : page lue {} ({}, écran {}, page {visible}){}",
-                                court(&l.comprise.adresse),
+                                "Sites : page lue {} ({}, écran {}, page {}){}",
+                                adresse_journal(&l.comprise.adresse),
                                 l.comprise.site.code(),
                                 l.comprise.ecran.code(),
+                                mot_journal(&visible),
                                 if montree { ", dans la petite fenêtre" } else { ", en coulisse" }
                             );
                             etat.journal.ecrire(&j);
@@ -1472,7 +1543,7 @@ fn rapporter_ia(app: &AppHandle, r: RetourIa) {
             Err(_) => Some(r),
         });
         if let Some(r) = reste {
-            rapporter_ia(&a, r);
+            plus_tard(move || rapporter_ia(&a, r));
         }
     });
 }
@@ -1492,7 +1563,7 @@ fn rapporter_vers<T: Send + 'static>(app: &AppHandle, r: T, f: fn(&mut Etat, &Ap
             Err(_) => Some(r),
         });
         if let Some(r) = reste {
-            rapporter_vers(&a, r, f);
+            plus_tard(move || rapporter_vers(&a, r, f));
         }
     });
 }
@@ -1512,7 +1583,7 @@ fn rapporter(app: &AppHandle, r: RetourImport) {
             Err(_) => Some(r),
         });
         if let Some(r) = reste {
-            rapporter(&a, r);
+            plus_tard(move || rapporter(&a, r));
         }
     });
 }
@@ -2163,7 +2234,7 @@ impl Etat {
     }
 
     /// Étape 10 : un envoi par mail sans réponse après 5 minutes devient « incertain » (Jordan regarde dans Gmail) ;
-    /// un résultat arrivé ensuite est laissé.
+    /// 0.2.1 : un résultat arrivé ensuite est encore pris par `envoi::fini`, sauf si Jordan a déjà dit ce qu'il en est.
     fn envoi_trop_long(&mut self, app: &AppHandle) {
         if self.envoi_depuis.is_some_and(|t| t.elapsed() > ENVOI_MAX) {
             self.envoi_depuis = None;
@@ -2536,7 +2607,7 @@ impl Etat {
             && let Some(u) = self.chargement_prevu.take()
         {
             self.dernier_chargement = Some(ici);
-            self.journal.ecrire(&format!("Sites : chargement de {}", court(&u)));
+            self.journal.ecrire(&format!("Sites : chargement de {}", adresse_journal(&u)));
             self.actions_vue.push(ActionVue::Naviguer(u));
         }
         if self.chargement_prevu.is_none()
@@ -3006,8 +3077,8 @@ fn croix(app: &AppHandle) {
         match r {
             Ok(Some(_)) => a.exit(0),
             Ok(None) => {}
-            // (un tour en cours : réessayé juste après)
-            Err(()) => croix(&a),
+            // (un tour en cours : réessayé juste après, depuis un autre fil)
+            Err(()) => plus_tard(move || croix(&a)),
         }
     });
 }
@@ -3302,6 +3373,36 @@ mod tests {
         let s = script_case_fichier("https://exemple.fr/p", 3, &a);
         assert!(s.contains(&format!("\"{a}\"")) && s.contains("data-jm-cible") && s.contains("[3]"));
         assert!(SCRIPT_LECTURE.contains("removeAttribute('data-jm-cible')"));
+    }
+
+    /// 0.2.1 : le journal ne garde d'une adresse de site que son hôte et son chemin (jamais les mots ni la ville de
+    /// la recherche), et de ce que la page dit d'elle-même que des lettres simples.
+    #[test]
+    fn le_journal_ne_garde_ni_la_recherche_ni_des_caracteres_bizarres() {
+        let u = "https://candidat.francetravail.fr/offres/recherche?motsCles=cariste&lieux=57463&rayon=30#haut";
+        assert_eq!(adresse_journal(u), "https://candidat.francetravail.fr/offres/recherche");
+        let a = adresse_journal("https://www.linkedin.com/jobs/search/?keywords=cariste&location=Metz");
+        assert_eq!(a, "https://www.linkedin.com/jobs/search/");
+        assert_eq!(adresse_journal("pas une adresse?motsCles=secret"), "pas une adresse");
+        assert!(adresse_journal(&format!("https://exemple.fr/{}", "a".repeat(500))).chars().count() <= 120);
+        assert_eq!(mot_journal("visible"), "visible");
+        assert_eq!(mot_journal("hid\nden ; Sites : faux\u{1b}[0m"), "hiddenSitesfauxm");
+        assert_eq!(mot_journal(&"x".repeat(100)).len(), 20);
+    }
+
+    /// 0.2.1 : les copies des pages mal lues sont effacées au lancement ; sans dossier, rien n'est dit.
+    #[test]
+    fn les_copies_des_pages_mal_lues_sont_effacees() {
+        let d = std::env::temp_dir().join(format!("jobmind-pages-illisibles-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join(PAGES_ILLISIBLES)).unwrap();
+        std::fs::write(d.join(PAGES_ILLISIBLES).join("linkedin-offre.html"), "<html></html>").unwrap();
+        std::fs::write(d.join("autre.txt"), "garde").unwrap();
+        assert_eq!(effacer_pages_illisibles(&d).as_deref(), Some("Sites : copies des pages mal lues effacées"));
+        assert!(!d.join(PAGES_ILLISIBLES).exists());
+        assert!(d.join("autre.txt").is_file(), "le reste des données ne bouge pas");
+        assert_eq!(effacer_pages_illisibles(&d), None, "une seule fois : ensuite plus rien à faire");
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     /// Une base qui ne s'ouvre pas : un nouvel essai seulement si la raison peut passer.

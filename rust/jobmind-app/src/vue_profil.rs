@@ -205,7 +205,7 @@ fn rubrique_cv(v: &VueProfil, aujourdhui: Jour) -> Value {
             },
             "textes": textes(&[
                 ("importer", "Importer un fichier"),
-                ("formats", "PDF ou Word (.docx), 15 Mo au plus."),
+                ("formats", "Un fichier PDF ou Word."),
                 ("coller", "Coller le texte"),
                 ("autre", "Ajouter un autre CV"),
                 ("mes_cv", "Mes CV"),
@@ -224,8 +224,9 @@ fn rubrique_cv(v: &VueProfil, aujourdhui: Jour) -> Value {
                 ("oui", "Oui, supprimer"),
                 ("non", "Non, garder"),
                 ("coller_titre", "Coller le texte d'un CV"),
-                ("coller_intro", "Ouvre ton CV, sélectionne tout son texte (Ctrl + A), copie-le (Ctrl + C), puis \
-                                 colle-le ici (Ctrl + V)."),
+                ("coller_intro", "Ouvre ton CV et clique dans son texte. Appuie en même temps sur les touches Ctrl \
+                                 et A pour tout choisir, puis sur Ctrl et C pour le copier. Reviens ici, clique dans \
+                                 la case, puis appuie sur Ctrl et V pour le coller."),
                 ("plein", &format!("Tu as déjà {CV_NOMBRE_MAX} CV : supprime-en un pour en ajouter un autre.")),
             ]),
         },
@@ -437,6 +438,12 @@ fn services_prets(v: &VueProfil) -> usize {
         .count()
 }
 
+/// Sous une adresse à ouvrir (la page des clés de Claude, celles de Google) : comment l'ouvrir, en gestes simples.
+/// (Jobmind n'ouvre aucune page dans le navigateur de Jordan : « Voir sur le site » ne sert qu'aux sites d'offres.)
+pub(crate) const ADRESSE_AIDE: &str = "Clique « Copier l'adresse ». Ouvre ensuite Internet (Edge ou Chrome), clique \
+                                       dans la barre tout en haut, fais un clic droit, choisis « Coller », puis appuie \
+                                       sur la touche Entrée.";
+
 fn rubrique_cles(v: &VueProfil) -> Value {
     let n = services_prets(v);
     let total = Service::TOUS.len();
@@ -470,7 +477,7 @@ fn rubrique_cles(v: &VueProfil) -> Value {
                 ("ou", "Où la trouver"),
                 ("copier", "Copier l'adresse"),
                 ("copie", "Copié"),
-                ("adresse_aide", "Copie cette adresse, puis ouvre-la dans ton navigateur."),
+                ("adresse_aide", ADRESSE_AIDE),
                 ("oui", "Oui, effacer"),
                 ("non", "Non, garder"),
             ]),
@@ -610,5 +617,22 @@ pub(crate) mod tests {
         assert_eq!(taille_texte(182_000), "178 Ko");
         assert_eq!(taille_texte(1024 * 1024), "1 Mo");
         assert_eq!(taille_texte(1_468_006), "1,4 Mo");
+    }
+
+    /// Audit du 27/11/2026 : des mots simples, sans « navigateur », extension de fichier, taille en Mo ni raccourci
+    /// écrit en code (« Ctrl + A »).
+    #[test]
+    fn textes_en_mots_simples() {
+        let r = rubriques(&exemple(), j(11, 18));
+        let cv = &r[0]["dossier"]["textes"];
+        assert_eq!(cv["formats"], "Un fichier PDF ou Word.");
+        let intro = cv["coller_intro"].as_str().unwrap();
+        assert!(intro.contains("touches Ctrl et A") && !intro.contains("Ctrl +"), "{intro}");
+        let aide = r[3]["dossier"]["textes"]["adresse_aide"].as_str().unwrap();
+        assert!(aide.contains("Copier l'adresse") && aide.contains("Coller") && !aide.contains("navigateur"), "{aide}");
+        let tout = serde_json::to_string(&r).unwrap();
+        for mot in [".docx", "15 Mo", "Ctrl +", "navigateur", "\u{2013}", "\u{2014}"] {
+            assert!(!tout.contains(mot), "{mot}");
+        }
     }
 }

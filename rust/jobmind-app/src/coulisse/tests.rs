@@ -787,6 +787,7 @@ fn chaque_chemin_envoie_la_petite_fenetre_a_la_page() {
 }
 
 mod analyses;
+mod corrections;
 mod doublons_filtres;
 mod garde;
 mod lecture_auto;

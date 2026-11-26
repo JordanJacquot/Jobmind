@@ -2,11 +2,14 @@
 //!
 //! - [`relire`] : chaque offre (la première de son groupe de doublons, avec le plus long texte du groupe) pas encore lue
 //!   par la version actuelle des règles est lue ([`jobmind_core::lecture::lire`]) ; ce que Claude avait trouvé reste
-//!   quand les règles ne trouvent rien ;
+//!   quand les règles ne trouvent rien, et sa réponse gardée est remise là où une version d'avant des règles avait
+//!   posé une valeur que la version actuelle ne trouve plus ;
 //! - [`renoter`] : chaque offre dont la note a été faite avec un autre « Ce que je cherche » ou un autre CV (une autre
 //!   empreinte) est notée de nouveau ;
 //! - [`a_lire_par_ia`], [`garder_ia`] : les offres que les règles n'ont pas su classer, données à Claude une seule
-//!   fois chacune, et ce qu'il a rendu (le plafond du jour : [`ia_du_jour`]).
+//!   fois chacune, et ce qu'il a rendu (le plafond du jour : [`ia_du_jour`]) ;
+//! - [`a_recomprendre`], [`garder_comprise`] : les réponses de Claude gardées avant la migration 17 (seul leur texte
+//!   était gardé), à comprendre de nouveau par l'appli, une seule fois, sans rien redemander à Claude.
 
 use jobmind_core::Jour;
 use jobmind_core::lecture::{self, Confiance, Diplome, Experience, LuPar, VERSION_REGLES};
@@ -49,15 +52,26 @@ pub fn relire(c: &Connection) -> rusqlite::Result<usize> {
                     params![id, d.valeur.code(), d.preuve, d.confiance.code()],
                 )?;
             }
-            // (ce que Claude avait trouvé reste)
-            None if d_par.as_deref() == Some("ia") => {}
-            None => {
-                t.execute(
-                    "UPDATE offres SET diplome = NULL, diplome_lu_par = NULL, diplome_preuve = NULL, \
-                     diplome_confiance = NULL WHERE id = ?1",
-                    [id],
-                )?;
-            }
+            None => match garde_par_ia(&t, *id, Champ::Diplome)? {
+                // (les règles ne trouvent rien, ou plus rien : la réponse de Claude gardée est remise)
+                Some((valeur, preuve)) => {
+                    t.execute(
+                        "UPDATE offres SET diplome = ?2, diplome_lu_par = 'ia', diplome_preuve = ?3, \
+                         diplome_confiance = 'moyenne' WHERE id = ?1",
+                        params![id, valeur, preuve],
+                    )?;
+                }
+                // (ce que Claude avait trouvé reste : une lecture d'avant la migration 17, pas encore comprise de
+                // nouveau)
+                None if d_par.as_deref() == Some("ia") => {}
+                None => {
+                    t.execute(
+                        "UPDATE offres SET diplome = NULL, diplome_lu_par = NULL, diplome_preuve = NULL, \
+                         diplome_confiance = NULL WHERE id = ?1",
+                        [id],
+                    )?;
+                }
+            },
         }
         match &l.experience {
             Some(e) => {
@@ -67,14 +81,23 @@ pub fn relire(c: &Connection) -> rusqlite::Result<usize> {
                     params![id, e.valeur.code(), e.preuve, e.confiance.code()],
                 )?;
             }
-            None if e_par.as_deref() == Some("ia") => {}
-            None => {
-                t.execute(
-                    "UPDATE offres SET experience = NULL, experience_lue_par = NULL, experience_preuve = NULL, \
-                     experience_confiance = NULL WHERE id = ?1",
-                    [id],
-                )?;
-            }
+            None => match garde_par_ia(&t, *id, Champ::Experience)? {
+                Some((valeur, preuve)) => {
+                    t.execute(
+                        "UPDATE offres SET experience = ?2, experience_lue_par = 'ia', experience_preuve = ?3, \
+                         experience_confiance = 'moyenne' WHERE id = ?1",
+                        params![id, valeur, preuve],
+                    )?;
+                }
+                None if e_par.as_deref() == Some("ia") => {}
+                None => {
+                    t.execute(
+                        "UPDATE offres SET experience = NULL, experience_lue_par = NULL, experience_preuve = NULL, \
+                         experience_confiance = NULL WHERE id = ?1",
+                        [id],
+                    )?;
+                }
+            },
         }
         let autres = (!l.autres.is_empty()).then(|| l.autres.join(", "));
         t.execute(
@@ -84,6 +107,35 @@ pub fn relire(c: &Connection) -> rusqlite::Result<usize> {
     }
     t.commit()?;
     Ok(a_lire.len())
+}
+
+/// Un champ lu dans une offre.
+#[derive(Clone, Copy)]
+enum Champ {
+    Diplome,
+    Experience,
+}
+
+/// Ce que Claude a trouvé pour ce champ d'une offre, gardé avec sa lecture (migration 17) : le code de la valeur et sa
+/// preuve, de la lecture la plus récente qui en dit quelque chose. Une valeur que Jobmind ne connaît pas (une base
+/// abîmée) n'est pas rendue.
+fn garde_par_ia(c: &Connection, offre: i64, champ: Champ) -> rusqlite::Result<Option<(String, String)>> {
+    let sql = match champ {
+        Champ::Diplome => {
+            "SELECT diplome, COALESCE(diplome_preuve, '') FROM lectures_ia \
+             WHERE offre_id = ?1 AND diplome IS NOT NULL ORDER BY id DESC LIMIT 1"
+        }
+        Champ::Experience => {
+            "SELECT experience, COALESCE(experience_preuve, '') FROM lectures_ia \
+             WHERE offre_id = ?1 AND experience IS NOT NULL ORDER BY id DESC LIMIT 1"
+        }
+    };
+    let lu: Option<(String, String)> =
+        c.prepare_cached(sql)?.query_row([offre], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
+    Ok(lu.filter(|(v, _)| match champ {
+        Champ::Diplome => Diplome::depuis_code(v).is_some(),
+        Champ::Experience => Experience::depuis_code(v).is_some(),
+    }))
 }
 
 /// Ce que la note d'une offre demande, lu dans la base.
@@ -259,13 +311,16 @@ pub struct ResultatIa {
 }
 
 /// Garde ce que Claude a rendu : la lecture notée (une seule fois par offre), et ce qu'il a trouvé seulement là où
-/// les règles n'avaient rien trouvé (« lu par Claude », confiance moyenne).
+/// les règles n'avaient rien trouvé (« lu par Claude », confiance moyenne). Ce qu'il a trouvé est aussi gardé avec sa
+/// lecture, même là où les règles ont déjà une valeur : si une version suivante des règles ne trouve plus rien à cet
+/// endroit, [`relire`] remet la réponse de Claude, sans la lui redemander.
 pub fn garder_ia(c: &Connection, r: &ResultatIa, maintenant: Moment) -> rusqlite::Result<()> {
     let t = c.unchecked_transaction()?;
     let reponse: String = r.reponse.chars().take(4000).collect();
     t.execute(
         "INSERT INTO lectures_ia (offre_id, lue_le, modele, etat, jetons_entree, jetons_sortie, cout_millioniemes, \
-         reponse) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+         reponse, diplome, diplome_preuve, experience, experience_preuve, comprise) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1)",
         params![
             r.offre_id,
             maintenant.iso(),
@@ -274,25 +329,111 @@ pub fn garder_ia(c: &Connection, r: &ResultatIa, maintenant: Moment) -> rusqlite
             r.jetons_entree,
             r.jetons_sortie,
             i64::try_from(r.cout_millioniemes).unwrap_or(i64::MAX),
-            reponse
+            reponse,
+            r.diplome.as_ref().map(|(d, _)| d.code()),
+            r.diplome.as_ref().map(|(_, p)| p),
+            r.experience.as_ref().map(|(e, _)| e.code()),
+            r.experience.as_ref().map(|(_, p)| p),
         ],
     )?;
     t.execute("UPDATE offres SET lue_par_ia = 1, pertinence_signature = NULL WHERE id = ?1", [r.offre_id])?;
-    if let Some((d, preuve)) = &r.diplome {
-        t.execute(
+    poser_ia(&t, r.offre_id, r.diplome.as_ref(), r.experience.as_ref())?;
+    t.commit()
+}
+
+/// Pose ce que Claude a trouvé sur une offre, seulement là où rien n'est dit (jamais par-dessus les règles). Rend le
+/// nombre de champs remplis.
+fn poser_ia(
+    c: &Connection,
+    offre: i64,
+    diplome: Option<&(Diplome, String)>,
+    experience: Option<&(Experience, String)>,
+) -> rusqlite::Result<usize> {
+    let mut n = 0;
+    if let Some((d, preuve)) = diplome {
+        n += c.execute(
             "UPDATE offres SET diplome = ?2, diplome_lu_par = 'ia', diplome_preuve = ?3, diplome_confiance = 'moyenne' \
              WHERE id = ?1 AND diplome IS NULL",
-            params![r.offre_id, d.code(), preuve],
+            params![offre, d.code(), preuve],
         )?;
     }
-    if let Some((e, preuve)) = &r.experience {
-        t.execute(
+    if let Some((e, preuve)) = experience {
+        n += c.execute(
             "UPDATE offres SET experience = ?2, experience_lue_par = 'ia', experience_preuve = ?3, \
              experience_confiance = 'moyenne' WHERE id = ?1 AND experience IS NULL",
-            params![r.offre_id, e.code(), preuve],
+            params![offre, e.code(), preuve],
         )?;
     }
-    t.commit()
+    Ok(n)
+}
+
+/// Une réponse de Claude gardée avant la migration 17 : seul son texte était gardé, pas ce qu'elle disait. L'appli la
+/// comprend de nouveau (comme le jour de la lecture : `jobmind_llm::lecture::comprendre`, avec le titre et le texte de
+/// l'offre), puis donne le résultat à [`garder_comprise`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ARecomprendre {
+    /// Le numéro de la lecture (table `lectures_ia`)
+    pub lecture_id: i64,
+    pub offre_id: i64,
+    pub titre: String,
+    /// Le plus long texte du groupe de l'offre, comme celui donné à Claude
+    pub texte: String,
+    /// La réponse de Claude, telle quelle
+    pub reponse: String,
+}
+
+/// Les réponses de Claude pas encore comprises de nouveau (les plus anciennes d'abord, `max` au plus). Une réponse
+/// notée illisible n'a rien à dire : elle n'est pas rendue. Après la première fois, la liste est vide : chaque
+/// nouvelle lecture ([`garder_ia`]) garde tout de suite ce qu'elle dit.
+pub fn a_recomprendre(c: &Connection, max: usize) -> rusqlite::Result<Vec<ARecomprendre>> {
+    let mut r = c.prepare(&format!(
+        "SELECT l.id, o.id, o.titre, COALESCE({TEXTE_DU_GROUPE}, ''), COALESCE(l.reponse, '') FROM lectures_ia l \
+         JOIN offres o ON o.id = l.offre_id WHERE l.comprise = 0 AND l.etat != 'illisible' ORDER BY l.id LIMIT ?1"
+    ))?;
+    r.query_map([i64::try_from(max).unwrap_or(i64::MAX)], |x| {
+        Ok(ARecomprendre {
+            lecture_id: x.get(0)?,
+            offre_id: x.get(1)?,
+            titre: x.get(2)?,
+            texte: x.get(3)?,
+            reponse: x.get(4)?,
+        })
+    })?
+    .collect()
+}
+
+/// Garde ce qu'une ancienne réponse de Claude disait (rien : elle ne disait rien, ou elle n'a pas pu être comprise),
+/// la note comprise (elle ne sera plus rendue par [`a_recomprendre`]), et le pose sur son offre là où rien n'est dit
+/// aujourd'hui (jamais par-dessus les règles). Vrai si l'offre a changé (sa note sera refaite). Une lecture inconnue
+/// ou déjà comprise : rien, et faux.
+pub fn garder_comprise(
+    c: &Connection,
+    lecture_id: i64,
+    diplome: Option<&(Diplome, String)>,
+    experience: Option<&(Experience, String)>,
+) -> rusqlite::Result<bool> {
+    let t = c.unchecked_transaction()?;
+    let offre: Option<i64> = t
+        .query_row("SELECT offre_id FROM lectures_ia WHERE id = ?1 AND comprise = 0", [lecture_id], |r| r.get(0))
+        .optional()?;
+    let Some(offre) = offre else { return Ok(false) };
+    t.execute(
+        "UPDATE lectures_ia SET diplome = ?2, diplome_preuve = ?3, experience = ?4, experience_preuve = ?5, \
+         comprise = 1 WHERE id = ?1",
+        params![
+            lecture_id,
+            diplome.map(|(d, _)| d.code()),
+            diplome.map(|(_, p)| p),
+            experience.map(|(e, _)| e.code()),
+            experience.map(|(_, p)| p),
+        ],
+    )?;
+    let poses = poser_ia(&t, offre, diplome, experience)?;
+    if poses > 0 {
+        t.execute("UPDATE offres SET pertinence_signature = NULL WHERE id = ?1", [offre])?;
+    }
+    t.commit()?;
+    Ok(poses > 0)
 }
 
 /// Les lectures de Claude faites ce jour-là, et leur coût en millionièmes de dollar.

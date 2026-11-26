@@ -80,6 +80,8 @@ pub struct Envoi {
     /// L'offre (la première de son groupe) dont le récapitulatif est ouvert
     pub ouvert: Option<i64>,
     en_cours: Option<EnCours>,
+    /// Les envois notés « incertain » parce qu'ils duraient trop : leur vrai résultat, s'il arrive, est encore pris
+    tardifs: Vec<EnCours>,
     issue: Option<(i64, Issue)>,
     jetons: u64,
 }
@@ -99,6 +101,22 @@ fn numero(v: &Value, k: &str) -> Option<i64> {
 
 fn texte(v: &Value, k: &str) -> String {
     v.get(k).and_then(Value::as_str).unwrap_or_default().chars().take(1000).collect()
+}
+
+/// La raison gardée pour un envoi noté « incertain » parce qu'il durait trop (5 minutes sans réponse).
+const TROP_LONG: &str = "trop long";
+/// Les envois trop longs dont le vrai résultat est encore attendu (les plus anciens oubliés).
+const TARDIFS_MAX: usize = 8;
+
+/// Un envoi noté « incertain » parce qu'il durait trop, que Jordan n'a pas encore regardé : il reprend « en cours »
+/// pour que son vrai résultat, arrivé en retard, soit pris. Rend faux si l'envoi n'est plus dans cet état (Jordan a
+/// déjà dit « Il est bien parti » ou « Il n'est pas parti »).
+fn reprendre_tardif(c: &rusqlite::Connection, tente: i64) -> rusqlite::Result<bool> {
+    Ok(c.execute(
+        "UPDATE envois_tentes SET etat = 'en_cours', erreur = NULL, fini_le = NULL \
+         WHERE id = ?1 AND etat = 'incertain' AND erreur = ?2",
+        rusqlite::params![tente, TROP_LONG],
+    )? == 1)
 }
 
 /// L'adresse de la boîte branchée (rien : pas branchée).
@@ -199,12 +217,16 @@ impl Envoi {
         self.jetons = jetons;
     }
 
-    /// L'envoi ne répond plus (5 minutes) : il devient « incertain », Jordan regarde dans Gmail et le dit. Un résultat
-    /// qui arriverait ensuite est laissé.
+    /// L'envoi ne répond plus (5 minutes) : il devient « incertain », Jordan regarde dans Gmail et le dit. Si le vrai
+    /// résultat arrive ensuite (avant que Jordan ait dit ce qu'il a vu), il est pris : envoyé, ou pas parti.
     pub fn trop_long(&mut self, base: Option<&Base>, maintenant: Moment) -> Fait {
         let Some(e) = self.en_cours.take() else { return Fait::default() };
         self.issue = None;
-        let note = base.map(|b| base_envois::rendre_incertain(b.connexion(), e.tente, "trop long", maintenant));
+        let note = base.map(|b| base_envois::rendre_incertain(b.connexion(), e.tente, TROP_LONG, maintenant));
+        if self.tardifs.len() >= TARDIFS_MAX {
+            self.tardifs.remove(0);
+        }
+        self.tardifs.push(e.clone());
         Fait {
             journal: Some(format!(
                 "Envoi : envoi {} sans réponse après 5 minutes, noté incertain{}",
@@ -431,10 +453,42 @@ impl Envoi {
 
     /// Ce que le fil a rapporté.
     pub fn fini(&mut self, base: Option<&Base>, r: Retour, maintenant: Moment) -> Fait {
-        let Some(e) = self.en_cours.clone().filter(|e| e.jeton == r.jeton) else {
-            return Fait { journal: Some("Envoi : résultat d'un envoi inconnu, laissé".into()), ..Fait::default() };
+        let e = match self.en_cours.clone().filter(|e| e.jeton == r.jeton) {
+            Some(e) => {
+                self.en_cours = None;
+                e
+            }
+            None => {
+                let Some(i) = self.tardifs.iter().position(|e| e.jeton == r.jeton) else {
+                    return Fait {
+                        journal: Some("Envoi : résultat d'un envoi inconnu, laissé".into()),
+                        ..Fait::default()
+                    };
+                };
+                let e = self.tardifs.remove(i);
+                let Some(b) = base else {
+                    return Fait::refus(SANS_BASE, "Envoi : résultat tardif perdu, la base n'est pas ouverte".into());
+                };
+                // (l'envoi noté « incertain » seulement parce qu'il durait trop, et Jordan n'a encore rien dit : il
+                // reprend « en cours », puis le vrai résultat est pris comme s'il était arrivé à l'heure)
+                match reprendre_tardif(b.connexion(), e.tente) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        return Fait {
+                            journal: Some(format!(
+                                "Envoi : résultat tardif de l'envoi {} laissé (Jordan a déjà dit ce qu'il a vu)",
+                                e.tente
+                            )),
+                            ..Fait::default()
+                        };
+                    }
+                    Err(x) => {
+                        return Fait::refus(PAS_ENREGISTRE, format!("Envoi : résultat tardif non gardé ({x})"));
+                    }
+                }
+                e
+            }
         };
-        self.en_cours = None;
         let Some(b) = base else {
             return Fait::refus(SANS_BASE, "Envoi : résultat perdu, la base n'est pas ouverte".into());
         };

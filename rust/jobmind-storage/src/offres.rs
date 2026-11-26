@@ -624,3 +624,24 @@ pub fn supprimer_recherche(c: &Connection, id: i64) -> rusqlite::Result<bool> {
 pub fn nombre_recherches(c: &Connection) -> rusqlite::Result<usize> {
     c.query_row("SELECT COUNT(*) FROM recherches", [], |r| r.get::<_, i64>(0)).map(|n| n as usize)
 }
+
+/// La réponse brute du site (`brut`, jusqu'à 60 000 caractères par offre) n'est gardée que ce nombre de jours après
+/// la dernière fois que l'offre a été trouvée.
+pub const JOURS_BRUT: i64 = 90;
+
+/// Le ménage de la base, à faire une fois par lancement : vide la réponse brute du site (`brut`) des offres qui n'ont
+/// plus été trouvées depuis plus de [`JOURS_BRUT`] jours (leur dernier jour trouvé, sinon le jour de leur ajout). Rend
+/// le nombre d'offres allégées.
+///
+/// Aucune offre n'est retirée, et rien de ce que Jobmind montre ou relit ne change : `brut` est seulement écrit
+/// ([`ajouter_trouvees`], [`ajouter_page`]) pour aider à comprendre un problème, jamais relu. Le titre, le texte, la
+/// recherche dans tout le texte, les marques et les candidatures d'une offre restent tels quels. La place rendue est
+/// reprise par les offres suivantes, et la sauvegarde (une copie tassée de la base) est tout de suite plus petite.
+pub fn menage(c: &Connection, maintenant: Moment) -> rusqlite::Result<usize> {
+    // (les dates de la base sont en « 2026-11-26T14:05:00 » : comparées comme du texte avec le jour limite)
+    let limite = maintenant.jour().plus(-JOURS_BRUT).iso();
+    c.execute(
+        "UPDATE offres SET brut = NULL WHERE brut IS NOT NULL AND COALESCE(retrouvee_le, ajoutee_le) < ?1",
+        [limite],
+    )
+}

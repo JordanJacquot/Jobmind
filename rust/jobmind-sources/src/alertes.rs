@@ -2,8 +2,10 @@
 //! alertes « nouvelles offres » de LinkedIn, Indeed, Welcome to the Jungle et France Travail, et en tire les offres.
 //!
 //! Un mail n'est une alerte que si l'expéditeur est vraiment le site (son domaine finit par celui du site, sous-domaines
-//! compris) ET si le mail en a la forme : ni un message, ni une candidature envoyée, ni une confirmation, et au moins un
-//! lien d'offre. Une imitation (« linkedin.com.arnaque.ru », une adresse Gmail) ne donne rien.
+//! compris, ET Gmail a vu une signature DKIM valable de ce domaine : « dkim=pass » dans l'en-tête Authentication-Results
+//! qu'il ajoute) ET si le mail en a la forme : ni un message, ni une candidature envoyée, ni une confirmation, et au
+//! moins un lien d'offre. Une imitation (« linkedin.com.arnaque.ru », une adresse Gmail, un « From » recopié sans la
+//! signature du site) ne donne rien.
 //!
 //! On ne garde que ce que le mail montre : le titre (le texte du lien), l'entreprise et le lieu (les lignes du même bloc :
 //! tableau, cellule, div), le contrat, le salaire et la date seulement s'ils sont écrits clairement à côté. Rien n'est
@@ -45,6 +47,9 @@ pub struct MailAlerte<'a> {
     pub objet: &'a str,
     pub html: &'a str,
     pub texte: &'a str,
+    /// Le premier en-tête Authentication-Results du mail (celui que Gmail ajoute en le recevant), vide s'il n'y en a
+    /// pas : sans « dkim=pass » du domaine de l'expéditeur, le mail n'est jamais une alerte
+    pub authentification: &'a str,
 }
 
 /// Ce qu'une alerte a donné.
@@ -66,7 +71,7 @@ pub fn reconnaitre(m: &MailAlerte) -> Option<Site> {
 /// Les offres d'une alerte (rien si ce n'est pas une alerte). 100 offres au plus par mail ; une offre vue deux fois
 /// dans le même mail (lien du titre et bouton « Voir ») n'est gardée qu'une fois.
 pub fn lire(m: &MailAlerte) -> Option<Alerte> {
-    let site = site_expediteur(m.de)?;
+    let site = site_expediteur(m.de, m.authentification)?;
     if !forme_d_alerte(m) {
         return None;
     }
@@ -109,8 +114,63 @@ pub fn lire(m: &MailAlerte) -> Option<Alerte> {
 // L'expéditeur et la forme
 // ---------------------------------------------------------------------------------------------------------------
 
-/// Le site de l'expéditeur, si son domaine est vraiment celui d'un site connu.
-fn site_expediteur(de: &str) -> Option<Site> {
+/// Le serveur dont l'en-tête Authentication-Results est cru : Gmail, qui l'ajoute en haut de chaque mail reçu (la
+/// boîte lue par Jobmind est toujours une boîte Gmail).
+const SERVEUR_GMAIL: &str = "mx.google.com";
+
+/// Le texte sans ses commentaires entre parenthèses (« dmarc=pass (p=REJECT) » : « dmarc=pass  »).
+fn sans_commentaires(t: &str) -> String {
+    let mut s = String::with_capacity(t.len());
+    let mut profondeur = 0usize;
+    for c in t.chars() {
+        match c {
+            '(' => profondeur += 1,
+            ')' if profondeur > 0 => profondeur -= 1,
+            _ if profondeur == 0 => s.push(c),
+            _ => {}
+        }
+    }
+    s
+}
+
+/// Le domaine signataire `d` va avec le domaine de l'expéditeur : le même, ou l'un est un sous-domaine de l'autre
+/// (« e.linkedin.com » signé par « linkedin.com », ou l'inverse).
+fn aligne(d: &str, domaine: &str) -> bool {
+    !d.is_empty()
+        && d.contains('.')
+        && !d.starts_with('.')
+        && (d == domaine || domaine.ends_with(&format!(".{d}")) || d.ends_with(&format!(".{domaine}")))
+}
+
+/// Gmail a vu une signature DKIM valable (« dkim=pass ») d'un domaine qui va avec celui de l'expéditeur et qui est
+/// celui du même site. `auth` : le premier en-tête Authentication-Results (celui de Gmail) ; vide ou d'un autre
+/// serveur : non.
+fn signe_par(auth: &str, domaine: &str, site: Site) -> bool {
+    let a = sans_commentaires(auth).to_ascii_lowercase();
+    let mut morceaux = a.split(';');
+    let serveur = morceaux.next().unwrap_or_default().split_whitespace().next().unwrap_or_default();
+    if serveur != SERVEUR_GMAIL {
+        return false;
+    }
+    morceaux.any(|r| {
+        let mut mots = r.split_whitespace();
+        if mots.next() != Some("dkim=pass") {
+            return false;
+        }
+        mots.filter_map(|m| {
+            if let Some(d) = m.strip_prefix("header.d=") {
+                Some(d.trim_matches('"'))
+            } else {
+                m.strip_prefix("header.i=").map(|i| i.trim_matches('"').rsplit('@').next().unwrap_or_default())
+            }
+        })
+        .any(|d| aligne(d, domaine) && Site::depuis_hote(d) == site)
+    })
+}
+
+/// Le site de l'expéditeur, si son domaine est vraiment celui d'un site connu, signé par ce site (`auth` : l'en-tête
+/// Authentication-Results de Gmail).
+fn site_expediteur(de: &str, auth: &str) -> Option<Site> {
     let de = de.trim();
     // (« Nom <adresse> » : l'adresse entre chevrons)
     let de = match (de.rfind('<'), de.rfind('>')) {
@@ -140,6 +200,10 @@ fn site_expediteur(de: &str) -> Option<Site> {
         refuses.extend(["notification", "member", "hit-reply", "news"]);
     }
     if refuses.iter().any(|r| local.contains(r)) {
+        return None;
+    }
+    // (le « From » s'imite facilement : la signature du site, vue par Gmail, est exigée)
+    if !signe_par(auth, domaine, site) {
         return None;
     }
     Some(site)

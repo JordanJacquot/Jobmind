@@ -37,9 +37,12 @@
 //!   singulier). Le même métier : le même nom de métier précis (« vendeuse » et « vendeur en boulangerie »), deux
 //!   noms de la même famille ([`GROUPES`] : « cariste » et « conducteur de chariot élévateur »), ou, pour un nom
 //!   large (« agent », « chef », « technicien »...), le même nom et un mot en commun après lui (« chef de rayon » et
-//!   « chef de projet » ne sont pas le même métier). Un métier voisin : le même domaine ([`DOMAINES`] : la logistique,
-//!   la vente, le soin...) ;
-//! - les compétences : celles de la fiche dont les mots sont dans une même phrase de l'offre ;
+//!   « chef de projet » ne sont pas le même métier). Un nom de métier placé après « formateur », « chef »,
+//!   « responsable »... n'est pas le poste (« formateur cariste » n'est pas un poste de cariste). Une spécialité que
+//!   la fiche ne dit pas (« secrétaire juridique », « vendeur automobile ») : proche, jamais très proche. Un métier
+//!   voisin : le même domaine ([`DOMAINES`] : la logistique, la vente, le soin...) ;
+//! - les compétences : celles de la fiche dont les mots sont dans une même phrase de l'offre (une compétence d'un
+//!   seul mot : le mot entier, pas un mot qui commence pareil) ;
 //! - les permis et habilitations demandés par l'offre : la personne les a, ou il lui en manque un ;
 //! - le diplôme demandé : à sa portée (son plus haut diplôme l'atteint) ou non ;
 //! - l'expérience demandée : comparée à la durée du métier exercé.
@@ -50,7 +53,8 @@ use crate::lecture::{self, Diplome, Experience, LectureOffre};
 use crate::offre::normaliser;
 
 /// La version des règles : elle entre dans ce qui dit si une fiche est à refaire.
-pub const VERSION: u32 = 1;
+/// (2 : une durée après un nom de poste n'est plus prise pour un âge, « (niveau) » après un diplôme est noté)
+pub const VERSION: u32 = 2;
 /// Une ligne de la fiche (en caractères).
 pub const LIGNE_MAX: usize = 60;
 /// Au plus ce nombre de lignes ajoutées à la main dans une liste.
@@ -262,7 +266,7 @@ pub fn verifier_ajout(l: Liste, texte: &str) -> Result<String, String> {
 pub fn metier_saisi(texte: &str) -> Metier {
     let t = une_ligne(texte);
     let mut j = jetons(&t);
-    let d = dates_de(&t, &mut j);
+    let d = Dates::de(&lire_dates_de(&t, &mut j, true), 0, usize::MAX);
     let fin = j.iter().position(|x| x.pris).map_or(t.len(), |i| j[i].debut);
     let mut nom = t[..fin].trim_end_matches(|c: char| !c.is_alphanumeric()).to_string();
     for mot in [" depuis", " pendant", " durant", " de", " du"] {
@@ -926,7 +930,9 @@ pub const GROUPES: &[&[&str]] = &[
     &["agent service hospitalier", "ash"],
 ];
 
-/// Les domaines : les mots d'un nom de poste qui disent où il se range.
+/// Les domaines : les mots d'un nom de poste qui disent où il se range. Un mot qui a plusieurs sens (« vie »,
+/// « surface », « commande », « ligne », « entretien », « direction », « domicile », « accueil ») ne compte qu'avec son
+/// voisin, en suite de deux mots : « auxiliaire de vie » est du soin, « assurance vie » non.
 pub const DOMAINES: &[(&str, &[&str])] = &[
     (
         "la logistique",
@@ -937,9 +943,10 @@ pub const DOMAINES: &[(&str, &[&str])] = &[
             "logistique",
             "entrepot",
             "quai",
-            "commande",
             "receptionnaire",
             "logisticien",
+            "preparateur commande",
+            "preparation commande",
             "stock",
             "expedition",
             "chariot",
@@ -957,13 +964,33 @@ pub const DOMAINES: &[(&str, &[&str])] = &[
             "brancardier",
             "ehpad",
             "ash",
-            "domicile",
-            "vie",
-            "menager",
+            "aide domicile",
+            "auxiliaire domicile",
+            "intervenant domicile",
+            "soin domicile",
+            "auxiliaire vie",
+            "assistant vie",
+            "aide menager",
             "medico",
         ],
     ),
-    ("le transport", &["chauffeur", "routier", "livreur", "coursier", "bus", "car", "taxi", "convoyeur", "pl", "spl"]),
+    (
+        "le transport",
+        &[
+            "chauffeur",
+            "routier",
+            "livreur",
+            "coursier",
+            "bus",
+            "autocar",
+            "conducteur car",
+            "car scolaire",
+            "taxi",
+            "convoyeur",
+            "pl",
+            "spl",
+        ],
+    ),
     (
         "la restauration",
         &[
@@ -978,7 +1005,19 @@ pub const DOMAINES: &[(&str, &[&str])] = &[
             "pizzaiolo",
         ],
     ),
-    ("le nettoyage", &["entretien", "proprete", "nettoyage", "menage", "surface"]),
+    (
+        "le nettoyage",
+        &[
+            "agent entretien",
+            "employe entretien",
+            "entretien locaux",
+            "entretien menager",
+            "proprete",
+            "nettoyage",
+            "menage",
+            "technicien surface",
+        ],
+    ),
     (
         "le bâtiment",
         &[
@@ -1007,7 +1046,20 @@ pub const DOMAINES: &[(&str, &[&str])] = &[
             "chauffagiste",
         ],
     ),
-    ("le bureau", &["secretaire", "administratif", "accueil", "standardiste", "receptionniste", "direction"]),
+    (
+        "le bureau",
+        &[
+            "secretaire",
+            "administratif",
+            "agent accueil",
+            "hote accueil",
+            "charge accueil",
+            "employe accueil",
+            "standardiste",
+            "receptionniste",
+            "assistant direction",
+        ],
+    ),
     ("la comptabilité", &["comptable", "comptabilite", "paie", "tresorier", "audit"]),
     (
         "l'informatique",
@@ -1017,8 +1069,14 @@ pub const DOMAINES: &[(&str, &[&str])] = &[
             "informatique",
             "web",
             "logiciel",
-            "reseau",
-            "systeme",
+            "administrateur reseau",
+            "technicien reseau",
+            "ingenieur reseau",
+            "reseau informatique",
+            "systeme reseau",
+            "administrateur systeme",
+            "ingenieur systeme",
+            "systeme information",
             "data",
             "devops",
             "developer",
@@ -1029,7 +1087,9 @@ pub const DOMAINES: &[(&str, &[&str])] = &[
         "l'industrie",
         &[
             "production",
-            "ligne",
+            "conducteur ligne",
+            "operateur ligne",
+            "commande numerique",
             "usinage",
             "soudeur",
             "chaudronnier",
@@ -1392,12 +1452,63 @@ fn maintenant_ici(j: &[Jeton], i: usize) -> Option<usize> {
 }
 
 /// Les dates et les durées de toute une ligne (leurs jetons marqués).
+#[cfg(test)]
 fn dates_de(l: &str, j: &mut [Jeton]) -> Dates {
     Dates::de(&lire_dates(l, j), 0, usize::MAX)
 }
 
+/// Les mots d'une ligne d'état civil (« Cariste, 28 ans, permis B, véhiculé ») : un nombre d'années y est un âge.
+const ETAT_CIVIL: &[&str] = &[
+    "age",
+    "agee",
+    "ne",
+    "nee",
+    "marie",
+    "mariee",
+    "celibataire",
+    "pacse",
+    "pacsee",
+    "divorce",
+    "divorcee",
+    "nationalite",
+    "permis",
+    "vehicule",
+    "vehiculee",
+    "enfant",
+    "enfants",
+    "tel",
+    "telephone",
+    "portable",
+    "mail",
+    "email",
+    "rue",
+    "avenue",
+];
+
+/// Le nombre du jeton `i` suit un nom de poste qui commence la ligne (« Chauffeur routier, 20 ans », « J'ai été
+/// cariste 20 ans ») : une durée, pas un âge. Jamais sur une ligne d'état civil, ni après « de » ou « à » (« vendeuse
+/// de 25 ans »).
+fn suit_un_poste(l: &str, j: &[Jeton], i: usize) -> bool {
+    if l.contains('@') || j.iter().any(|x| ETAT_CIVIL.contains(&x.mot.as_str())) {
+        return false;
+    }
+    if i == 0 || ["de", "d", "a"].contains(&j[i - 1].mot.as_str()) {
+        return false;
+    }
+    let Some(k) = (0..i).find(|&k| !j[k].pris && !AVANT.contains(&j[k].mot.as_str())) else {
+        return false;
+    };
+    poste_a(l, &j[..i], k).is_some()
+}
+
 /// Lit les dates et les durées d'une ligne, chacune à la place de son premier jeton, et marque leurs jetons.
 fn lire_dates(l: &str, j: &mut [Jeton]) -> Vec<(usize, Temps)> {
+    lire_dates_de(l, j, false)
+}
+
+/// Comme [`lire_dates`] ; `metier` : la ligne est un métier tapé par la personne (« Chauffeur routier, 20 ans »), un
+/// nombre d'années y est toujours une durée (sauf à côté de « âgé », « né »).
+fn lire_dates_de(l: &str, j: &mut [Jeton], metier: bool) -> Vec<(usize, Temps)> {
     let mut d: Vec<(usize, Temps)> = Vec::new();
     let parle_d_experience =
         j.iter().any(|x| ["experience", "experiences", "exp", "pendant", "depuis", "durant"].contains(&x.mot.as_str()));
@@ -1444,8 +1555,8 @@ fn lire_dates(l: &str, j: &mut [Jeton]) -> Vec<(usize, Temps)> {
             && matches!(unite, "an" | "ans" | "annee" | "annees" | "mois")
         {
             let en_ans = unite != "mois";
-            // (« 25 ans » sans parler d'expérience : un âge)
-            let un_age = en_ans && (age || (n >= 16 && !parle_d_experience));
+            // (« 25 ans » sans parler d'expérience : un âge, sauf juste après un nom de poste en début de ligne)
+            let un_age = en_ans && (age || (n >= 16 && !parle_d_experience && !metier && !suit_un_poste(l, j, i)));
             let plausible = if en_ans { n <= 45 } else { n <= 60 };
             let mut fin = i + 2;
             if !un_age && plausible {
@@ -2034,17 +2145,38 @@ fn diplome_de(l: &str, dans_formation: bool) -> Option<String> {
         return None;
     }
     let mut nom = casse(&l[j[debut].debut..j[fin].fin]);
+    // (« Bac pro commerce (niveau) » : le niveau, pas le diplôme ; la fiche le garde tel quel)
+    let mut apres = j[fin + 1..].iter().filter(|x| !x.pris).map(|x| x.mot.as_str());
+    if apres.next() == Some("niveau") && !valeur_de_niveau(apres.next().unwrap_or_default()) {
+        nom.push_str(" (niveau)");
+    }
     if [" en cours ", " en cour ", " actuellement ", " en preparation ", " je prepare "].iter().any(|m| n.contains(m)) {
         nom.push_str(" (en cours)");
     }
     Some(nom)
 }
 
+/// Ce qui suit « niveau » en dit la valeur (« niveau 4 », « niveau IV », « niveau bac ») : sans cela, « niveau » écrit
+/// après un diplôme veut dire qu'il n'a pas été obtenu.
+fn valeur_de_niveau(m: &str) -> bool {
+    !m.is_empty()
+        && (m.len() == 1
+            || m.bytes().all(|b| b.is_ascii_digit())
+            || ["ii", "iii", "iv", "vi", "vii", "viii"].contains(&m)
+            || m.starts_with("bac")
+            || MOTS_DIPLOME.contains(&m))
+}
+
 /// Le niveau d'un diplôme de la fiche (rien : pas obtenu, ou un diplôme dont le niveau n'est pas connu).
 pub fn niveau_diplome(ligne: &str) -> Option<Diplome> {
     let n = normaliser(ligne);
     let sans_niveau = n.starts_with("niveau ") && !n.split(' ').nth(1).is_some_and(|x| x.len() == 1);
-    if n.contains("en cours") || sans_niveau {
+    // (« Bac pro commerce (niveau) », « Bac pro commerce niveau » : le niveau seulement ; « (non obtenu) » : pas eu)
+    let niveau_apres = n.ends_with(" niveau");
+    let pas_eu = [" non obtenu ", " pas obtenu ", " pas eu ", " echec ", " non valide ", " abandon ", " abandonne "]
+        .iter()
+        .any(|m| format!(" {n} ").contains(m));
+    if n.contains("en cours") || sans_niveau || niveau_apres || pas_eu {
         return None;
     }
     lecture::diplome_le_plus_haut(&format!("Diplôme : {ligne}")).filter(|d| *d != Diplome::Aucun)
@@ -3136,7 +3268,66 @@ pub struct Rapprochement {
 enum Lien {
     Rien,
     Voisin,
+    /// Le même nom de métier, dans une spécialité que la fiche ne dit pas (« secrétaire » et « secrétaire
+    /// juridique ») : proche, jamais très proche
+    AutreSpecialite,
     Meme,
+}
+
+/// Les noms qui, devant un nom de métier, en font un autre métier : « formateur cariste », « chef d'équipe caristes »,
+/// « responsable des vendeurs » ne sont pas des postes de cariste ou de vendeur.
+const AU_DESSUS: &[&str] = &[
+    "formateur",
+    "moniteur",
+    "instructeur",
+    "professeur",
+    "enseignant",
+    "tuteur",
+    "testeur",
+    "recruteur",
+    "chef",
+    "responsable",
+    "directeur",
+    "manager",
+    "superviseur",
+    "encadrant",
+    "coordinateur",
+    "coordonnateur",
+    "gerant",
+];
+
+/// Les spécialités qui changent un métier : dans le titre d'une offre et pas dans le métier de la fiche, le poste est
+/// proche, pas très proche (« vendeuse en boulangerie » et « vendeur automobile »).
+const SPECIALITES: &[&str] = &[
+    "automobile",
+    "auto",
+    "moto",
+    "immobilier",
+    "juridique",
+    "medical",
+    "dentaire",
+    "notarial",
+    "bancaire",
+    "assurance",
+    "pharmaceutique",
+    "agricole",
+    "direction",
+    "itinerant",
+    "b2b",
+    "btob",
+];
+
+/// La place de cette suite de mots (« cariste », « agent entretien ») parmi ces mots.
+fn place_de(m: &[String], motif: &str) -> Option<usize> {
+    let x: Vec<&str> = motif.split(' ').collect();
+    (m.len() >= x.len())
+        .then(|| (0..=m.len() - x.len()).find(|&i| x.iter().enumerate().all(|(k, y)| m[i + k] == *y)))
+        .flatten()
+}
+
+/// Ce nom de métier est bien le poste : il n'est pas commandé par un nom placé avant lui ([`AU_DESSUS`]).
+fn est_le_poste(m: &[String], motif: &str) -> bool {
+    place_de(m, motif).is_some_and(|i| !m[..i].iter().any(|y| AU_DESSUS.contains(&y.as_str())))
 }
 
 /// La première tête de métier de ces mots : sa place, et si elle est précise.
@@ -3146,18 +3337,21 @@ fn tete_des_mots(m: &[String]) -> Option<(usize, Tete)> {
 
 /// Les familles ([`GROUPES`]) où ces mots se rangent.
 fn groupes_de(m: &[String]) -> Vec<usize> {
-    let suite = |motif: &str| {
-        let x: Vec<&str> = motif.split(' ').collect();
-        m.len() >= x.len() && (0..=m.len() - x.len()).any(|i| x.iter().enumerate().all(|(k, y)| m[i + k] == *y))
-    };
-    GROUPES.iter().enumerate().filter(|(_, g)| g.iter().any(|p| suite(p))).map(|(i, _)| i).collect()
+    GROUPES.iter().enumerate().filter(|(_, g)| g.iter().any(|p| est_le_poste(m, p))).map(|(i, _)| i).collect()
 }
 
 fn domaine_de(m: &[String]) -> Option<&'static str> {
-    DOMAINES.iter().find(|(_, l)| m.iter().any(|x| l.contains(&x.as_str()))).map(|(nom, _)| *nom)
+    DOMAINES.iter().find(|(_, l)| l.iter().any(|p| place_de(m, p).is_some())).map(|(nom, _)| *nom)
 }
 
 fn lien(m: &[String], t: &[String]) -> Lien {
+    match lien_des_noms(m, t) {
+        Lien::Meme if t.iter().any(|x| SPECIALITES.contains(&x.as_str()) && !m.contains(x)) => Lien::AutreSpecialite,
+        l => l,
+    }
+}
+
+fn lien_des_noms(m: &[String], t: &[String]) -> Lien {
     if m.is_empty() || t.is_empty() {
         return Lien::Rien;
     }
@@ -3190,11 +3384,13 @@ fn lien(m: &[String], t: &[String]) -> Lien {
                 } else if qm.iter().any(|x| qt.contains(x)) {
                     return Lien::Meme;
                 }
-            } else if (tm == Tete::Precise && t.contains(&m[im])) || (tt == Tete::Precise && m.contains(&t[it])) {
+            } else if (tm == Tete::Precise && est_le_poste(t, &m[im]))
+                || (tt == Tete::Precise && est_le_poste(m, &t[it]))
+            {
                 return Lien::Meme;
             }
         }
-        (Some((im, Tete::Precise)), None) if t.contains(&m[im]) => return Lien::Meme,
+        (Some((im, Tete::Precise)), None) if est_le_poste(t, &m[im]) => return Lien::Meme,
         _ => {}
     }
     match (domaine_de(m), domaine_de(t)) {
@@ -3213,10 +3409,28 @@ fn phrases_offre(titre: &str, description: &str) -> Vec<Vec<String>> {
         .collect()
 }
 
-/// Le même mot dans une compétence et dans une offre : égaux, ou les mêmes six premières lettres (« encaissement » et
-/// « encaissez », « accueil » et « accueillez »).
+/// Le même mot dans une compétence de plusieurs mots et dans une offre : égaux, ou les mêmes six premières lettres
+/// (« encaissement » et « encaissez », « accueil » et « accueillez »).
 fn meme_mot(a: &str, b: &str) -> bool {
     a == b || (a.len() >= 6 && b.len() >= 6 && a.is_char_boundary(6) && b.is_char_boundary(6) && a[..6] == b[..6])
+}
+
+/// Une compétence d'un seul mot retrouvée dans un mot d'une offre : le mot entier (les deux déjà au masculin
+/// singulier), ou son verbe dit à la personne ou à l'infinitif (« encaissement » et « encaissez », « accueil » et
+/// « accueillir »). Un début commun ne suffit pas : « informatique » n'est pas « informations », « accueil » n'est
+/// pas « nous vous accueillons ».
+fn mot_seul_demande(c: &str, y: &str) -> bool {
+    if c == y {
+        return true;
+    }
+    let Some(v) = ["ez", "er", "ir"].iter().find_map(|f| y.strip_suffix(*f)).filter(|v| v.len() >= 5) else {
+        return false;
+    };
+    // (« accueil » et « accueill-ez », « conseil » et « conseill-er »)
+    if v.strip_suffix("ll").is_some_and(|x| c.strip_suffix('l') == Some(x)) {
+        return true;
+    }
+    c.strip_prefix(v).is_some_and(|fin| ["", "e", "ement", "ment", "age", "ation"].contains(&fin))
 }
 
 /// L'offre parle de cette compétence : ses mots (sauf un, à partir de trois) dans une même phrase.
@@ -3226,7 +3440,7 @@ fn competence_demandee(c: &str, phrases: &[Vec<String>]) -> bool {
     let m: Vec<String> = mots_competence(c).into_iter().filter(|x| !MOTS_LARGES.contains(&x.as_str())).collect();
     match m.len() {
         0 => false,
-        1 => m[0].len() >= 3 && phrases.iter().any(|p| p.iter().any(|y| meme_mot(&m[0], y))),
+        1 => m[0].len() >= 3 && phrases.iter().any(|p| p.iter().any(|y| mot_seul_demande(&m[0], y))),
         n => {
             let besoin = if n >= 3 { n - 1 } else { n };
             phrases.iter().any(|p| m.iter().filter(|x| p.iter().any(|y| meme_mot(x, y))).count() >= besoin)
@@ -3310,7 +3524,9 @@ pub fn comparer(p: &Parcours, titre: &str, description: &str, lu: &LectureOffre,
     });
     // L'expérience demandée
     let trop_d_experience = match (lu.experience.as_ref().map(|e| e.valeur), le_lien) {
-        (Some(Experience::Duree(x)), Lien::Meme) => duree.is_some_and(|d| u32::from(d) * 2 < u32::from(x)).then_some(x),
+        (Some(Experience::Duree(x)), Lien::Meme | Lien::AutreSpecialite) => {
+            duree.is_some_and(|d| u32::from(d) * 2 < u32::from(x)).then_some(x)
+        }
         (Some(Experience::Duree(x)), _) if x >= 24 => Some(x),
         (Some(Experience::Demandee), Lien::Voisin | Lien::Rien) => Some(0),
         _ => None,
@@ -3321,7 +3537,7 @@ pub fn comparer(p: &Parcours, titre: &str, description: &str, lu: &LectureOffre,
     let debutant = lu.experience.as_ref().is_some_and(|e| e.valeur == Experience::Debutant);
     let mut n: i32 = match le_lien {
         Lien::Meme if duree.is_some_and(|d| d >= 12) || fort => 3,
-        Lien::Meme => 2,
+        Lien::Meme | Lien::AutreSpecialite => 2,
         Lien::Voisin if fort => 2,
         Lien::Voisin => 1,
         Lien::Rien if fort || (debutant && !communes.is_empty()) => 1,
@@ -3339,7 +3555,7 @@ pub fn comparer(p: &Parcours, titre: &str, description: &str, lu: &LectureOffre,
     // (un métier déjà fait reste au moins un peu proche, quoi que l'offre demande en plus ; un métier voisin aussi,
     // sauf si le diplôme demandé est hors de portée)
     let plancher = match le_lien {
-        Lien::Meme => 1,
+        Lien::Meme | Lien::AutreSpecialite => 1,
         Lien::Voisin if hors_de_portee.is_none() => 1,
         _ => 0,
     };
@@ -3356,7 +3572,7 @@ pub fn comparer(p: &Parcours, titre: &str, description: &str, lu: &LectureOffre,
     // La raison, en une phrase
     let liste = |l: &[&str]| l.iter().take(2).map(|c| competence_dans_phrase(c)).collect::<Vec<_>>().join(", ");
     let mut raison = match (le_lien, meilleur) {
-        (Lien::Meme, Some((_, _, m))) => {
+        (Lien::Meme | Lien::AutreSpecialite, Some((_, _, m))) => {
             let nom = nom_dans_phrase(&m.nom);
             match (duree, m.depuis.is_some()) {
                 (Some(d), true) => format!("Tu es {nom} depuis {}", duree_en_mots(d)),

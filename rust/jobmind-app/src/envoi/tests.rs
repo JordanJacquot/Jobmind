@@ -542,8 +542,9 @@ fn la_version_montree_est_celle_qui_part() {
     assert_eq!(lu.version, Some(recente));
 }
 
-/// Un envoi qui ne répond plus (5 minutes) devient incertain : jamais « en cours » pour toujours ; un résultat qui
-/// arrive ensuite est laissé, et Jordan dit ce qu'il voit dans Gmail.
+/// Un envoi qui ne répond plus (5 minutes) devient incertain : jamais « en cours » pour toujours. Audit du
+/// 27/11/2026 : si Gmail répond ensuite « parti », il est pris (avant, ce vrai résultat était jeté et l'envoi restait
+/// incertain alors qu'il était parti).
 #[test]
 fn envoi_trop_long_devient_incertain() {
     let d = dossier("trop-long");
@@ -555,12 +556,63 @@ fn envoi_trop_long_devient_incertain() {
     assert!(f.change && f.journal.unwrap().contains("incertain"));
     assert!(e.jeton_en_cours().is_none());
     assert!(base_envois::incertain(b.connexion(), offre).unwrap().is_some());
-    // (le résultat arrivé ensuite est laissé ; rien dans le suivi tant que Jordan n'a rien dit)
-    let f = e.fini(Some(&b), Retour { jeton: t.jeton, resultat: Ok(t.brouillon.message_id.clone()) }, m(10, 6, 0));
-    assert!(!f.bravo);
-    assert!(candidatures::lister(b.connexion()).unwrap().0.is_empty());
+    // Le vrai résultat arrive ensuite : parti, la candidature entre dans le suivi
+    let ok = Retour { jeton: t.jeton, resultat: Ok(t.brouillon.message_id.clone()) };
+    let f = e.fini(Some(&b), ok.clone(), m(10, 6, 0));
+    assert!(f.bravo, "{f:?}");
+    assert!(base_envois::incertain(b.connexion(), offre).unwrap().is_none());
+    assert_eq!(base_envois::lire_tente(b.connexion(), t.tente).unwrap().unwrap().etat, EtatTente::Envoye);
+    let (l, _) = candidatures::lister(b.connexion()).unwrap();
+    assert_eq!(l.len(), 1);
+    // (par Gmail, pas « vu par toi dans Messages envoyés »)
+    let dd = pour_dossier(Some(&b), l[0].id, m(10, 6, 0).jour());
+    assert_eq!(dd[0]["titre"], "Par mail, depuis ton Gmail");
+    // (le même résultat une seconde fois : laissé)
+    assert!(!e.fini(Some(&b), ok, m(10, 6, 1)).bravo);
+    assert_eq!(base_envois::du_dossier(b.connexion(), l[0].id).unwrap().len(), 1);
     // (sans envoi en cours : rien)
     assert_eq!(e.trop_long(Some(&b), m(10, 7, 0)), Fait::default());
+}
+
+/// Un envoi trop long, puis Gmail répond « refusé » : pas parti, Jordan peut réessayer ; une coupure en fin de message :
+/// il reste incertain.
+#[test]
+fn envoi_trop_long_puis_refuse_ou_coupe() {
+    let d = dossier("trop-long-refus");
+    let (b, offre, p) = base(&d, true);
+    let k = cles(&d);
+    let mut e = Envoi::default();
+    let t = e.geste(&ctx(&b, &k, &d), ENVOYER, &saisie(offre, p), m(10, 0, 0)).envoi.unwrap();
+    e.trop_long(Some(&b), m(10, 5, 1));
+    let refus = Retour { jeton: t.jeton, resultat: Err(ErreurEnvoi::DestinataireRefuse("550".into())) };
+    let f = e.fini(Some(&b), refus, m(10, 6, 0));
+    assert!(!f.bravo && f.message.unwrap().contains("Rien n'a été envoyé"));
+    assert_eq!(base_envois::lire_tente(b.connexion(), t.tente).unwrap().unwrap().etat, EtatTente::Echec);
+    assert!(base_envois::incertain(b.connexion(), offre).unwrap().is_none());
+    assert!(candidatures::lister(b.connexion()).unwrap().0.is_empty());
+    // Un autre envoi trop long, puis une coupure juste après la fin du message : toujours incertain
+    let t = e.geste(&ctx(&b, &k, &d), ENVOYER, &saisie(offre, p), m(10, 8, 0)).envoi.expect("réessayer");
+    e.trop_long(Some(&b), m(10, 13, 1));
+    let coupe = Retour { jeton: t.jeton, resultat: Err(ErreurEnvoi::Incertain("coupé".into())) };
+    let f = e.fini(Some(&b), coupe, m(10, 14, 0));
+    assert!(!f.bravo && f.change);
+    assert_eq!(base_envois::lire_tente(b.connexion(), t.tente).unwrap().unwrap().etat, EtatTente::Incertain);
+}
+
+/// Un envoi trop long, Jordan dit « Il n'est pas parti », PUIS le résultat arrive : ce que Jordan a dit reste.
+#[test]
+fn envoi_trop_long_jordan_a_deja_dit() {
+    let d = dossier("trop-long-dit");
+    let (b, offre, p) = base(&d, true);
+    let k = cles(&d);
+    let mut e = Envoi::default();
+    let t = e.geste(&ctx(&b, &k, &d), ENVOYER, &saisie(offre, p), m(10, 0, 0)).envoi.unwrap();
+    e.trop_long(Some(&b), m(10, 5, 1));
+    e.geste(&ctx(&b, &k, &d), PAS_PARTI, &json!({ "tente": t.tente }), m(10, 6, 0));
+    let ok = Retour { jeton: t.jeton, resultat: Ok(t.brouillon.message_id.clone()) };
+    let f = e.fini(Some(&b), ok, m(10, 7, 0));
+    assert!(!f.bravo && f.journal.unwrap().contains("laissé"));
+    assert_eq!(base_envois::lire_tente(b.connexion(), t.tente).unwrap().unwrap().etat, EtatTente::PasParti);
 }
 
 /// Gmail a dit oui, mais le suivi n'a pas pu noter la candidature : l'envoi devient incertain (jamais « en cours »).

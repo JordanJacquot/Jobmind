@@ -75,6 +75,10 @@ const APRES_REMPLISSAGE_MS: u64 = 900;
 const APRES_CLIC_MS: u64 = 3000;
 /// Les étapes d'un formulaire au plus.
 const ETAPES_MAX: u32 = 8;
+/// Après « Envoyer », une page qui ne dit ni « c'est parti » ni une erreur : Jordan vérifie avant de renvoyer.
+const A_VERIFIER: &str = "Jobmind ne sait pas si ta candidature est partie : le site n'a montré ni confirmation ni \
+erreur. Avant de la renvoyer, regarde ta boîte mail (un message du site) ou ton espace sur le site, puis dis-le à \
+Jobmind.";
 
 /// Où en est la candidature sur le site.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1244,8 +1248,8 @@ impl Coulisse {
     ) -> Fait {
         let Some(p) = self.postuler.clone() else { return Fait::default() };
         let c = &l.comprise;
-        // La confirmation du site
-        if let Some(phrase) = f.confirmation.clone() {
+        // La confirmation du site (seule, ou écrite à côté d'un autre formulaire sans erreur du site)
+        if let Some(phrase) = f.confirmee().map(str::to_string) {
             self.attente = None;
             return self.po_parti(base, &p, &phrase, false, maintenant, trace);
         }
@@ -1257,8 +1261,31 @@ impl Coulisse {
                 let y: Vec<usize> = f.champs.iter().map(|c| c.i).collect();
                 x == y && a.champs.iter().zip(&f.champs).all(|(u, v)| u.libelle == v.libelle)
             });
-            let refuse = memes || !f.erreurs.is_empty() && memes;
+            // Un refus : le même formulaire revenu, ou une erreur écrite par le site
+            let refuse = memes || !f.erreurs.is_empty();
             let Some(b) = base else { return Fait::refus(SANS_BASE, "Site : base fermée".into()) };
+            // Après « Envoyer » (l'envoi noté), un formulaire sans aucune erreur du site : le site a pu tout recevoir
+            // puis remontrer un formulaire. Jamais « pas parti » ici, sinon Jordan renverrait en double : incertain.
+            if !suivant && f.erreurs.is_empty() {
+                if let Some(t) = p.tente {
+                    let raison = if memes {
+                        "le même formulaire est revenu, sans erreur du site"
+                    } else {
+                        "un autre formulaire est venu, sans erreur du site"
+                    };
+                    let _ = base_site::rendre_incertain(b.connexion(), t, raison, maintenant);
+                }
+                let Some(q) = self.postuler.as_mut() else { return Fait::default() };
+                q.page = l.brute.clone();
+                q.page_site = l.comprise.adresse.clone();
+                q.phase = Phase::Incertain;
+                q.annonce = Some((A_VERIFIER.to_string(), "attention"));
+                return Fait {
+                    journal: Some(format!("Site : envoi incertain, un formulaire sans erreur du site ; {trace}")),
+                    change: true,
+                    ..Fait::default()
+                };
+            }
             if refuse {
                 let erreur = if f.erreurs.is_empty() {
                     "Le site n'a pas accepté le formulaire : un champ manque peut-être. Regarde le récapitulatif."
@@ -1289,10 +1316,7 @@ impl Coulisse {
                 fait.change = true;
                 return fait;
             }
-            // Une nouvelle étape
-            if let Some(t) = p.tente {
-                let _ = base_site::pas_parti(b.connexion(), t, "le site a montré une autre étape", maintenant);
-            }
+            // Une nouvelle étape (seulement après « Suivant » : aucun envoi noté, rien à marquer)
             let Some(q) = self.postuler.as_mut() else { return Fait::default() };
             if q.etapes >= ETAPES_MAX {
                 return self.po_bloquer(

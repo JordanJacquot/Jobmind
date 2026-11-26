@@ -3,7 +3,8 @@
 //! chiffrée et gardée (jobmind-storage, `cles`). La clé d'Adzuna (source retirée le 20/11/2026), gardée par une
 //! ancienne version, n'est plus lue : son nom est inconnu ici.
 //!
-//! Une clé n'est jamais montrée ni écrite au journal : l'écran ne montre que ses 4 derniers caractères ([`apercu`]).
+//! Une clé n'est jamais montrée ni écrite au journal : l'écran ne montre que ses 4 derniers caractères ([`apercu`]),
+//! et seulement pour une clé assez longue pour que cela n'en dise presque rien ([`Cle::montrable`]).
 
 /// Une partie de clé gardée.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -93,9 +94,11 @@ impl Cle {
     }
 
     /// Ce que l'écran peut en dire (ses 4 derniers caractères) : jamais pour l'identifiant ni le mot de passe d'un site,
-    /// qui ne sortent jamais de Rust.
+    /// qui ne sortent jamais de Rust, ni pour le mot de passe d'application de Gmail (16 lettres : 4 caractères en
+    /// seraient le quart). Restent la clé Claude (une centaine de caractères) et l'adresse Gmail, qui n'est pas un
+    /// secret.
     pub fn montrable(self) -> bool {
-        self.service() != Service::Sites
+        self.service() != Service::Sites && self != Cle::GmailMdp
     }
 
     /// Les longueurs permises, et les caractères en plus des lettres et des chiffres.
@@ -234,6 +237,18 @@ mod tests {
             assert_eq!(Cle::depuis_code(code), None);
             assert_eq!(Service::depuis_code(code), None);
         }
+    }
+
+    /// Seules la clé Claude et l'adresse Gmail ont un aperçu à l'écran : jamais un mot de passe (celui de Gmail fait
+    /// 16 lettres, ses 4 dernières en seraient le quart), ni l'identifiant d'un site.
+    #[test]
+    fn apercu_jamais_pour_un_mot_de_passe() {
+        let montrables: Vec<Cle> = Cle::TOUTES.into_iter().filter(|c| c.montrable()).collect();
+        assert_eq!(montrables, [Cle::Claude, Cle::GmailAdresse]);
+        assert!(!Cle::GmailMdp.montrable());
+        // (l'aperçu ne montre jamais plus du dixième d'une clé montrable de la plus petite taille permise)
+        let (min, _, _) = Cle::Claude.forme();
+        assert!(min >= 40);
     }
 
     /// Contre-épreuve : une clé mal collée est refusée, avec une phrase qui ne la répète pas.

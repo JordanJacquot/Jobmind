@@ -45,7 +45,7 @@ pub(super) fn rangs(c: &Coulisse) -> Vec<usize> {
 
 /// 0.2.0 : la lecture automatique menée jusqu'à la page 2, que Jobmind demande toute seule une fois les offres de la
 /// page 1 lues : le moment de ce chargement et ce qu'il a donné (la page n'est pas encore lue).
-fn jusqu_a_la_page_2(c: &mut Coulisse, b: &Base, n: &mut Navigateur, depuis: Instant) -> (Instant, Fait) {
+pub(super) fn jusqu_a_la_page_2(c: &mut Coulisse, b: &Base, n: &mut Navigateur, depuis: Instant) -> (Instant, Fait) {
     let mut t = depuis;
     for _ in 0..10 {
         let (x, f) = jusqu_au_chargement(c, t, 10).expect("la page 2 est chargée toute seule");
@@ -185,8 +185,16 @@ fn ordre_rythme_et_fin() {
         assert!(f.coulisse.is_empty());
         fin.extend(f.journal);
     }
-    assert_eq!(fin, ["Sites : lecture de toutes les offres finie sur francetravail (9 offres dans la liste)"]);
+    // (0.2.1 : la même ligne finit par le bilan de ce que Jordan voit, en nombres seulement)
+    assert_eq!(fin.len(), 1, "{fin:?}");
+    assert!(
+        fin[0].starts_with(
+            "Sites : lecture de toutes les offres finie sur francetravail (9 offres dans la liste) ; bilan : 9 analysées, 0 illisibles, "
+        ),
+        "{fin:?}"
+    );
     let l = c.liste_de(Site::FranceTravail).unwrap();
+    assert!(l.resultats.iter().all(|r| !fin[0].contains(&r.titre) && !fin[0].contains(&r.url)), "{fin:?}");
     assert!(!l.tout && l.lecture.finie && l.lecture.faites == 9, "{l:?}");
     let v = c.vue(jour());
     assert_eq!(v["liste"]["lecture"]["finie"], true);
@@ -331,8 +339,9 @@ fn arret_sur_une_page_de_secours_sans_jamais_reessayer() {
     assert_eq!(lec["texte"], lec["arret"]);
     assert_eq!(lec["finie"], false);
     sans_tiret_long(&v);
-    // Plus aucune demande ensuite, même une heure après
-    for s in 0..3600 {
+    // Plus aucune demande ensuite, même dix minutes après (0.2.1 : le faux temps ne revient plus en arrière : la pause
+    // de 15 minutes se lève maintenant toute seule à son heure, une heure ici l'aurait levée avant la suite)
+    for s in 0..600 {
         assert!(c.lecture_auto(t + SECONDE * s, true).coulisse.is_empty());
     }
     // Une nouvelle recherche de Jordan : sa liste est lue, mais pas ses offres, pendant la pause après l'arrêt
@@ -706,7 +715,14 @@ fn page_suivante_sans_rien_derriere() {
         assert!(f.coulisse.is_empty(), "{f:?}");
         fin.extend(f.journal);
     }
-    assert_eq!(fin, ["Sites : lecture de toutes les offres finie sur francetravail (6 offres dans la liste)"]);
+    // (0.2.1 : avec son bilan, dans la même ligne)
+    assert_eq!(fin.len(), 1, "{fin:?}");
+    assert!(
+        fin[0].starts_with(
+            "Sites : lecture de toutes les offres finie sur francetravail (6 offres dans la liste) ; bilan : 6 analysées"
+        ),
+        "{fin:?}"
+    );
     let v = c.vue(jour());
     assert_eq!(v["liste"]["lecture"]["finie"], true);
     assert_eq!(v["liste"]["lecture"]["texte"], "Les 6 offres de la liste sont analysées");

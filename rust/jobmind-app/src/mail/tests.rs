@@ -194,7 +194,9 @@ fn branchement_releve_et_rangement() {
 
     // L'état de la page : ni le mot de passe, ni le HTML d'un mail
     let (vm, _) = boite.vue(Some(&b), Some(&cles));
-    assert!(vm.branchee && vm.adresse == BOITE_ADRESSE && vm.apercu == "se termine par saii");
+    assert!(vm.branchee && vm.adresse == BOITE_ADRESSE && vm.apercu == "gardé");
+    // (0.2.1 : la fin du mot de passe n'est plus montrée)
+    assert!(!vm.apercu.contains("saii"));
     let mut s = crate::suivi::Suivi { ouverte: Some(4) };
     let (e, _) = s.etat_tout(
         "0.7.0",
@@ -268,6 +270,42 @@ fn erreurs_de_la_boite() {
     }
     verifier_lecture_seule(&faux);
     let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Audit du 27/11/2026 : une alerte n'est reconnue que si Gmail a vu la signature du site (l'en-tête
+/// Authentication-Results). Le même mail sans cet en-tête, avec une signature ratée ou d'un autre domaine : aucune
+/// offre ajoutée.
+#[test]
+fn alerte_sans_signature_du_site_ignoree() {
+    let (b, _) = Base::en_memoire(m(19, 6)).unwrap();
+    let a = &jobmind_sources::alertes::exemples::ALERTES[1];
+    let brut = |id: &str| {
+        let o = mail_brut(id, a.de, a.objet, "19 Nov 2026 06:15:00 +0100", a.texte, Some(a.html));
+        String::from_utf8(o).unwrap()
+    };
+    let vrai = brut("vrai@essai.jobmind");
+    assert!(vrai.starts_with("Authentication-Results: mx.google.com; dkim=pass header.i=@indeed.com"), "{vrai}");
+    let sans = brut("sans@essai.jobmind").split_once("\r\n").unwrap().1.to_string();
+    let rate = brut("rate@essai.jobmind").replacen("dkim=pass", "dkim=fail", 1);
+    let autre = brut("autre@essai.jobmind").replacen("header.i=@indeed.com", "header.i=@arnaque.ru", 1);
+    // (l'imitateur écrit lui-même un en-tête « dkim=pass » ; Gmail ajoute le sien AU-DESSUS : seul celui-là compte)
+    let ajoute = format!("Authentication-Results: mx.google.com; dkim=none\r\n{}", brut("ajoute@essai.jobmind"));
+    let releve = |n: u32, octets: &[u8]| jobmind_mail::Releve {
+        uidvalidity: 1,
+        dernier_uid: n,
+        mails: vec![jobmind_mail::mime::lire(n, octets)],
+        restants: 0,
+        illisibles: 0,
+    };
+    for (n, faux) in [sans, rate, autre, ajoute].iter().enumerate() {
+        let bilan = traiter(&b, &releve(n as u32 + 1, faux.as_bytes()), BOITE_ADRESSE, m(19, 7), 60).unwrap();
+        assert_eq!((bilan.alertes, bilan.offres), (0, 0), "mail {n}");
+    }
+    assert!(jobmind_storage::offres::lister(b.connexion()).unwrap().is_empty());
+    // Le vrai : ses offres ajoutées
+    let bilan = traiter(&b, &releve(10, vrai.as_bytes()), BOITE_ADRESSE, m(19, 8), 60).unwrap();
+    assert_eq!(bilan.alertes, 1);
+    assert!(bilan.offres > 0);
 }
 
 #[test]

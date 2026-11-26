@@ -132,17 +132,68 @@ pub fn sans_metier(site: Site, mots: &str) -> bool {
     metier_obligatoire(site) && propre_recherche(mots, MOTS_MAX).is_empty()
 }
 
+/// Pourquoi une recherche n'a pas d'adresse sur un site.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RechercheRefusee {
+    /// Un autre site, une page 0 ou trop lointaine, une recherche vide (ni mots ni lieu), ou sans métier sur un site
+    /// qui en demande un
+    Vide,
+    /// La ville n'est pas dans la table des communes (France Travail cherche une ville par son code)
+    VilleInconnue { site: Site, ville: String },
+    /// Plusieurs communes portent ce nom, sans département ni code postal pour les départager ; `exemple` : une
+    /// écriture qui marche (« Saint-Denis (93) »)
+    VilleHomonyme { site: Site, ville: String, exemple: String },
+}
+
+impl RechercheRefusee {
+    /// La phrase pour l'écran (rien à dire de plus pour [`RechercheRefusee::Vide`] : l'appelant a déjà ses phrases).
+    pub fn message(&self) -> String {
+        match self {
+            RechercheRefusee::Vide => "Cette recherche est vide : écris un poste, ou choisis un lieu.".into(),
+            RechercheRefusee::VilleInconnue { site, ville } => format!(
+                "{} ne peut pas chercher autour de « {ville} » : Jobmind ne connaît pas cette ville. Choisis-la dans \
+                 la liste proposée quand tu écris son nom, ou cherche dans tout le département.",
+                site.nom()
+            ),
+            RechercheRefusee::VilleHomonyme { site, ville, exemple } => format!(
+                "Plusieurs villes s'appellent « {ville} » : précise le département pour chercher sur {}, par exemple \
+                 « {exemple} », ou choisis la ville dans la liste proposée.",
+                site.nom()
+            ),
+        }
+    }
+
+    /// Un code court pour le journal.
+    pub fn code(&self) -> &'static str {
+        match self {
+            RechercheRefusee::Vide => "vide",
+            RechercheRefusee::VilleInconnue { .. } => "ville_inconnue",
+            RechercheRefusee::VilleHomonyme { .. } => "ville_homonyme",
+        }
+    }
+}
+
 /// L'adresse de la page `page` (1, 2...) des résultats de ce site pour ces mots et ce lieu. Rien pour un autre site,
-/// une page 0, une recherche vide (ni mots ni lieu), ou sans métier sur un site qui en demande un.
+/// une page 0, une recherche vide (ni mots ni lieu), sans métier sur un site qui en demande un, ou, sur France
+/// Travail, autour d'une ville que la table des communes ne permet pas de désigner ([`adresse_recherche_ou`] dit
+/// laquelle de ces raisons, avec la phrase à montrer).
 pub fn adresse_recherche(site: Site, mots: &str, lieu: &LieuSite, page: u32) -> Option<String> {
+    adresse_recherche_ou(site, mots, lieu, page).ok()
+}
+
+/// Comme [`adresse_recherche`], avec la raison quand il n'y a pas d'adresse. Audit du 26/11/2026 : sur France Travail,
+/// une ville absente de la table, ou portée par plusieurs communes sans rien pour les départager, partait dans les
+/// mots-clés avec un rayon sans lieu : une recherche du mot dans toute la France, sans le dire. Elle est maintenant
+/// refusée, avec la phrase à montrer (« précise le département »).
+pub fn adresse_recherche_ou(site: Site, mots: &str, lieu: &LieuSite, page: u32) -> Result<String, RechercheRefusee> {
     let mots = propre_recherche(mots, MOTS_MAX);
     if page == 0 || page > 40 || (mots.is_empty() && (*lieu == LieuSite::Partout || metier_obligatoire(site))) {
-        return None;
+        return Err(RechercheRefusee::Vide);
     }
     let ou = |t: &str| propre_recherche(t, 80);
     let n = page - 1;
     let m = encoder(&mots);
-    Some(match site {
+    Ok(match site {
         Site::LinkedIn => {
             let (l, distance) = match lieu {
                 LieuSite::Ville { nom, rayon_km } => {
@@ -195,16 +246,32 @@ pub fn adresse_recherche(site: Site, mots: &str, lieu: &LieuSite, page: u32) -> 
         Site::FranceTravail => {
             // (France Travail cherche le lieu par son code : une commune par son code INSEE, « lieux=57630 » pour
             // Sarrebourg, vu en vrai le 19/11/2026 ; un département « 57D », une région « 44R ». Une ville absente de
-            // la table des communes, ou portée par plusieurs communes sans département pour les départager, va
-            // avec les mots, comme avant. Sans mots, pas de « motsCles » : toutes les offres du lieu.)
+            // la table des communes, ou portée par plusieurs communes sans département pour les départager, n'a pas
+            // de code : la recherche est refusée, avec sa raison (jamais le nom de la ville dans les mots-clés, ni
+            // un rayon sans lieu : ce serait chercher dans toute la France). Sans mots, pas de « motsCles » : toutes
+            // les offres du lieu.)
             let (mots, lieux, rayon) = match lieu {
                 LieuSite::Ville { nom, rayon_km } => match crate::communes::trouver(nom) {
                     Some(c) => (mots, Some(c.insee.to_string()), Some(*rayon_km)),
-                    None => (
-                        propre_recherche(&format!("{mots} {}", ou(&crate::communes::nom_seul(nom))), MOTS_MAX),
-                        None,
-                        Some(*rayon_km),
-                    ),
+                    None => {
+                        let ville = ou(&crate::communes::nom_seul(nom));
+                        // (l'exemple : la première écriture avec le département qui désigne une seule commune,
+                        // sinon avec le code postal)
+                        let memes = crate::communes::homonymes(nom);
+                        let exemple = memes
+                            .iter()
+                            .map(|c| format!("{} ({})", c.nom, c.departement()))
+                            .find(|t| crate::communes::trouver(t).is_some())
+                            .or_else(|| {
+                                memes.first().map(|c| {
+                                    format!("{} ({})", c.nom, c.codes_postaux.split(',').next().unwrap_or_default())
+                                })
+                            });
+                        return Err(match exemple {
+                            Some(exemple) => RechercheRefusee::VilleHomonyme { site, ville, exemple },
+                            None => RechercheRefusee::VilleInconnue { site, ville },
+                        });
+                    }
                 },
                 LieuSite::Departement { code, .. } => (mots, Some(format!("{}D", ou(code))), None),
                 LieuSite::Region { code, .. } => (mots, insee_region(code).map(|c| format!("{c}R")), None),
@@ -261,7 +328,7 @@ pub fn adresse_recherche(site: Site, mots: &str, lieu: &LieuSite, page: u32) -> 
             }
             u
         }
-        Site::Autre => return None,
+        Site::Autre => return Err(RechercheRefusee::Vide),
     })
 }
 
@@ -898,23 +965,70 @@ fn captcha_fort(d: &Document, a: &Adresse, titre: &str) -> bool {
         .any(|m| t.contains(m))
 }
 
+/// Les mots d'un nom technique de champ (« verificationCode », « input__email_verification_pin », « otp-1 ») :
+/// coupés aux majuscules, aux chiffres et à tout ce qui n'est pas une lettre, en minuscules.
+fn mots_du_nom(nom: &str) -> Vec<String> {
+    let mut mots: Vec<String> = Vec::new();
+    let mut mot = String::new();
+    let mut avant_min = false;
+    for c in nom.chars() {
+        if (!c.is_alphabetic() || (c.is_uppercase() && avant_min)) && !mot.is_empty() {
+            mots.push(std::mem::take(&mut mot));
+        }
+        avant_min = c.is_lowercase();
+        if c.is_alphabetic() {
+            mot.extend(c.to_lowercase());
+        }
+    }
+    if !mot.is_empty() {
+        mots.push(mot);
+    }
+    mots
+}
+
+/// Le nom (ou l'identifiant) d'un champ est-il celui d'un code de vérification ? Des mots entiers : « pin », « otp »,
+/// ou « code » seul ou avec un mot de vérification (« verification_code », « smsCode »). « shipping », « codeoffre »,
+/// « code_postal », « code_promo », « code_offre » n'en sont pas.
+fn champ_de_code(nom: &str) -> bool {
+    const AVEC_CODE: [&str; 24] = [
+        "verification",
+        "verif",
+        "verify",
+        "validation",
+        "confirmation",
+        "confirm",
+        "securite",
+        "security",
+        "secret",
+        "sms",
+        "mail",
+        "email",
+        "auth",
+        "authentification",
+        "authentication",
+        "login",
+        "connexion",
+        "challenge",
+        "access",
+        "acces",
+        "token",
+        "totp",
+        "mfa",
+        "digit",
+    ];
+    let mots = mots_du_nom(nom);
+    let a = |m: &str| mots.iter().any(|x| x == m);
+    a("otp") || a("pin") || (a("code") && (mots.iter().all(|x| x == "code") || AVEC_CODE.iter().any(|m| a(m))))
+}
+
 /// Les signes d'une vérification (un code reçu, « vérifiez que c'est vous »), sur une page sans offre ni liste.
 fn verification(d: &Document, a: &Adresse, texte_page: &str) -> bool {
     for i in d.tous("input", 300) {
         if !champ_visible(d, i) {
             continue;
         }
-        let nom = format!(
-            "{} {} {}",
-            d.attr(i, "name").unwrap_or_default(),
-            d.attr(i, "id").unwrap_or_default(),
-            d.attr(i, "autocomplete").unwrap_or_default()
-        )
-        .to_ascii_lowercase();
-        if nom.contains("one-time-code")
-            || nom.contains("otp")
-            || nom.contains("pin")
-            || (nom.contains("code") && !nom.contains("postal") && !nom.contains("promo"))
+        if d.attr(i, "autocomplete").is_some_and(|x| x.to_ascii_lowercase().contains("one-time-code"))
+            || ["name", "id"].iter().any(|n| d.attr(i, n).is_some_and(champ_de_code))
         {
             return true;
         }
@@ -1002,11 +1116,28 @@ fn aucun_resultat(texte_page: &str) -> bool {
         "no matching jobs",
         "we couldn't find any jobs",
         "nous n'avons trouve aucun",
-        "0 resultat",
-        "0 offre",
     ]
     .iter()
     .any(|m| texte_page.contains(m))
+        || ["0 resultat", "0 offre"].iter().any(|m| zero_seul(texte_page, m))
+}
+
+/// Le texte contient-il ce compte nul (« 0 offre ») avec un « 0 » qui est tout le nombre ? « 120 offres »,
+/// « 30 résultats », « 1 000 offres » et « 2,0 » contiennent le même morceau de texte sans dire « aucune ».
+fn zero_seul(texte_page: &str, m: &str) -> bool {
+    texte_page.match_indices(m).any(|(p, _)| {
+        // (« Nous avons masqué 0 offre que vous avez décidé de ne plus voir » ne compte pas les offres trouvées)
+        if texte_page[..p].trim_end().ends_with("masque") {
+            return false;
+        }
+        // (un chiffre juste avant, ou un chiffre puis un point ou une virgule : un nombre plus grand)
+        let mut avant = texte_page[..p].chars().rev();
+        match avant.next() {
+            Some(c) if c.is_ascii_digit() => false,
+            Some('.' | ',') => !avant.next().is_some_and(|c| c.is_ascii_digit()),
+            _ => true,
+        }
+    })
 }
 
 /// Comprend la page chargée à cette adresse, d'après son HTML.

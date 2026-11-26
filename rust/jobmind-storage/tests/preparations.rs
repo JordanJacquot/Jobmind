@@ -57,7 +57,7 @@ fn nouvelle(offre_id: i64, lettre: &str) -> NouvellePreparation {
 fn migration_8_sur_une_base_de_l_etape_7() {
     let mut b = Base::en_memoire_jusqua(7, m(9)).unwrap();
     offres::ajouter_trouvees(b.connexion(), "francetravail", &[trouvee("1", "Cariste")], None, m(9)).unwrap();
-    assert_eq!(b.migrer_tout(m(10)).unwrap(), vec![8, 9, 10, 11, 12, 13, 14, 15, 16]);
+    assert_eq!(b.migrer_tout(m(10)).unwrap(), vec![8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
     let id = offres::lister(b.connexion()).unwrap()[0].id;
     assert!(preparations::lister(b.connexion(), id).unwrap().is_empty());
 }
@@ -68,7 +68,7 @@ fn migration_9_garde_les_versions_de_l_etape_8() {
     offres::ajouter_trouvees(b.connexion(), "francetravail", &[trouvee("1", "Cariste")], None, m(9)).unwrap();
     let o = offres::lister(b.connexion()).unwrap()[0].id;
     let id = preparations::ajouter(b.connexion(), &nouvelle(o, "Lettre 1"), m(10)).unwrap();
-    assert_eq!(b.migrer_tout(m(11)).unwrap(), vec![9, 10, 11, 12, 13, 14, 15, 16]);
+    assert_eq!(b.migrer_tout(m(11)).unwrap(), vec![9, 10, 11, 12, 13, 14, 15, 16, 17]);
     let p = preparations::lire(b.connexion(), id).unwrap().unwrap();
     assert!(p.lettre_style.is_none() && p.style_a_verifier.is_empty() && p.style_notes.is_empty());
     assert_eq!(p.choix(), preparations::Choix::Moi);

@@ -206,8 +206,9 @@ impl Boite {
             v.illisible = [Cle::GmailAdresse, Cle::GmailMdp].iter().any(|k| c.etat(*k) == Some(&EtatCle::Illisible));
             if v.branchee {
                 v.adresse = c.lire(Cle::GmailAdresse).unwrap_or_default();
+                // (0.2.1 : rien du mot de passe n'est montré, même pas sa fin : seulement qu'il est gardé)
                 v.apercu = match c.etat(Cle::GmailMdp) {
-                    Some(EtatCle::Gardee(a)) => a.clone(),
+                    Some(EtatCle::Gardee(_)) => "gardé".to_string(),
                     _ => String::new(),
                 };
             }
@@ -624,8 +625,15 @@ pub fn traiter(
             texte: m.texte.clone(),
             pieces_jointes: m.pieces_jointes,
         };
-        let alerte =
-            MailAlerte { de: &m.de_adresse, de_nom: &m.de_nom, objet: &m.objet, html: &m.html, texte: &m.texte };
+        // (la signature vue par Gmail est exigée : un « From » recopié ne fait pas une alerte)
+        let alerte = MailAlerte {
+            de: &m.de_adresse,
+            de_nom: &m.de_nom,
+            objet: &m.objet,
+            html: &m.html,
+            texte: &m.texte,
+            authentification: &m.authentification,
+        };
         if let Some(a) = alertes::lire(&alerte) {
             let source = a.site.code();
             let b2 = base_offres::ajouter_trouvees(c, source, &a.offres, None, maintenant)?;
@@ -890,7 +898,7 @@ pub fn rubrique(v: &VueMails, aujourdhui: Jour) -> Value {
                 ("non", "Non, garder"),
                 ("copier", "Copier l'adresse"),
                 ("copie", "Copié"),
-                ("adresse_aide", "Copie cette adresse, puis ouvre-la dans ton navigateur."),
+                ("adresse_aide", crate::vue_profil::ADRESSE_AIDE),
                 ("branchee", "Branchée"),
                 ("mot_de_passe", "Mot de passe d'application"),
                 ("etape", "Étape"),

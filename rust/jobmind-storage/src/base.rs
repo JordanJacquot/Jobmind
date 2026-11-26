@@ -49,6 +49,11 @@ pub const MIGRATIONS: &[Migration] = &[
     Migration { version: 14, nom: "le site de l'entreprise", sql: include_str!("migrations/0014_site_entreprise.sql") },
     Migration { version: 15, nom: "les offres analysées", sql: include_str!("migrations/0015_analyses.sql") },
     Migration { version: 16, nom: "les corrections du parcours", sql: include_str!("migrations/0016_parcours.sql") },
+    Migration {
+        version: 17,
+        nom: "le ménage et la réponse de Claude gardée",
+        sql: include_str!("migrations/0017_menage.sql"),
+    },
 ];
 
 /// La version de la base que cette version de Jobmind connaît (la dernière migration).

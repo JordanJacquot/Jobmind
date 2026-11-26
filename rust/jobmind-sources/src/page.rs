@@ -78,6 +78,16 @@ impl Site {
         }
     }
 
+    /// La recherche de ce site tient-elle compte du rayon autour de la ville (« 20 km autour de Sarrebourg ») ?
+    /// Welcome to the Jungle et Meteojob ne reçoivent que le nom de la ville : aucun paramètre de rayon connu chez
+    /// eux, le rayon choisi n'y change rien (voir [`crate::sites::adresse_recherche`]). L'écran peut le dire.
+    pub fn tient_le_rayon(self) -> bool {
+        match self {
+            Site::LinkedIn | Site::Indeed | Site::FranceTravail | Site::HelloWork => true,
+            Site::Wttj | Site::Meteojob | Site::Autre => false,
+        }
+    }
+
     /// Le site d'un hôte (« fr.linkedin.com », « candidat.francetravail.fr »).
     pub fn depuis_hote(hote: &str) -> Site {
         let h = hote.trim_end_matches('.').to_ascii_lowercase();
@@ -344,21 +354,22 @@ fn de_type(v: &Value, t: &str) -> bool {
     }
 }
 
-/// Les objets `JobPosting` d'un JSON-LD (à la racine, dans une liste, dans `@graph`, ou un niveau plus bas).
-fn postings<'a>(v: &'a Value, l: &mut Vec<&'a Value>, profondeur: usize) {
+/// Les objets `JobPosting` d'un JSON-LD (à la racine, dans une liste, dans `@graph`, ou un niveau plus bas), chacun
+/// avec ce qu'on sait de sa place : rangé dans une liste (`itemListElement` : les offres similaires) ou non.
+fn postings<'a>(v: &'a Value, l: &mut Vec<(&'a Value, bool)>, profondeur: usize, dans_liste: bool) {
     if profondeur > 6 || l.len() > 50 {
         return;
     }
     match v {
-        Value::Array(a) => a.iter().take(200).for_each(|x| postings(x, l, profondeur + 1)),
+        Value::Array(a) => a.iter().take(200).for_each(|x| postings(x, l, profondeur + 1, dans_liste)),
         Value::Object(o) => {
             if de_type(v, "JobPosting") {
-                l.push(v);
+                l.push((v, dans_liste));
                 return;
             }
             for (k, x) in o.iter().take(200) {
                 if k == "@graph" || k == "itemListElement" || k == "item" || k == "mainEntity" {
-                    postings(x, l, profondeur + 1);
+                    postings(x, l, profondeur + 1, dans_liste || k == "itemListElement");
                 }
             }
         }
@@ -377,7 +388,7 @@ fn nom_jsonld(v: Option<&Value>) -> String {
 }
 
 /// Le département d'un code postal (« 57000 » : « 57 », « 97411 » : « 974 », la Corse : « 2A » ou « 2B »).
-fn departement_postal(cp: &str) -> Option<String> {
+pub(crate) fn departement_postal(cp: &str) -> Option<String> {
     let cp = cp.trim();
     if cp.len() != 5 || !cp.bytes().all(|b| b.is_ascii_digit()) {
         return None;
@@ -530,16 +541,75 @@ fn champs_jsonld(p: &Value) -> Champs {
     }
 }
 
-/// Les `JobPosting` des scripts JSON-LD de la page (chacun gardé en texte JSON pour l'archive).
-fn jsonld(d: &Document) -> Vec<Value> {
+/// Une adresse sans ce qui ne compte pas pour la comparer : ni « http » ou « https », ni « www. », ni paramètres,
+/// ni « / » final.
+fn adresse_nue(a: &Adresse) -> String {
+    format!("{}{}", a.hote.trim_start_matches("www."), a.chemin.trim_end_matches('/'))
+}
+
+/// Ce `JobPosting` est-il l'offre de la page : son adresse (`url`, `@id`, `sameAs`) est celle de la page (le même
+/// identifiant d'offre chez le site, sinon la même adresse), ou son identifiant (`identifier`) est celui de la page.
+fn posting_de_la_page(p: &Value, site: Site, a: &Adresse) -> bool {
+    let id_page = identifiant(site, a).map(|(id, _)| id);
+    for cle in ["url", "@id", "sameAs"] {
+        let u = texte_json(p.get(cle));
+        let Some(b) = Adresse::lire(resoudre_simple(a, u.trim()).as_str()) else { continue };
+        let meme_site = Site::depuis_hote(&b.hote) == site;
+        let meme_offre = match (&id_page, identifiant(site, &b)) {
+            (Some(x), Some((y, _))) => meme_site && *x == y,
+            _ => false,
+        };
+        if meme_offre || adresse_nue(&b) == adresse_nue(a) {
+            return true;
+        }
+    }
+    let Some(id_page) = id_page else { return false };
+    let id = match p.get("identifier") {
+        Some(Value::Object(o)) => texte_json(o.get("value")),
+        x => texte_json(x),
+    };
+    !id.trim().is_empty() && id.trim().eq_ignore_ascii_case(&id_page)
+}
+
+/// Une adresse des données rendue complète si elle commence par « / » (« /jobs/123 » : sur le site de la page).
+fn resoudre_simple(a: &Adresse, u: &str) -> String {
+    if u.starts_with('/') && !u.starts_with("//") {
+        let port = a.port.map(|p| format!(":{p}")).unwrap_or_default();
+        format!("{}://{}{port}{u}", if a.https { "https" } else { "http" }, a.hote)
+    } else {
+        u.to_string()
+    }
+}
+
+/// Parmi plusieurs `JobPosting` différents, celui de la page : celui dont l'adresse ou l'identifiant est celui de la
+/// page (un seul) ; sinon, sur l'adresse d'une offre d'un site connu, le seul qui n'est pas rangé dans une liste (les
+/// offres similaires le sont). Rien : la page est une liste.
+fn posting_principal<'a>(l: &[(&'a Value, bool)], site: Site, a: &Adresse) -> Option<&'a Value> {
+    let m: Vec<&Value> = l.iter().filter(|(p, _)| posting_de_la_page(p, site, a)).map(|(p, _)| *p).collect();
+    if let [p] = m.as_slice() {
+        return Some(p);
+    }
+    if !m.is_empty() || identifiant(site, a).is_none() {
+        return None;
+    }
+    let hors: Vec<&Value> = l.iter().filter(|(_, dans_liste)| !dans_liste).map(|(p, _)| *p).collect();
+    match hors.as_slice() {
+        [p] => Some(p),
+        _ => None,
+    }
+}
+
+/// Les `JobPosting` des scripts JSON-LD de la page (chacun gardé en texte JSON pour l'archive), et s'il est rangé dans
+/// une liste.
+fn jsonld(d: &Document) -> Vec<(Value, bool)> {
     let mut l = Vec::new();
     for s in d.scripts("application/ld+json", JSONLD_MAX, JSONLD_COMBIEN) {
         // (certains sites mettent un commentaire HTML ou un « ; » autour)
         let s = s.trim().trim_start_matches("<!--").trim_end_matches("-->").trim().trim_end_matches(';');
         let Ok(v) = serde_json::from_str::<Value>(s) else { continue };
         let mut p = Vec::new();
-        postings(&v, &mut p, 0);
-        l.extend(p.into_iter().cloned());
+        postings(&v, &mut p, 0, false);
+        l.extend(p.into_iter().map(|(x, dans_liste)| (x.clone(), dans_liste)));
     }
     l
 }
@@ -906,20 +976,24 @@ const MOTS_CONTRAT: [&str; 11] = [
 
 /// Un texte en minuscules, sans accents (pour chercher des mots).
 pub(crate) fn simple(t: &str) -> String {
-    t.chars()
-        .flat_map(char::to_lowercase)
-        .map(|c| match c {
-            'à' | 'â' | 'ä' | 'á' => 'a',
-            'é' | 'è' | 'ê' | 'ë' => 'e',
-            'î' | 'ï' | 'í' => 'i',
-            'ô' | 'ö' | 'ó' => 'o',
-            'ù' | 'û' | 'ü' | 'ú' => 'u',
-            'ç' => 'c',
-            '\u{a0}' | '\u{202f}' | '\u{2009}' => ' ',
-            '’' => '\'',
-            c => c,
-        })
-        .collect()
+    let mut s = String::with_capacity(t.len());
+    for c in t.chars().flat_map(char::to_lowercase) {
+        match c {
+            'à' | 'â' | 'ä' | 'á' => s.push('a'),
+            'é' | 'è' | 'ê' | 'ë' => s.push('e'),
+            'î' | 'ï' | 'í' => s.push('i'),
+            'ô' | 'ö' | 'ó' => s.push('o'),
+            'ù' | 'û' | 'ü' | 'ú' => s.push('u'),
+            'ç' => s.push('c'),
+            // (« œ » et « æ » en deux lettres, comme jobmind-core : « Vandœuvre » et « Vandoeuvre » se valent)
+            'œ' => s.push_str("oe"),
+            'æ' => s.push_str("ae"),
+            '\u{a0}' | '\u{202f}' | '\u{2009}' => s.push(' '),
+            '’' => s.push('\''),
+            c => s.push(c),
+        }
+    }
+    s
 }
 
 /// Le texte ressemble-t-il à une offre (au moins trois mots d'offre différents, assez long) ?
@@ -1118,16 +1192,23 @@ pub fn lire(adresse: &str, html: &str) -> Result<PageLue, PageRefusee> {
     let d = Document::lire(html);
     // 1. Les données structurées (une seule offre : une liste n'en donne aucune)
     let donnees = jsonld(&d);
-    let mut distinctes: Vec<&Value> = Vec::new();
-    for p in &donnees {
+    let mut distinctes: Vec<(&Value, bool)> = Vec::new();
+    for (p, dans_liste) in &donnees {
         let t = texte_json(p.get("title"));
-        if !distinctes.iter().any(|x| texte_json(x.get("title")) == t && x.get("url") == p.get("url")) {
-            distinctes.push(p);
+        if !distinctes.iter().any(|(x, _)| texte_json(x.get("title")) == t && x.get("url") == p.get("url")) {
+            distinctes.push((p, *dans_liste));
         }
     }
-    if distinctes.len() > 1 {
-        return Err(PageRefusee::Liste(site));
-    }
+    // (plusieurs offres : la page d'une offre montre souvent des offres similaires dans ses données ; on garde
+    // celle de la page, reconnue à son adresse ou à son identifiant. Aucune reconnue : c'est une liste)
+    let distinctes: Vec<&Value> = if distinctes.len() > 1 {
+        match posting_principal(&distinctes, site, &a) {
+            Some(p) => vec![p],
+            None => return Err(PageRefusee::Liste(site)),
+        }
+    } else {
+        distinctes.into_iter().map(|(p, _)| p).collect()
+    };
     let mut c = Champs::default();
     let mut lu_par = None;
     if let Some(p) = distinctes.first() {

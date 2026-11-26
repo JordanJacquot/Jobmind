@@ -35,7 +35,8 @@ pub trait Coffre {
 /// Ce que l'écran sait d'une clé gardée.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EtatCle {
-    /// Gardée et lisible : ses 4 derniers caractères (« se termine par 4f2a »)
+    /// Gardée et lisible : ses 4 derniers caractères (« se termine par 4f2a »), ou rien pour une clé dont l'écran ne
+    /// doit rien montrer ([`Cle::montrable`] : un mot de passe, l'identifiant d'un site)
     Gardee(String),
     /// Gardée, mais illisible ici (un autre utilisateur, un autre PC, un fichier abîmé)
     Illisible,
@@ -143,7 +144,8 @@ impl Cles {
             .iter()
             .map(|(k, c)| {
                 let e = match self.coffre.ouvrir(c).ok().and_then(|o| String::from_utf8(o).ok()) {
-                    // (rien de l'identifiant ni du mot de passe d'un site, même ses derniers caractères)
+                    // (rien de l'identifiant ni du mot de passe d'un site, ni du mot de passe d'application de Gmail,
+                    // même ses derniers caractères)
                     Some(clair) if k.montrable() => EtatCle::Gardee(apercu(&clair)),
                     Some(_) => EtatCle::Gardee(String::new()),
                     None => EtatCle::Illisible,
@@ -285,7 +287,10 @@ mod tests {
         // Rouvert : les mêmes clés
         let (c2, _) = Cles::ouvrir(&d, Box::new(Faux(0x5A)));
         assert_eq!(c2.lire(Cle::Claude).as_deref(), Some(CLAUDE));
-        assert_eq!(c2.etat(Cle::GmailMdp), Some(&EtatCle::Gardee("se termine par 3c4d".into())));
+        // Le mot de passe d'application (16 lettres) : gardé et lisible, mais rien n'en est montré, même sa fin
+        assert_eq!(c2.lire(Cle::GmailMdp).as_deref(), Some("abcdefghijkl3c4d"));
+        assert_eq!(c2.etat(Cle::GmailMdp), Some(&EtatCle::Gardee(String::new())));
+        assert_eq!(c2.etat(Cle::GmailAdresse), Some(&EtatCle::Gardee("se termine par e.fr".into())));
         // Un autre coffre (un autre utilisateur) ne les lit pas
         let (c3, j) = Cles::ouvrir(&d, Box::new(Faux(0x11)));
         assert_eq!(c3.etat(Cle::Claude), Some(&EtatCle::Illisible));

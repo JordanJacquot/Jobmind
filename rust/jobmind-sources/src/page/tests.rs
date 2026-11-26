@@ -587,3 +587,130 @@ fn indeed_et_linkedin_novembre_2026() {
     // (la même page à une adresse qui n'est pas celle d'une offre : toujours refusée)
     assert!(lire("https://www.linkedin.com/feed/", linkedin).is_err());
 }
+
+/// Une offre inventée avec ses données, pour les pages écrites ici : son titre, son adresse et son identifiant
+/// (vides : absents).
+fn posting(titre: &str, url: &str, id: &str) -> String {
+    let description = "Vous préparez les commandes et rangez les palettes. CDI, temps plein, salaire selon profil. \
+        Postuler en ligne. Missions : charger, décharger, ranger. Profil recherché : sérieux et ponctuel. "
+        .repeat(2);
+    let mut v = serde_json::json!({
+        "@type": "JobPosting",
+        "title": titre,
+        "description": description,
+        "hiringOrganization": { "name": format!("Entreprise de {titre}") },
+    });
+    if !url.is_empty() {
+        v["url"] = url.into();
+    }
+    if !id.is_empty() {
+        v["identifier"] = serde_json::json!({ "@type": "PropertyValue", "value": id });
+    }
+    v.to_string()
+}
+
+fn page_avec(scripts: &[String]) -> String {
+    let s: String = scripts.iter().map(|x| format!("<script type=\"application/ld+json\">{x}</script>")).collect();
+    format!("<html><head><title>Offre d'exemple</title>{s}</head><body><main><h1>Offre</h1></main></body></html>")
+}
+
+fn similaires(l: &[String]) -> String {
+    let items: Vec<String> = l
+        .iter()
+        .enumerate()
+        .map(|(i, p)| format!("{{\"@type\":\"ListItem\",\"position\":{},\"item\":{p}}}", i + 1))
+        .collect();
+    format!("{{\"@context\":\"https://schema.org\",\"@type\":\"ItemList\",\"itemListElement\":[{}]}}", items.join(","))
+}
+
+/// Audit du 26/11/2026 : la page d'une offre qui donne aussi des offres similaires dans ses données n'est plus
+/// refusée comme une liste ; l'offre gardée est celle de la page (son adresse ou son identifiant).
+#[test]
+fn offre_avec_offres_similaires() {
+    let autres = similaires(&[
+        posting("Cariste de nuit", "https://www.hellowork.com/fr-fr/emplois/11111111.html", ""),
+        posting("Magasinier", "https://www.hellowork.com/fr-fr/emplois/22222222.html", ""),
+    ]);
+    // 1. Reconnue à son adresse (les similaires d'abord dans la page, pour ne pas compter sur l'ordre)
+    let u = "https://www.hellowork.com/fr-fr/emplois/63496404.html";
+    let moi =
+        posting("Préparateur de commandes", "https://www.hellowork.com/fr-fr/emplois/63496404.html?utm_source=x", "");
+    let p = lue(u, &page_avec(&[autres.clone(), moi.clone()]));
+    assert_eq!((p.offre.titre.as_str(), p.offre.id_source.as_str()), ("Préparateur de commandes", "63496404"));
+    assert_eq!(p.offre.entreprise, "Entreprise de Préparateur de commandes");
+    assert_eq!(p.lu_par, LuPar::Donnees);
+    assert!(p.offre.brut.contains("Préparateur de commandes") && !p.offre.brut.contains("Cariste de nuit"));
+    propre(&p);
+    // (toutes dans la même liste, la bonne au milieu : toujours reconnue à son adresse)
+    let tout = similaires(&[
+        posting("Cariste de nuit", "https://www.hellowork.com/fr-fr/emplois/11111111.html", ""),
+        moi.clone(),
+        posting("Magasinier", "https://www.hellowork.com/fr-fr/emplois/22222222.html", ""),
+    ]);
+    assert_eq!(lue(u, &page_avec(&[tout])).offre.titre, "Préparateur de commandes");
+    // (une adresse écrite sans le nom du site)
+    let relative = posting("Préparateur de commandes", "/fr-fr/emplois/63496404.html", "");
+    assert_eq!(lue(u, &page_avec(&[autres.clone(), relative])).offre.titre, "Préparateur de commandes");
+    // 2. Reconnue à son identifiant (France Travail), sans adresse
+    let ft = "https://candidat.francetravail.fr/offres/recherche/detail/216LVQT";
+    let autres_ft = similaires(&[posting("Serveur", "", "201AAAA"), posting("Cuisinier", "", "201BBBB")]);
+    let p = lue(ft, &page_avec(&[autres_ft.clone(), posting("Réceptionniste de nuit", "", "216LVQT")]));
+    assert_eq!((p.offre.titre.as_str(), p.offre.id_source.as_str()), ("Réceptionniste de nuit", "216LVQT"));
+    // 3. Ni adresse ni identifiant, sur l'adresse d'une offre : la seule qui n'est pas rangée dans une liste
+    let p = lue(ft, &page_avec(&[autres_ft.clone(), posting("Réceptionniste de nuit", "", "")]));
+    assert_eq!(p.offre.titre, "Réceptionniste de nuit");
+    // 4. Un autre site : reconnue à son adresse, celle de la page
+    let ailleurs = "https://emplois.exemple.invalid/offres/agent-de-quai";
+    let similaires_ailleurs = similaires(&[
+        posting("Chauffeur", "https://emplois.exemple.invalid/offres/chauffeur", ""),
+        posting("Manutentionnaire", "https://emplois.exemple.invalid/offres/manutentionnaire", ""),
+    ]);
+    let moi_ailleurs = posting("Agent de quai", "https://www.emplois.exemple.invalid/offres/agent-de-quai/", "");
+    let p = lue(ailleurs, &page_avec(&[similaires_ailleurs.clone(), moi_ailleurs]));
+    assert_eq!(p.offre.titre, "Agent de quai");
+
+    // Contre-épreuves : toujours une liste
+    // (une vraie liste, aucune offre à l'adresse de la page : l'exemple du dépôt, et les mêmes sur un site connu)
+    assert_eq!(lire(PAGES[9].0, LISTE), Err(PageRefusee::Liste(Site::Autre)));
+    let recherche = "https://www.hellowork.com/fr-fr/emploi/recherche.html?k=cariste";
+    let que_la_liste = page_avec(std::slice::from_ref(&autres));
+    assert_eq!(lire(recherche, &que_la_liste), Err(PageRefusee::Liste(Site::HelloWork)));
+    // (sur l'adresse d'une offre, des offres dont aucune n'est celle de la page, toutes dans une liste)
+    assert_eq!(lire(u, &que_la_liste), Err(PageRefusee::Liste(Site::HelloWork)));
+    // (plusieurs offres hors de toute liste, aucune reconnue : on ne choisit pas au hasard)
+    let deux = [posting("Serveur", "", ""), posting("Cuisinier", "", "")];
+    assert_eq!(lire(ft, &page_avec(&deux)), Err(PageRefusee::Liste(Site::FranceTravail)));
+    // (un autre site, sans adresse d'offre connue : la seule offre hors liste ne suffit pas)
+    let sans_adresse = posting("Agent de quai", "", "");
+    assert_eq!(
+        lire("https://emplois.exemple.invalid/offres", &page_avec(&[similaires_ailleurs, sans_adresse])),
+        Err(PageRefusee::Liste(Site::Autre))
+    );
+    // (une seule offre dans la page : lue comme avant, quelle que soit son adresse)
+    let seule = posting("Magasinier", "https://www.hellowork.com/fr-fr/emplois/22222222.html", "");
+    assert_eq!(lue(u, &page_avec(&[seule])).offre.titre, "Magasinier");
+}
+
+/// Audit du 26/11/2026 : « œ » et « æ » sont lus comme « oe » et « ae ».
+#[test]
+fn simple_ecrit_oe_et_ae() {
+    assert_eq!(simple("Vandœuvre"), "vandoeuvre");
+    assert_eq!(simple("ŒUVRE Ægée cœur"), "oeuvre aegee coeur");
+    assert_eq!(simple("Éléphant À Noël"), "elephant a noel");
+    assert_eq!(simple("l’été\u{a0}chaud"), "l'ete chaud");
+}
+
+/// Les sites dont la recherche tient compte du rayon : ceux dont l'adresse de recherche change avec lui.
+#[test]
+fn sites_qui_tiennent_le_rayon() {
+    use crate::sites::{LieuSite, adresse_recherche};
+    for s in Site::CONNUS {
+        let u = |km: u32| {
+            adresse_recherche(s, "cariste", &LieuSite::Ville { nom: "Sarrebourg".into(), rayon_km: km }, 1).unwrap()
+        };
+        assert_eq!(u(10) != u(50), s.tient_le_rayon(), "{}", s.nom());
+    }
+    assert!(Site::LinkedIn.tient_le_rayon() && Site::Indeed.tient_le_rayon() && Site::FranceTravail.tient_le_rayon());
+    assert!(Site::HelloWork.tient_le_rayon());
+    assert!(!Site::Wttj.tient_le_rayon() && !Site::Meteojob.tient_le_rayon() && !Site::Autre.tient_le_rayon());
+}

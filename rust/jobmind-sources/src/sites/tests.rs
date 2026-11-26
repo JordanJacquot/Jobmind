@@ -71,21 +71,17 @@ fn adresses_de_recherche() {
             .unwrap()
             .contains("motsCles=cariste&lieux=42218&offresPartenaires=true&rayon=10")
     );
-    assert!(
-        adresse_recherche(Site::FranceTravail, "cariste", &ville("Saint-Denis", 10), 1)
-            .unwrap()
-            .contains("motsCles=cariste%20Saint-Denis&offresPartenaires=true&rayon=10")
-    );
+    // (audit du 26/11/2026 : une ville portée par plusieurs communes, ou inconnue, ne part plus dans les mots-clés
+    // avec un rayon sans lieu, ce qui cherchait dans toute la France : la recherche est refusée, voir
+    // `france_travail_sans_ville_sure`. Ces deux lignes attendaient avant « motsCles=cariste%20Saint-Denis » et
+    // « motsCles=cariste%20Atlantide ».)
+    assert_eq!(adresse_recherche(Site::FranceTravail, "cariste", &ville("Saint-Denis", 10), 1), None);
     assert!(
         adresse_recherche(Site::FranceTravail, "cariste", &ville("Saint-Denis (93)", 10), 1)
             .unwrap()
             .contains("motsCles=cariste&lieux=93066&")
     );
-    assert!(
-        adresse_recherche(Site::FranceTravail, "cariste", &ville("Atlantide", 10), 1)
-            .unwrap()
-            .contains("motsCles=cariste%20Atlantide&offresPartenaires=true&rayon=10")
-    );
+    assert_eq!(adresse_recherche(Site::FranceTravail, "cariste", &ville("Atlantide", 10), 1), None);
     assert_eq!(
         adresse_recherche(Site::Wttj, "développeur", &LieuSite::Partout, 2).unwrap(),
         "https://www.welcometothejungle.com/fr/jobs?query=d%C3%A9veloppeur&refinementList%5Boffices.country_code%5D%5B%5D=FR&page=2"
@@ -620,4 +616,189 @@ fn total_de_la_recherche() {
     assert_eq!(lire_total("Emploi Sarrebourg 57 offres", true), None);
     assert_eq!(lire_total("Nous avons masqué 0 offre que vous avez décidé de ne plus voir", true), None);
     assert_eq!(lire_total("", false), None);
+}
+
+/// Audit du 26/11/2026 : sur France Travail, une ville que la table ne permet pas de désigner ne part plus dans les
+/// mots-clés (une recherche du mot dans toute la France, avec un rayon sans lieu) : la recherche est refusée, avec
+/// la phrase à montrer.
+#[test]
+fn france_travail_sans_ville_sure() {
+    let ft = |mots: &str, v: &str, page: u32| adresse_recherche_ou(Site::FranceTravail, mots, &ville(v, 10), page);
+    // Plusieurs communes du même nom, sans département
+    let e = ft("cariste", "Saint-Denis", 1).unwrap_err();
+    match &e {
+        RechercheRefusee::VilleHomonyme { site, ville, exemple } => {
+            assert_eq!((*site, ville.as_str()), (Site::FranceTravail, "Saint-Denis"));
+            // (l'exemple proposé marche)
+            assert!(exemple.starts_with("Saint-Denis (") && ft("cariste", exemple, 1).is_ok(), "{exemple}");
+        }
+        x => panic!("{x:?}"),
+    }
+    assert_eq!(e.code(), "ville_homonyme");
+    assert!(e.message().contains("précise le département") && e.message().contains("France Travail"));
+    // Une ville absente de la table
+    let e = ft("cariste", "Atlantide", 1).unwrap_err();
+    assert_eq!(e, RechercheRefusee::VilleInconnue { site: Site::FranceTravail, ville: "Atlantide".into() });
+    assert!(e.message().contains("« Atlantide »"), "{}", e.message());
+    // (sans mots non plus, et à toutes les pages)
+    assert!(matches!(ft("", "Atlantide (99)", 3), Err(RechercheRefusee::VilleInconnue { .. })));
+    for e in [
+        ft("cariste", "Saint-Denis", 1).unwrap_err(),
+        ft("cariste", "Atlantide", 1).unwrap_err(),
+        RechercheRefusee::Vide,
+    ] {
+        let m = e.message();
+        assert!(!m.contains(['\u{2013}', '\u{2014}', '\n']) && m.ends_with('.'), "{m}");
+    }
+    assert_eq!(adresse_recherche(Site::FranceTravail, "cariste", &ville("Saint-Denis", 10), 1), None);
+    // Jamais le nom d'une ville dans les mots-clés, jamais de rayon sans lieu, quelle que soit la ville
+    let villes = [
+        "Sarrebourg",
+        "Sarrebourg (57400)",
+        "Saint-Denis",
+        "Saint-Denis (93)",
+        "Atlantide",
+        "Paris 15",
+        "75 - PARIS 15",
+        "Vandoeuvre-lès-Nancy",
+        "57000 Metz Cedex 1",
+        "Beaulieu",
+        "",
+    ];
+    for v in villes {
+        for mots in ["cariste", ""] {
+            if let Ok(u) = ft(mots, v, 1) {
+                assert!(u.contains("&rayon=10") && u.contains("lieux="), "{v} : {u}");
+                assert!(u.contains("motsCles=cariste&") == !mots.is_empty() && !u.contains("motsCles=&"), "{v} : {u}");
+            }
+        }
+    }
+    // (ce que l'audit signalait introuvable est maintenant cherché par son code)
+    assert!(ft("cariste", "75 - PARIS 15", 1).unwrap().contains("motsCles=cariste&lieux=75056&"));
+    assert!(ft("cariste", "Paris 15e Arrondissement", 1).unwrap().contains("lieux=75056&"));
+    assert!(ft("cariste", "Vandoeuvre-lès-Nancy", 1).unwrap().contains("lieux=54547&"));
+    assert!(ft("cariste", "57000 Metz Cedex 1", 1).unwrap().contains("lieux=57463&"));
+    // Contre-épreuves : ce qui marchait marche toujours, et les autres raisons de refus sont dites « vide »
+    assert_eq!(
+        ft("technicien support", "Sarrebourg", 1).unwrap(),
+        "https://candidat.francetravail.fr/offres/recherche?motsCles=technicien%20support&lieux=57630&offresPartenaires=true&rayon=10&range=0-19"
+    );
+    let moselle = LieuSite::Departement { code: "57".into(), nom: "Moselle".into() };
+    assert!(adresse_recherche_ou(Site::FranceTravail, "cariste", &moselle, 1).unwrap().contains("lieux=57D&"));
+    assert!(!adresse_recherche_ou(Site::FranceTravail, "cariste", &moselle, 1).unwrap().contains("rayon"));
+    let partout = adresse_recherche_ou(Site::FranceTravail, "cariste", &LieuSite::Partout, 1).unwrap();
+    assert!(!partout.contains("rayon") && !partout.contains("lieux"), "{partout}");
+    assert_eq!(adresse_recherche_ou(Site::FranceTravail, "", &LieuSite::Partout, 1), Err(RechercheRefusee::Vide));
+    assert_eq!(adresse_recherche_ou(Site::Autre, "cariste", &moselle, 1), Err(RechercheRefusee::Vide));
+    assert_eq!(adresse_recherche_ou(Site::LinkedIn, "cariste", &moselle, 0), Err(RechercheRefusee::Vide));
+    assert_eq!(adresse_recherche_ou(Site::Wttj, "", &moselle, 1), Err(RechercheRefusee::Vide));
+    // (les autres sites cherchent par le nom de la ville : une ville inconnue ou homonyme n'y est pas refusée)
+    for s in [Site::LinkedIn, Site::Indeed, Site::Wttj, Site::HelloWork, Site::Meteojob] {
+        for v in ["Saint-Denis", "Atlantide"] {
+            let u = adresse_recherche_ou(s, "cariste", &ville(v, 10), 1).unwrap();
+            assert_eq!(Some(&u), adresse_recherche(s, "cariste", &ville(v, 10), 1).as_ref());
+            assert!(u.contains(v), "{u}");
+        }
+    }
+}
+
+/// Audit du 26/11/2026 : « 0 offre » et « 0 résultat » ne sont crus que si le « 0 » est tout le nombre.
+#[test]
+fn aucune_offre_seulement_avec_un_vrai_zero() {
+    let page =
+        |t: &str| comprendre("https://fr.indeed.com/jobs?q=cariste", &format!("<html><body><p>{t}</p></body></html>"));
+    for t in [
+        "120 offres",
+        "30 résultats",
+        "10 offres d'emploi",
+        "1 000 offres",
+        "1\u{a0}000 résultats",
+        "2.000 offres",
+        "1,0 offre",
+        "Plus de 100 résultats",
+        "Cariste : 250 offres à Metz",
+    ] {
+        assert!(!page(t).aucun_resultat, "{t}");
+    }
+    for t in [
+        "0 offre",
+        "0 résultat",
+        "0 résultats pour cariste",
+        "Résultats : 0 offre trouvée",
+        "Cariste à Metz (57000) 0 offre",
+        "Il y a 0 offre.",
+        "Aucun résultat",
+        "Aucune offre ne correspond à votre recherche.",
+        "Nous n'avons trouvé aucun emploi",
+    ] {
+        assert!(page(t).aucun_resultat, "{t}");
+    }
+    assert!(zero_seul("0 offre", "0 offre") && !zero_seul("10 offre", "0 offre") && !zero_seul("", "0 offre"));
+    // (un « 0 » qui compte autre chose que les offres trouvées)
+    assert!(!page("Nous avons masqué 0 offre que vous avez décidé de ne plus voir").aucun_resultat);
+    assert!(page("0 offre. Nous avons masqué 0 offre que vous avez décidé de ne plus voir").aucun_resultat);
+    // (avec des résultats dans la page, jamais « aucune offre », comme avant)
+    let c = compris(&adresse_recherche(Site::Indeed, "cariste", &ville("Metz", 30), 1).unwrap(), "");
+    assert!(!c.liste.resultats.is_empty() && !c.aucun_resultat);
+}
+
+/// Audit du 26/11/2026 : un champ n'annonce une vérification que par un mot entier (« pin », « otp », « code »),
+/// pas par un morceau de mot (« shipping », « codeoffre »).
+#[test]
+fn verification_par_des_mots_entiers() {
+    let ecran = |champ: &str| {
+        comprendre(
+            "https://www.welcometothejungle.com/fr/compte",
+            &format!("<html><body><input {champ}></body></html>"),
+        )
+        .ecran
+    };
+    for champ in [
+        "name=\"shipping\"",
+        "name=\"shipping_address\" id=\"shippingAddress\"",
+        "name=\"codeoffre\"",
+        "name=\"code_offre\"",
+        "id=\"codeOffre\"",
+        "name=\"code_postal\"",
+        "name=\"codePostal\"",
+        "name=\"code_promo\"",
+        "name=\"opinion\"",
+        "name=\"spinner\" id=\"topping\"",
+        "name=\"q\" id=\"zipcode\"",
+        "name=\"decoder\"",
+        "name=\"recherche\" autocomplete=\"off\"",
+    ] {
+        assert_eq!(ecran(champ), Ecran::Normale, "{champ}");
+    }
+    for champ in [
+        "name=\"pin\"",
+        "name=\"PIN\"",
+        "id=\"input__email_verification_pin\"",
+        "name=\"otp\"",
+        "name=\"otp-1\"",
+        "id=\"otpCode\"",
+        "name=\"code\"",
+        "name=\"code\" autocomplete=\"off\"",
+        "name=\"verification_code\"",
+        "id=\"verificationCode\"",
+        "name=\"smsCode\"",
+        "name=\"code-securite\"",
+        "name=\"x\" autocomplete=\"one-time-code\"",
+    ] {
+        assert_eq!(ecran(champ), Ecran::Verification, "{champ}");
+    }
+    assert_eq!(mots_du_nom("input__emailVerification-PIN2x"), ["input", "email", "verification", "pin", "x"]);
+    assert!(champ_de_code("pin") && !champ_de_code("shipping") && !champ_de_code("codeoffre") && !champ_de_code(""));
+    // (un champ caché ne compte pas, comme avant)
+    assert_eq!(ecran("type=\"hidden\" name=\"pin\""), Ecran::Normale);
+}
+
+/// Une seule fonction pour écrire un texte dans une adresse (elle était écrite deux fois).
+#[test]
+fn un_seul_encoder() {
+    for t in ["", "abc-_.~09", "é &/?", "Hôtel L'Étoile & Cie", "a+b=c#d\n", "\u{2014}"] {
+        assert_eq!(encoder(t), crate::annuaire::encoder(t), "{t}");
+        assert!(encoder(t).bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~' | b'%')));
+    }
+    assert_eq!(encoder("é &/?"), "%C3%A9%20%26%2F%3F");
 }

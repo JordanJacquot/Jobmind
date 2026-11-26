@@ -422,6 +422,129 @@ fn page_illisible_puis_lecture_cassee() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// Le formulaire du site inconnu rempli, relu, l'envoi noté puis cliqué : rend la lecture qui attend la page revenue.
+fn jusqu_au_clic_envoyer(nom: &str) -> (PathBuf, Base, i64, Coulisse, u64) {
+    let d = dossier(nom);
+    let (b, offre) = base(&d, "https://recrutement.exemple-transport.fr/offres/42", true);
+    let mut c = Coulisse::default();
+    let no = {
+        let ctx = Contexte { base: Some(&b), dossier: &d, gmail: None, montree: None };
+        c.po_geste(&ctx, OUVRIR, &json!({ "id": offre }), m(10, 0));
+        let url = "https://recrutement.exemple-transport.fr/offres/42";
+        let no = no_lire(&c.page_chargee("x"));
+        c.lu(Some(&b), no, lecture(url, &ex::inconnu_formulaire()), m(10, 0));
+        let q = c.postuler.as_ref().unwrap().lignes.iter().find(|l| l.libelle.starts_with("Comment")).unwrap().i;
+        c.po_geste(&ctx, REMPLIR, &json!({ "saisies": { q.to_string(): "Agence" } }), m(10, 1));
+        let f = c.po_geste(&ctx, ENVOYER, &json!({}), m(10, 2));
+        let Some(Ordre::Remplir { no, .. }) = f.coulisse.first().cloned() else { panic!("{:?}", f) };
+        let f = c.po_rendu(Some(&b), no, Rendu::Rempli("ok".into()), m(10, 2));
+        let Some(Ordre::Fichier { no, .. }) = f.coulisse.first().cloned() else { panic!() };
+        let no = no_lire(&c.po_rendu(Some(&b), no, Rendu::Fichier(Ok(())), m(10, 2)));
+        let relue = avec_valeurs(
+            &ex::inconnu_formulaire(),
+            &[
+                ("f_1", "Exemple"),
+                ("f_2", "Jordan"),
+                ("f_3", "jordan.exemple@exemple.fr"),
+                ("f_4", "06 12 34 56 78"),
+                ("f_5", "cv-1.pdf"),
+            ],
+        )
+        .replace("name=\"f_6\"", "name=\"f_6\" data-jm-valeur=\"Agence\"");
+        let (no, _) = clic(&c.lu(Some(&b), no, lecture(url, &relue), m(10, 2)));
+        assert!(c.postuler.as_ref().unwrap().tente.is_some(), "noté avant le clic");
+        no_lire(&c.po_rendu(Some(&b), no, Rendu::Clique("ok".into()), m(10, 2)))
+    };
+    (d, b, offre, c, no)
+}
+
+/// L'état de l'envoi noté avant le clic.
+fn etat_tente(c: &Coulisse, b: &Base) -> base_site::EtatSite {
+    let t = c.postuler.as_ref().unwrap().tente.expect("l'envoi noté");
+    base_site::lire(b.connexion(), t).unwrap().unwrap().etat
+}
+
+const DEPOT: &str = "https://recrutement.exemple-transport.fr/offres/42/depot";
+
+/// Un autre formulaire qui ressemble à une candidature (prénom, nom, mail) : créer un espace candidat.
+const COMPTE: &str = "<form id=\"compte\"><h2>Créez votre espace candidat</h2>\
+    <label>Prénom <input name=\"prenom\"></label><label>Nom <input name=\"nom\"></label>\
+    <label>Adresse e-mail <input type=\"email\" name=\"mail\"></label>\
+    <button type=\"submit\">Envoyer</button></form>";
+
+/// Audit du 27/11/2026 : après « Envoyer », le même formulaire revenu SANS erreur du site n'est jamais « pas parti »
+/// (Jordan renverrait en double) : incertain, avec la phrase qui dit de vérifier sa boîte mail avant de renvoyer.
+#[test]
+fn apres_envoyer_le_meme_formulaire_sans_erreur_est_incertain() {
+    let (d, b, _, mut c, no) = jusqu_au_clic_envoyer("meme-sans-erreur");
+    let f = c.lu(Some(&b), no, lecture(DEPOT, &ex::inconnu_formulaire()), m(10, 3));
+    rien_dans_la_page(&f);
+    assert!(f.change);
+    let p = c.postuler.clone().unwrap();
+    assert_eq!(p.phase, Phase::Incertain);
+    assert_eq!(etat_tente(&c, &b), base_site::EtatSite::Incertain);
+    let (texte, genre) = p.annonce.unwrap();
+    assert_eq!(genre, "attention");
+    assert!(texte.contains("boîte mail") && texte.contains("Avant de la renvoyer"), "{texte}");
+    assert!(!texte.contains("Rien n'est parti"), "{texte}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Après « Envoyer », un autre formulaire sans erreur ni confirmation : incertain aussi, jamais « pas parti ».
+#[test]
+fn apres_envoyer_un_autre_formulaire_sans_erreur_est_incertain() {
+    let (d, b, _, mut c, no) = jusqu_au_clic_envoyer("autre-sans-erreur");
+    let page = format!("<html><body><main>{COMPTE}</main></body></html>");
+    let f = c.lu(Some(&b), no, lecture(DEPOT, &page), m(10, 3));
+    rien_dans_la_page(&f);
+    assert_eq!(c.postuler.as_ref().unwrap().phase, Phase::Incertain);
+    assert_eq!(etat_tente(&c, &b), base_site::EtatSite::Incertain);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Après « Envoyer », le site confirme à côté d'un autre formulaire (créer un compte) : la candidature est partie.
+#[test]
+fn apres_envoyer_la_confirmation_a_cote_d_un_formulaire_est_un_envoi() {
+    let (d, b, _, mut c, no) = jusqu_au_clic_envoyer("confirmation-a-cote");
+    let page = format!(
+        "<html><body><main><p>Votre candidature a bien été envoyée à Transports de l'Exemple.</p>{COMPTE}</main>\
+         </body></html>"
+    );
+    let f = c.lu(Some(&b), no, lecture(DEPOT, &page), m(10, 3));
+    assert!(f.bravo, "{f:?}");
+    let Phase::Parti { candidature, par_jordan, .. } = c.postuler.as_ref().unwrap().phase.clone() else { panic!() };
+    assert!(!par_jordan);
+    let l = base_site::du_dossier(b.connexion(), candidature).unwrap();
+    assert_eq!(l[0].preuve.as_deref(), Some("Votre candidature a bien été envoyée à Transports de l'Exemple."));
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Après « Envoyer », une erreur écrite par le site : un refus (rien n'est parti), même avec une phrase de
+/// confirmation à côté, et même sur un formulaire un peu différent.
+#[test]
+fn apres_envoyer_une_erreur_du_site_est_un_refus() {
+    let erreur = "<main><p role=\"alert\">Le fichier du CV est obligatoire.</p>";
+    let pages = [
+        ex::inconnu_formulaire().replacen("<main>", erreur, 1),
+        format!("<html><body>{erreur}<p>Votre candidature a bien été envoyée.</p>{COMPTE}</main></body></html>"),
+    ];
+    for (k, page) in pages.iter().enumerate() {
+        let (d, b, _, mut c, no) = jusqu_au_clic_envoyer(&format!("erreur-{k}"));
+        let t = c.postuler.as_ref().unwrap().tente.unwrap();
+        let f = c.lu(Some(&b), no, lecture(DEPOT, page), m(10, 3));
+        rien_dans_la_page(&f);
+        assert!(!f.bravo, "page {k}");
+        let p = c.postuler.clone().unwrap();
+        assert_eq!(p.phase, Phase::Pret, "page {k}");
+        assert!(p.tente.is_none(), "page {k}");
+        let a = p.annonce.unwrap().0;
+        assert!(a.contains("Le fichier du CV est obligatoire") && a.contains("Rien n'est parti"), "page {k} : {a}");
+        let g = base_site::lire(b.connexion(), t).unwrap().unwrap();
+        assert_eq!(g.etat, base_site::EtatSite::Refuse, "page {k}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+}
+
 #[test]
 fn envoi_incertain_puis_jordan_dit() {
     let d = dossier("incertain");

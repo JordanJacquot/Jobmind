@@ -89,6 +89,9 @@
     mail: svg('<rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M4.5 7.5l7.5 5.5 7.5-5.5"/>'),
   };
   const icone = (n) => (typeof n === 'string' && Object.hasOwn(ICONES, n) ? ICONES[n] : '');
+  // La roue d'attente : calée sur l'horloge, elle reprend où elle en était au lieu de repartir de zéro à chaque dessin
+  // (900 ms par tour, 3 s quand les animations sont réduites : les durées de .jm-roue dans jobmind.css)
+  const roue = () => `<span class="jm-roue" aria-hidden="true" style="animation-delay:-${Date.now() % (reduit() ? 3000 : 900)}ms"></span>`;
   // La couleur de chaque statut, par son rôle dans le thème (jamais en dur : elle suit le thème de la suite)
   const COULEURS = { envoyee: 'var(--P)', relancee: 'var(--T)', entretien: 'var(--S)', positive: 'var(--vert)', negative: 'var(--rouge)', sans_reponse: 'var(--pale)', abandonnee: 'var(--pale)' };
   const couleurStatut = (c) => (Object.hasOwn(COULEURS, c) ? COULEURS[c] : 'var(--pale)');
@@ -109,6 +112,7 @@
   let ficheVue = null;    // le dossier dessiné en dernier (un autre : ses petites choses se referment)
   let pilule = 'envoye';  // la pilule montrée dans le dossier
   let menu = false;       // le menu des statuts ouvert
+  let menuTenu = false;   // il était déjà à l'écran au dessin d'avant (il ne rejoue pas son entrée)
   let rdv = null;         // le petit formulaire de l'entretien : { date, heure, lieu }
   let cal = null;         // le petit calendrier ouvert : { ou: 'f' (la date d'envoi) ou 'e' (l'entretien), a, m (0 à 11) }
   let confirme = false;   // « Supprimer ? » demandé
@@ -236,12 +240,19 @@
   }
 
   // Un bouton du dossier
-  const bouton = (perso, k, texte, ic, style, extra = '') => `<button type="button" class="jm-bt${style ? ` ${style}` : ''} f" data-perso="${perso}" data-k="${k}"${extra}>${icone(ic)}<span>${O.esc(texte)}</span></button>`;
+  // (un bouton qui vient de copier dit « Copié » un instant, même si l'écran est redessiné entre-temps : voir copierBrut)
+  const bouton = (perso, k, texte, ic, style, extra = '') => {
+    const dit = copieDit(k);
+    return `<button type="button" class="jm-bt${style ? ` ${style}` : ''}${dit ? ' fait' : ''} f" data-perso="${perso}" data-k="${k}"${extra}>${icone(ic)}<span>${O.esc(dit ? (T('copie') || 'Copié') : texte)}</span></button>`;
+  };
 
   function menuStatutsHTML(f, s) {
     const { esc } = O;
     const statuts = Array.isArray(s.statuts) ? s.statuts.filter((x) => codeSur(x?.id)) : [];
-    return `<div class="jm-menu" role="menu">${statuts.map((x) => `<button type="button" role="menuitemradio" aria-checked="${x.id === f.statut}" class="jm-menu-l f${x.id === f.statut ? ' ici' : ''}" data-perso="statut-choix" data-id="${x.id}" data-k="m:${x.id}" style="--c:${couleurStatut(x.id)}"><i></i>${esc(texteSur(x.nom))}</button>`).join('')}</div>`;
+    // (déjà ouvert au dessin d'avant : il ne rejoue pas son entrée, comme « Où chercher »)
+    const tenu = menuTenu;
+    menuTenu = true;
+    return `<div class="jm-menu${tenu ? ' tenu' : ''}" role="menu">${statuts.map((x) => `<button type="button" role="menuitemradio" aria-checked="${x.id === f.statut}" class="jm-menu-l f${x.id === f.statut ? ' ici' : ''}" data-perso="statut-choix" data-id="${x.id}" data-k="m:${x.id}" style="--c:${couleurStatut(x.id)}"><i></i>${esc(texteSur(x.nom))}</button>`).join('')}</div>`;
   }
 
   // ---------------------------------------------------------------- le petit calendrier des dates (repris de Paymind)
@@ -376,18 +387,20 @@
     }
     if (pilule === 'notes') {
       const val = Object.hasOwn(notes, f.id) ? notes[f.id] : texteSur(f.notes);
-      return `<textarea class="jm-notes f" data-perso="notes" data-k="p:notes" maxlength="4000" spellcheck="true" placeholder="${esc(T('i_notes'))}" aria-label="${esc(T('p_notes'))}">${esc(val)}</textarea><p class="jm-petit">${esc(T('notes_aide'))}</p>`;
+      // (son data-k n'est pas « p:notes » : c'est celui de la pilule « Notes », à l'écran en même temps)
+      return `<textarea class="jm-notes f" data-perso="notes" data-k="p:z-notes" maxlength="4000" spellcheck="true" placeholder="${esc(T('i_notes'))}" aria-label="${esc(T('p_notes'))}">${esc(val)}</textarea><p class="jm-petit">${esc(T('notes_aide'))}</p>`;
     }
     // (étape 10 : les mails partis depuis Jobmind, chacun avec ce qui est parti exactement)
     const envois = liste(f.envois).filter((x) => numSur(x?.id));
     if (envois.length) {
-      return envois.map((x, i) => `<div class="jm-envoye-m"><div class="jm-meta"><b>${esc(texteSur(x.titre))}</b>${i === 0 ? bouton('copier', 'p:envoye', T('copier'), 'copie', 'discret', ' data-quoi="envoye"') : ''}</div>
+      return envois.map((x, i) => `<div class="jm-envoye-m"><div class="jm-meta"><b>${esc(texteSur(x.titre))}</b>${i === 0 ? bouton('copier', 'p:copier', T('copier'), 'copie', 'discret', ' data-quoi="envoye"') : ''}</div>
         <div class="jm-envoye-l">${liste(x.lignes).filter((l) => Array.isArray(l) && l.length === 2).map((l) => `<span>${esc(texteSur(l[0]))}</span><b data-brut>${esc(texteSur(l[1]))}</b>`).join('')}</div>
         <div class="jm-lettre" data-brut>${esc(texteSur(x.texte))}</div>${texteSur(x.message_id) ? `<p class="jm-petit jm-envoye-id" data-brut>${esc(x.message_id)}</p>` : ''}</div>`).join('');
     }
     const e = f.envoye || {};
     if (!e.texte) return `<div class="jm-meta">${esc(texteSur(e.meta))}</div><p class="jm-panneau-vide">${esc(texteSur(e.vide))}</p>`;
-    return `<div class="jm-meta"><span>${esc(texteSur(e.meta))}</span>${bouton('copier', 'p:envoye', T('copier'), 'copie', 'discret', ' data-quoi="envoye"')}</div><div class="jm-lettre" data-brut>${esc(texteSur(e.texte))}</div>`;
+    // (« p:copier », pas « p:envoye » : c'est le data-k de la pilule « Ce que j'ai envoyé », à l'écran en même temps)
+    return `<div class="jm-meta"><span>${esc(texteSur(e.meta))}</span>${bouton('copier', 'p:copier', T('copier'), 'copie', 'discret', ' data-quoi="envoye"')}</div><div class="jm-lettre" data-brut>${esc(texteSur(e.texte))}</div>`;
   }
 
   function dossierHTML(f, s) {
@@ -396,6 +409,7 @@
     const c = f.calme && typeof f.calme === 'object' ? f.calme : null;
     let h = `<div class="jm-d${O.anime ? ' entree' : ''}"><div class="jm-d-tete"><div class="jm-d-titres"><h1>${esc(texteSur(f.titre))}</h1><div class="jm-d-sous">${esc(texteSur(f.sous))}</div></div>
       <div class="jm-st-place"><button type="button" class="jm-st gros bouton f" data-perso="statut-menu" data-k="d:statut" aria-haspopup="menu" aria-expanded="${menu}" title="${esc(T('statut'))}" style="--c:${couleurStatut(f.statut)}">${esc(texteSur(f.statut_nom))}${icone('bas')}</button>${menu ? menuStatutsHTML(f, s) : ''}</div></div>`;
+    if (!menu) menuTenu = false;
     if (rdv) h += rdvHTML();
     h += `<p class="jm-ou">${esc(texteSur(f.ou))}</p><p class="jm-ou-sous">${esc(texteSur(f.ou_sous))}</p>`;
     if (a) {
@@ -437,7 +451,7 @@
     };
     const zone = (k, haut) => `<label class="jm-champ large"><span>${esc(T(k))} <small>${esc(T('facultatif'))}</small></span><textarea class="f${haut ? ' haut' : ''}" data-perso="champ" data-champ="${k}" data-k="f:${k}" maxlength="${LONGUEURS[k]}" spellcheck="true" placeholder="${esc(T(`i_${k}`))}">${esc(v[k] || '')}</textarea></label>`;
     const moyens = (Array.isArray(s.moyens) ? s.moyens : []).filter((m) => codeSur(m?.id));
-    const pastilles = moyens.map((m) => `<button type="button" role="radio" aria-checked="${v.moyen === m.id}" class="jm-puce f${v.moyen === m.id ? ' oui' : ''}" data-perso="moyen" data-id="${m.id}" data-k="f:moyen:${m.id}">${esc(texteSur(m.nom))}</button>`).join('');
+    const pastilles = moyens.map((m) => `<button type="button" role="radio" aria-checked="${v.moyen === m.id}" class="jm-puce f${v.moyen === m.id ? ' oui' : ''}" data-perso="moyen" data-id="${m.id}" data-k="f:m-${m.id.replace(/_/g, '-').slice(0, 10)}">${esc(texteSur(m.nom))}</button>`).join('');
     return `<form class="jm-form${O.anime ? ' entree' : ''}" novalidate>
       <h1>${esc(form.id ? T('modifier_titre') : T('nouvelle'))}</h1>${form.id ? '' : `<p class="jm-intro">${esc(T('intro'))}</p>`}
       <div class="jm-grille">${champ('entreprise', true)}${champ('poste', true)}${champ('ville')}${champDate('f', esc(T('date')), `data-perso="champ" aria-label="${esc(T('date'))}"`, v.date, true)}
@@ -555,6 +569,7 @@
   let ouvI = null;                  // la ligne cliquée (pour le titre de l'offre qui s'ouvre)
   let clicSouris = 0;               // 0.2.0 : le rang du dernier clic de souris (1 simple, 2 double ; 0 : clavier, manette)
   let clicEl = null;                // 0.2.1 : l'élément de ce clic (Entrée et la manette valident sans clic : un vieux clic ne compte pas)
+  let clicK = '', clicT = 0;        // le data-k et l'heure du clic de souris d'avant (pour reconnaître un double clic)
   let ouvEnCours = false;           // une offre s'ouvre (avec sa barre)
   let ouvAff = 0;                   // ce que montre la grosse barre (en %)
   let ouvCible = 0;                 // l'étape envoyée par Rust (progression.pc)
@@ -604,7 +619,8 @@
     const texte = texteSur(lec.texte) || (ok ? `Jobmind analyse les offres : ${lues} sur ${total}` : '');
     const cle = `${s.id}|${texteSur(l.titre)}|${ok ? total : ''}`;
     if (cle !== lecVu.cle) lecVu = { cle, pc: 0 };
-    const de = reduit() || arret ? pc : Math.min(lecVu.pc, pc);
+    // (arrondie au centième : écrite dans le HTML, elle reste lisible par `net`, jamais en « 1e-7 »)
+    const de = reduit() || arret ? pc : Math.round(Math.min(lecVu.pc, pc) * 100) / 100;
     lecVu.pc = pc;
     // (Jobmind tourne les pages du site toute seule : « Arrêter » pendant qu'elle le fait, « Reprendre l'analyse des
     // offres » après un arrêt s'il reste des pages)
@@ -612,7 +628,7 @@
       : l.tout_possible === true ? bouton('cs-tout', 'cs:tout', t('tout_suite') || "Reprendre l'analyse des offres", 'droite', 'second') : '';
     return `<div class="jm-lec${finie ? ' finie' : ''}${arret ? ' arret' : ''}" data-cle="${esc(cle)}" role="status">
       <div class="jm-lec-l"><span>${esc(texte)}</span>${ok && !arret ? `<b>${pc} %</b>` : ''}</div>
-      <div class="jm-lec-j" aria-hidden="true"><i style="width:${de}%" data-vers="${pc}"></i></div>${btTout ? `<div class="jm-btns jm-lec-b">${btTout}</div>` : ''}</div>`;
+      <div class="jm-lec-j" aria-hidden="true"><i data-vers="${pc}" style="width:${de}%"></i></div>${btTout ? `<div class="jm-btns jm-lec-b">${btTout}</div>` : ''}</div>`;
   }
   // (une ligne disparaît de la liste : la main passe à sa voisine avant le dessin suivant, pour ne pas la perdre)
   function mainVoisine(el, sel) {
@@ -662,6 +678,18 @@
     O.son?.tic?.();
     const ici = sourcesListe().find((s) => s.id === (cs().source || '')) || sourcesListe().at(-1);
     dessinerTout(ouvrir && ici ? ici.k : 'cs:ou');
+  }
+  // Referme « Où chercher » sur place, sans redessiner : la liste est retirée de l'écran, son bouton redevient fermé
+  // (la main, si elle était dans la liste, revient sur le bouton)
+  function fermerSources() {
+    srcMenu = false;
+    srcTenu = false;
+    const b = hote?.querySelector('.jm-srcs > .jm-srcs-b');
+    hote?.querySelectorAll('.jm-srcs > .jm-srcs-m').forEach((m) => {
+      if (b && m.contains(document.activeElement)) b.focus({ preventScroll: true });
+      m.remove();
+    });
+    if (b) { b.classList.remove('on'); b.setAttribute('aria-expanded', 'false'); }
   }
   // Dans « Où chercher » ouverte : haut et bas passent d'un choix à l'autre (sans en sortir), gauche et droite ne font rien
   function toucheSources(e) {
@@ -994,7 +1022,7 @@
     }
     const occupe = typeof c.attente === 'string' && c.attente;
     h += `<button type="button" class="jm-bt principal jm-rch-go f" data-perso="cs-chercher" data-id="${s.id}" data-k="cs:chercher"${occupe || !recherches.length ? ' disabled' : ''}>${icone('loupe')}<span>${esc(t('chercher', s.nom))}</span></button>`;
-    if (occupe) h += `<div class="jm-attente petite" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(occupe)}</span></div>`;
+    if (occupe) h += `<div class="jm-attente petite" role="status">${roue()}<span>${esc(occupe)}</span></div>`;
     h += annonceSitesHTML(c.annonce, s);
     const oui = s.connecte === true;
     // (une annonce qui propose déjà « Me connecter » remplace la ligne d'état tant qu'elle est là : une seule carte)
@@ -1166,12 +1194,12 @@
       const titre = texteSur(r?.titre);
       return `${navFicheHTML(c)}<div class="jm-ouv" role="status">${titre ? `<div class="jm-ouv-t"><h1>${esc(titre)}</h1>${texteSur(r.sous) ? `<div class="jm-d-sous">${esc(texteSur(r.sous))}</div>` : ''}</div>` : ''}
         <div class="jm-ouv-c"><h2>${esc(t('ouvre_offre') || "Jobmind ouvre l'offre")}</h2>
-        <div class="jm-ouv-j" aria-hidden="true"><i style="width:${ouvAff.toFixed(2)}%"></i></div>
+        <div class="jm-ouv-j" aria-hidden="true"><i data-suit="1" style="width:${ouvAff.toFixed(2)}%"></i></div>
         <p class="jm-ouv-e">${esc(texteSur(pr.etape))}</p></div></div>`;
     }
     ouvEnCours = false; ouvCible = 0;
     if (c.attente_offre === true) {
-      return `${navFicheHTML(c)}<div class="jm-vide"><div class="jm-v-ic plasma-bord">${icone('globe')}</div><div class="jm-attente" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(texteSur(c.attente))}</span></div></div>`;
+      return `${navFicheHTML(c)}<div class="jm-vide"><div class="jm-v-ic plasma-bord">${icone('globe')}</div><div class="jm-attente" role="status">${roue()}<span>${esc(texteSur(c.attente))}</span></div></div>`;
     }
     const f = c.fiche && typeof c.fiche === 'object' && c.fiche.site === s.id ? c.fiche : null;
     if (f) return `${navFicheHTML(c)}${ficheSiteHTML(f, s)}`;
@@ -1225,7 +1253,7 @@
     const { esc } = O, t = tC(), p = objet(cs().petite);
     const lecture = p.lecture === true;
     const ajouter = p.ajouter === true
-      ? `<button type="button" class="jm-bt principal f" data-perso="cs-ajouter-page" data-k="pf:ajouter"${lecture ? ' disabled' : ''}>${lecture ? '<span class="jm-roue" aria-hidden="true"></span>' : icone('plus')}<span>${esc(lecture ? t('lecture') : t('ajouter'))}</span></button>`
+      ? `<button type="button" class="jm-bt principal f" data-perso="cs-ajouter-page" data-k="pf:ajouter"${lecture ? ' disabled' : ''}>${lecture ? roue() : icone('plus')}<span>${esc(lecture ? t('lecture') : t('ajouter'))}</span></button>`
       : '';
     return `<div class="jm-pf${carteVue === 'pf' ? '' : ' entree'}" role="dialog" aria-modal="true" aria-labelledby="jm-pf-t"><div class="jm-pf-cadre">
       <div class="jm-pf-bandeau"><span class="jm-a-ic">${icone(p.ajouter === true || p.cote ? 'globe' : 'attention')}</span>
@@ -1233,23 +1261,25 @@
         <div class="jm-pf-bts">${ajouter}${bouton('cs-fermer', 'pf:fermer', t('fermer'), 'croix', 'second')}</div></div>
       ${annonceSitesHTML(p.annonce, null).replace('class="jm-annonce', 'class="jm-pf-annonce jm-annonce')}
       ${texteSur(p.apres) ? `<p class="jm-pf-apres">${esc(p.apres)}</p>` : ''}
-      <div class="jm-pf-corps"><div class="jm-pf-site" aria-hidden="true"><span class="jm-roue" aria-hidden="true"></span></div>${coteHTML(p.cote)}</div>
+      <div class="jm-pf-corps"><div class="jm-pf-site" aria-hidden="true">${roue()}</div>${coteHTML(p.cote)}</div>
     </div></div>`;
   }
 
-  // Les cartes par-dessus l'onglet (après chaque dessin)
-  function cartesSites() {
-    const jm = hote.querySelector('#jm');
-    if (!jm) return;
+  // La carte par-dessus l'onglet, à chaque dessin : la petite fenêtre du site, ou la carte de connexion (rien : aucune)
+  function carteSitesHTML() {
     if (cnx && !siteDe(cnx.site)) cnx = null;
-    if (petiteOuverte()) { cnx = null; jm.insertAdjacentHTML('beforeend', petiteHTML()); carteVue = 'pf'; }
-    else if (cnx) {
-      jm.insertAdjacentHTML('beforeend', connexionHTML());
-      carteVue = 'cx';
-      // (le mot de passe tapé reste dans sa case, posé par sa propriété : jamais écrit dans le HTML)
-      const m = hote.querySelector('[data-k="cx:mdp"]'); if (m) m.value = cnx.mdp || '';
-    } else carteVue = null;
-    suivreZone();
+    let h = '';
+    if (petiteOuverte()) { cnx = null; h = petiteHTML(); carteVue = 'pf'; }
+    else if (cnx) { h = connexionHTML(); carteVue = 'cx'; }
+    else carteVue = null;
+    return h;
+  }
+  // (posée à la fin de l'onglet ; dessinerTout suit ensuite la zone de la page du site : suivreZone)
+  function poserCarte(jm, h) {
+    if (!jm || !h) return;
+    jm.insertAdjacentHTML('beforeend', h);
+    // (le mot de passe tapé reste dans sa case, posé par sa propriété : jamais écrit dans le HTML)
+    const m = jm.querySelector('[data-k="cx:mdp"]'); if (m && cnx) m.value = cnx.mdp || '';
   }
 
   // La zone laissée à la page du site : envoyée à Rust (en pixels de la page) à chaque changement de taille ou de place
@@ -1316,7 +1346,7 @@
         if (d.id !== '' && !codeSurP(d.id)) return true;
         srcMenu = false;
         if ((d.id || '') === (cs().source || '')) { O.son?.retour?.(); dessinerTout('cs:ou'); return true; }
-        O.son?.bascule?.(); dessinerTout('cs:ou'); O.anime = !reduit(); O.action('cs-source', { site: d.id || '' });
+        O.son?.bascule?.(); dessinerTout('cs:ou'); attendreEntree(); O.action('cs-source', { site: d.id || '' });
         return true;
       }
       case 'cs-chercher': {
@@ -1335,13 +1365,13 @@
         // (0.2.0 : une carte : le premier clic de souris la choisit seulement, le second l'ouvre ; au clavier et à la
         // manette, Entrée l'ouvre tout de suite)
         if (souris === 1 && el.classList.contains('jm-carte')) return true;
-        if (Number.isInteger(i) && i >= 0) { ouvI = i; O.son?.ok?.(); O.anime = !reduit(); O.action('cs-ouvrir', { i }); } return true; }
+        if (Number.isInteger(i) && i >= 0) { ouvI = i; O.son?.ok?.(); attendreEntree(); O.action('cs-ouvrir', { i }); } return true; }
       // (0.1.4 : la croix d'une ligne, « Remettre », « Revoir les offres retirées » ; une ligne qui va disparaître
       // donne la main à la croix de sa voisine)
       case 'cs-retirer': {
         const i = Number(d.i);
         if (!Number.isInteger(i) || i < 0) return true;
-        if (cs().liste?.voir_retirees !== true) mainVoisine(el, '.jm-off-l .jm-off-x, .jm-off-l .jm-off-remettre, .jm-carte-l .jm-off-x, .jm-carte-l .jm-off-remettre');
+        if (cs().liste?.voir_retirees !== true) mainVoisine(el, '.jm-carte-l .jm-off-x, .jm-carte-l .jm-off-remettre');
         O.son?.ok?.(); O.action('cs-retirer', { i });
         return true;
       }
@@ -1421,19 +1451,64 @@
     if (choisie !== null && (id === choisie || !suiviDe()?.groupes?.some((g) => g?.lignes?.some((x) => x?.id === choisie)))) choisie = null;
   }
 
-  function dessinerTout(focusK) {
+  // ---------------------------------------------------------------- ce qui est gardé d'un dessin à l'autre
+  // Ce qui est à l'écran : le HTML produit au dernier dessin, zone par zone (les onglets, la colonne de gauche, le
+  // dossier de droite, le récapitulatif d'un envoi, la carte par-dessus), sans ce qui change à chaque fois sans rien
+  // changer à l'image (les classes d'entrée, le calage des roues). Un dessin demandé par un nouvel état de Rust
+  // (`doux`) ne réécrit que les zones dont le HTML a changé : ailleurs rien n'est remplacé (une info-bulle reste, un
+  // survol ne repart pas, une liste ouverte ne bouge pas). Après un geste, une frappe ou un ordre, la page a pu être
+  // touchée à la main (un bouton grisé en attendant Rust, une phrase d'erreur) : `sale`, et le dessin suivant refait tout.
+  let vu = null;
+  let sale = true;
+  // (les jauges aussi : leur largeur de départ est celle mesurée à l'écran, elle glisse ensuite toute seule)
+  const net = (h) => h.replace(/(class="[^"]*?) (?:entree|entre|tenu)(?=[ "])/g, '$1').replace(/ style="animation-delay:-\d+ms"/g, '')
+    .replace(/( data-(?:vers="[\d.]*"|suit="1")) style="width:[\d.]+%"/g, '$1');
+  // L'entrée du prochain dossier envoyé par Rust (une offre qui s'ouvre, une autre candidature) : retenue ici jusqu'à
+  // ce que ce dossier arrive (4 s au plus), puis jouée une seule fois, jamais aux dessins suivants
+  let entreeDue = 0;
+  const attendreEntree = () => { entreeDue = reduit() ? 0 : Date.now() + 4000; };
+  // La place de chaque zone qui défile : toute zone descendue, retrouvée après le dessin par sa balise, sa première
+  // classe et son rang. Les grandes zones la retrouvent toujours ; les petites (une lettre, un texte à copier)
+  // seulement si leur contenu a la même hauteur, pour ne pas descendre dans un autre texte.
+  const ZONES_SURES = ['jm-liste', 'jm-dossier', 'jm-e-corps', 'jm-modale-boite', 'jm-pf-cote'];
+  function lireZones() {
+    const l = [];
+    for (const el of hote.querySelectorAll('#jm [class]')) {
+      const c = el.classList[0];
+      // (une liste déroulante ouverte est suivie à part : voir dessinerTout)
+      if (!c || !el.scrollTop || el.classList.contains('jm-srcs-m')) continue;
+      const sel = `${el.tagName.toLowerCase()}.${CSS.escape(c)}`;
+      l.push({ sel, rang: [...hote.querySelectorAll(sel)].indexOf(el), haut: el.scrollTop, h: el.scrollHeight, sure: ZONES_SURES.includes(c) });
+    }
+    return l;
+  }
+  function rendreZones(l) {
+    for (const z of l) {
+      const el = hote.querySelectorAll(z.sel)[z.rang];
+      if (el && el.scrollTop !== z.haut && (z.sure || Math.abs(el.scrollHeight - z.h) <= 2)) el.scrollTop = z.haut;
+    }
+  }
+
+  // `doux` : le dessin vient d'un nouvel état de Rust (voir `vu`) ; sinon tout est refait
+  function dessinerTout(focusK, doux) {
     const o = ongletDe(onglet);
-    if (!o) { hote.innerHTML = ''; return; }
+    if (!o) { hote.innerHTML = ''; vu = null; return; }
     onglet = o.id;
     // (ce qui est en cours de frappe et la place dans les panneaux, gardés)
     const actif = document.activeElement, kActif = actif?.closest?.('#jm [data-k]')?.dataset.k;
     const curseur = actif && /^(INPUT|TEXTAREA)$/.test(actif.tagName) ? [actif.selectionStart, actif.selectionEnd] : null;
-    const hautD = hote.querySelector('.jm-dossier')?.scrollTop || 0, hautL = hote.querySelector('.jm-liste')?.scrollTop || 0;
-    // (une liste déroulante ouverte se rouvre si la main y reste ; sinon elle se referme)
+    // (une zone de texte quittée par Échap reste « zone libre » ; une zone étirée à la main garde sa taille)
+    const etaitLibre = actif?.tagName === 'TEXTAREA' && actif.classList.contains('jm-libre');
+    const tailles = [...hote.querySelectorAll('#jm textarea[data-k]')].filter((z) => z.style.height || z.style.width).map((z) => [z.dataset.k, z.style.height, z.style.width]);
+    const zones = lireZones();
+    // (une liste déroulante ouverte se rouvre si la main y reste, descendue au même endroit ; sinon elle se referme)
     const kVise = focusK || kActif;
-    const garderMenu = menuOuvert && kVise && (kVise === menuOuvert || kVise.startsWith(`${menuOuvert}~`)) ? menuOuvert : null;
+    const menuAvant = menuOuvert;
+    const garderMenu = menuAvant && kVise && (kVise === menuAvant || kVise.startsWith(`${menuAvant}~`)) ? menuAvant : null;
+    const hautMenu = garderMenu ? (menuDe(menuAvant)?.querySelector('.jm-der-m')?.scrollTop || 0) : 0;
     menuOuvert = null;
-    const memeOnglet = hote.querySelector('#jm')?.dataset.onglet === o.id;
+    const jmAvant = hote.querySelector('#jm');
+    const memeOnglet = jmAvant?.dataset.onglet === o.id;
     // (0.1.4 : où en sont les jauges avant ce dessin ; plus d'offre qui s'ouvre : la prochaine barre repartira de zéro)
     lireJauges();
     if (cs().attente_offre !== true) { ouvEnCours = false; ouvCible = 0; }
@@ -1486,23 +1561,59 @@
       gauche = listeHTML(o, r);
       droite = droiteRubrique(r, o);
     }
-    hote.innerHTML = `<div class="jm${O.anime ? ' entree' : ''}" id="jm" data-onglet="${o.id}">
-        <nav class="jm-onglets" role="tablist" aria-label="Jobmind">${ongletsHTML(o)}</nav>${recap ? `<div class="jm-envoi-zone">${recap}</div>` : `
+    // (étape 5 bis : la carte de connexion, ou la petite fenêtre du site, par-dessus l'onglet)
+    const carte = carteSitesHTML(), ongH = ongletsHTML(o);
+    // (le cadre : ce qui est écrit sur les boîtes elles-mêmes ; s'il change, tout est refait)
+    const cadre = [o.id, recap ? 'r' : 'c', x ? 'o' : '', plein ? 'p' : '', s || x ? 's' : '', texteSur(o.liste)].join('|');
+    const neuf = { cadre, onglets: net(ongH), gauche: net(gauche), droite: net(droite), recap: net(recap), carte: net(carte) };
+    const avant = vu;
+    const boite = (sel) => (jmAvant && jmAvant.parentElement === hote ? jmAvant.querySelector(`:scope > ${sel}`) : null);
+    const bOng = boite('.jm-onglets'), bRecap = boite('.jm-envoi-zone'), bGauche = boite('.jm-corps > .jm-liste'), bDroite = boite('.jm-corps > .jm-dossier');
+    const partiel = doux === true && !sale && !O.anime && !!avant && avant.cadre === cadre && !!bOng && (recap ? !!bRecap : !!bGauche && !!bDroite);
+    if (partiel) {
+      // (seules les zones dont le HTML a changé sont réécrites)
+      if (avant.onglets !== neuf.onglets) bOng.innerHTML = ongH;
+      if (recap) { if (avant.recap !== neuf.recap) bRecap.innerHTML = recap; }
+      else {
+        if (avant.gauche !== neuf.gauche) bGauche.innerHTML = gauche;
+        if (avant.droite !== neuf.droite) bDroite.innerHTML = droite;
+      }
+      if (avant.carte !== neuf.carte) {
+        jmAvant.querySelectorAll(':scope > .jm-pf, :scope > .jm-modale').forEach((c) => c.remove());
+        poserCarte(jmAvant, carte);
+      }
+    } else {
+      hote.innerHTML = `<div class="jm${O.anime ? ' entree' : ''}" id="jm" data-onglet="${o.id}">
+        <nav class="jm-onglets" role="tablist" aria-label="Jobmind">${ongH}</nav>${recap ? `<div class="jm-envoi-zone">${recap}</div>` : `
         <div class="jm-corps${x ? ' offres' : ''}${plein ? ' plein' : ''}">
           <aside class="jm-liste${s || x ? ' suivi' : ''}" aria-label="${O.esc(texteSur(o.liste))}">${gauche}</aside>
           <section class="jm-dossier" aria-live="polite">${droite}</section>
         </div>`}
       </div>`;
+      poserCarte(hote.querySelector('#jm'), carte);
+    }
+    vu = neuf; sale = false;
     O.anime = false;
-    // (étape 5 bis : la carte de connexion, ou la petite fenêtre du site, par-dessus l'onglet)
-    cartesSites();
+    // (l'entrée retenue : jouée une fois, sur le dossier que Rust vient d'envoyer ; la classe est posée sur ses
+    // éléments, qui partent au dessin suivant : elle ne se rejoue jamais ; pendant que l'offre s'ouvre, avec sa barre,
+    // elle attend l'offre elle-même)
+    if (entreeDue && cs().attente_offre === true) entreeDue = Math.max(entreeDue, Date.now() + 4000);
+    else if (entreeDue && doux === true && (!avant || avant.droite !== neuf.droite || avant.cadre !== cadre)) {
+      if (Date.now() < entreeDue && !reduit()) hote.querySelectorAll('#jm > .jm-corps > .jm-dossier > *').forEach((c) => c.classList.add('entree'));
+      entreeDue = 0;
+    }
+    suivreZone();
     animerJauges();
     remplirBoite();
     habillerMenus(garderMenu);
+    // (la liste déroulante n'a pas été redessinée : elle reste ouverte si la main y est, sinon elle se referme)
+    if (!menuOuvert && menuAvant && menuDe(menuAvant)?.querySelector('.jm-der-m')) { menuOuvert = menuAvant; if (!garderMenu) fermerMenu(false); }
     if (memeOnglet) {
-      const d = hote.querySelector('.jm-dossier'), l = hote.querySelector('.jm-liste');
-      if (d) d.scrollTop = hautD;
-      if (l) l.scrollTop = hautL;
+      for (const [kz, h, w] of tailles) {
+        const z = hote.querySelector(`#jm textarea[data-k="${CSS.escape(kz)}"]`);
+        if (z) { if (h) z.style.height = h; if (w) z.style.width = w; }
+      }
+      rendreZones(zones);
     }
     if (foRemonter) {
       foRemonter = false;
@@ -1510,6 +1621,8 @@
       if (z) z.scrollTop = 0;
     }
     if (menuOuvert) placerMenu();
+    // (placerMenu remet la liste à sa hauteur, ce qui la remonte : elle redescend où elle était)
+    if (hautMenu) { const m = menuDe(menuOuvert)?.querySelector('.jm-der-m'); if (m) m.scrollTop = hautMenu; }
     const k = focusK || kActif;
     let cible = k && hote.querySelector(`[data-k="${CSS.escape(k)}"]`);
     // (0.2.1 : une offre gardée vient de s'ouvrir en grand, ou de se refermer : l'élément qui avait la main n'est
@@ -1520,6 +1633,7 @@
     }
     (cible || hote.querySelector('.jm-onglet.actif'))?.focus({ preventScroll: true });
     if (cible && curseur && /^(INPUT|TEXTAREA)$/.test(cible.tagName) && k === kActif) { try { cible.setSelectionRange(curseur[0], curseur[1]); } catch (_) { /* (rien) */ } }
+    if (cible && etaitLibre && cible.tagName === 'TEXTAREA' && k === kActif && document.activeElement === cible) cible.classList.add('jm-libre');
   }
 
   // Montre un onglet (noté au journal par Rust) ; le choix reste sur l'onglet
@@ -1547,15 +1661,17 @@
   // Ouvre le dossier d'une candidature (Rust renvoie l'état avec son dossier)
   function ouvrirCandidature(id) {
     vueC = 'dossier';
-    if (fiche()?.id !== id) { choisie = id; O.anime = !reduit(); O.action('c-ouvrir', { id }); }
+    // (le dossier arrive avec le prochain état de Rust : c'est lui qui jouera son entrée, pas celui d'avant)
+    if (fiche()?.id !== id) { choisie = id; attendreEntree(); O.action('c-ouvrir', { id }); }
     dessinerTout(`c:${id}`);
   }
 
   // Étape 7 : ouvre un mail à ranger à droite (Rust renvoie l'état avec son texte)
   function ouvrirMail(id) {
-    if (vueC !== 'mail' || mailVu !== id) O.anime = !reduit();
+    const autre = vueC !== 'mail' || mailVu !== id;
     vueC = 'mail'; mailVu = id; menu = false; rdv = null; confirme = false; cal = null;
-    if (objet(mailsDe().ouvert).id !== id) O.action('m-ouvrir', { id });
+    // (le mail déjà reçu de Rust entre tout de suite ; sinon il jouera son entrée en arrivant)
+    if (objet(mailsDe().ouvert).id !== id) { attendreEntree(); O.action('m-ouvrir', { id }); } else if (autre) O.anime = !reduit();
     dessinerTout(`ml:${id}`);
   }
 
@@ -1608,10 +1724,28 @@
   }
 
   // Copie un texte (le presse-papiers de la page ; sinon l'ancienne façon), puis dit « Copié » sur le bouton
+  // (« Copié » reste 1,6 s : le bouton est retenu par son data-k, et le gabarit des boutons le redit si l'écran est
+  // redessiné pendant ce temps ; à la fin, le bouton retrouve son texte, qu'il ait été redessiné ou non)
+  let copieK = null, copieJusqua = 0, copieAvant = '', copieMinuteur = 0;
+  const copieDit = (k) => copieK !== null && copieK === k && Date.now() < copieJusqua;
+  function finCopie() {
+    clearTimeout(copieMinuteur);
+    const k = copieK;
+    copieK = null;
+    if (k === null || !hote) return;
+    const b = hote.querySelector(`[data-k="${CSS.escape(k)}"]`), s = b?.querySelector('span');
+    if (s && b.classList.contains('fait')) { s.textContent = copieAvant; b.classList.remove('fait'); }
+  }
   function copierBrut(texte, el, apres) {
     const fini = () => {
-      const s = el?.querySelector('span');
-      if (s) { const avant = s.textContent; s.textContent = T('copie') || 'Copié'; el.classList.add('fait'); setTimeout(() => { if (s.isConnected) { s.textContent = avant; el.classList.remove('fait'); } }, 1600); }
+      const k = el?.dataset?.k, s = el?.querySelector('span');
+      if (k && s) {
+        if (copieK !== k) { finCopie(); copieAvant = s.textContent; }
+        copieK = k; copieJusqua = Date.now() + 1600;
+        s.textContent = T('copie') || 'Copié'; el.classList.add('fait');
+        clearTimeout(copieMinuteur);
+        copieMinuteur = setTimeout(finCopie, 1600);
+      }
       O.son?.ok?.();
       apres?.();
     };
@@ -1693,7 +1827,7 @@
       case 'act-entretien':
         if (!f) return true;
         O.son?.ok?.(); rdv = { ...(f.entretien || {}) }; menu = false; dessinerTout('e:date'); return true;
-      case 'statut-menu': if (!f) return true; menu = !menu; O.son?.tic?.(); dessinerTout(menu ? `m:${f.statut}` : 'd:statut'); return true;
+      case 'statut-menu': if (!f) return true; menu = !menu; menuTenu = false; O.son?.tic?.(); dessinerTout(menu ? `m:${f.statut}` : 'd:statut'); return true;
       case 'statut-choix': {
         if (!f || !codeSur(d.id)) return true;
         menu = false;
@@ -1757,6 +1891,7 @@
   // Ce qui se tape : gardé dans la page (un nouvel état qui arrive ne l'efface pas)
   function surSaisie(e) {
     const el = e.target, d = el.dataset || {};
+    sale = true;   // (la page est touchée à la main : le prochain dessin venu de Rust refait tout)
     // (une case de ville : les communes proposées pendant la frappe)
     if (estCaseVille(el)) demanderVilles(el);
     // (étape 7 : la candidature choisie pour un mail à ranger)
@@ -1860,13 +1995,25 @@
     if (ecoute === h) return;
     ecoute = h;
     // (0.2.0 : avant le kit : un clic de souris, simple ou double, ou un clic venu du clavier)
-    h.addEventListener('click', (e) => { clicSouris = e.detail > 0 ? e.detail : 0; clicEl = e.target?.closest?.('.f') || null; }, true);
+    // (le double clic est compté ici, par le data-k : l'écran peut être redessiné entre les deux clics, le second
+    // tombe alors sur un nouvel élément, et le compte du navigateur seul ne suffit pas ; deux clics de souris sur le
+    // même data-k en moins de 600 ms font un double clic, le troisième repart de un)
+    h.addEventListener('click', (e) => {
+      clicEl = e.target?.closest?.('.f') || null;
+      const k = clicEl?.dataset?.k || '';
+      if (!(e.detail > 0)) { clicSouris = 0; clicK = ''; return; }
+      const double = !!k && k === clicK && e.timeStamp - clicT < 600;
+      clicSouris = double ? 2 : 1;
+      clicK = double ? '' : k;
+      clicT = e.timeStamp;
+    }, true);
     h.addEventListener('click', surClic);
     h.addEventListener('input', surSaisie);
     h.addEventListener('keydown', surTouche);
     h.addEventListener('pointerover', surSurvol);
-    // (« Où chercher » ouverte : un clic à côté la referme)
-    h.addEventListener('pointerdown', (e) => { if (srcMenu && !e.target.closest?.('.jm-srcs')) { srcMenu = false; dessinerTout('cs:ou'); } });
+    // (« Où chercher » ouverte : un appui à côté la referme, sans rien redessiner : l'élément visé reste là, et le
+    // clic qui suit fait aussi son effet)
+    h.addEventListener('pointerdown', (e) => { if (srcMenu && !e.target.closest?.('.jm-srcs')) fermerSources(); });
     // (une liste déroulante ouverte : un clic à côté la referme ; un clic sur son titre, qui vaut un clic sur son
     // bouton, la referme aussi, par le bouton)
     h.addEventListener('pointerdown', (e) => {
@@ -1916,7 +2063,7 @@
         <p class="jm-note">${esc(t('formats'))} ${esc(texteSur(v.note))}</p></div>`;
   }
 
-  const attenteHTML = (imp) => `<div class="jm-attente" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${O.esc(texteSur(imp.texte))}</span></div>`;
+  const attenteHTML = (imp) => `<div class="jm-attente" role="status">${roue()}<span>${O.esc(texteSur(imp.texte))}</span></div>`;
 
   function cvCollerHTML(d) {
     const { esc } = O, t = tx(d), v = cvColle || { nom: '', texte: '' };
@@ -2654,7 +2801,7 @@
     const rangs = [['qui', c.nom], ['secteur', c.secteur], ['taille', c.taille], ['adresse', c.adresse]]
       .map(([k, v]) => ({ nom: mot(k), valeur: texteSur(v) })).filter((r) => r.valeur);
     h += rangsFicheHTML(rangs);
-    if (c.attente === true) h += `<div class="jm-attente petite jm-fe-att" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(mot('attente'))}</span></div>`;
+    if (c.attente === true) h += `<div class="jm-attente petite jm-fe-att" role="status">${roue()}<span>${esc(mot('attente'))}</span></div>`;
     if (texteSur(c.note)) h += `<p class="jm-petit jm-fe-note">${esc(texteSur(c.note))}</p>`;
     return `<div class="jm-fe">${h}</div>`;
   }
@@ -2796,7 +2943,7 @@
   // Dans « L'offre » : préparer, ou la candidature déjà prête
   function actionPrepHTML(p) {
     const { esc } = O, t = tO(p);
-    if (typeof p.en_cours === 'string' && p.en_cours) return `<div class="jm-attente" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(p.en_cours)}</span></div>`;
+    if (typeof p.en_cours === 'string' && p.en_cours) return `<div class="jm-attente" role="status">${roue()}<span>${esc(p.en_cours)}</span></div>`;
     if (liste(p.versions).length) return `<div class="jm-action jm-pr-a"><span class="jm-a-ic">${icone('plume')}</span><div class="jm-a-txt"><b>${esc(t('prete_t'))}</b><span>${esc(t('prete_s'))}</span></div><div class="jm-a-bts">${bouton('pr-voir', 'pr:voir', t('voir'), 'droite', 'principal')}</div></div>`;
     return `<div class="jm-action jm-pr-a"><span class="jm-a-ic">${icone('plume')}</span><div class="jm-a-txt"><b>${esc(t('preparer_t'))}</b><span>${esc(t('preparer_s'))}</span></div><div class="jm-a-bts">${bouton('pr-preparer', 'pr:preparer', t('preparer'), 'plume', 'principal', p.occupe === true ? ' disabled' : '')}</div></div>`;
   }
@@ -2813,7 +2960,7 @@
   function candidatureHTML(p) {
     const { esc } = O, t = tO(p), v = prVersion(p);
     let h = annoncePrepHTML(p);
-    if (typeof p.en_cours === 'string' && p.en_cours) h += `<div class="jm-attente" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(p.en_cours)}</span></div>`;
+    if (typeof p.en_cours === 'string' && p.en_cours) h += `<div class="jm-attente" role="status">${roue()}<span>${esc(p.en_cours)}</span></div>`;
     if (!v) {
       if (p.en_cours) return h;
       const sans = p.claude !== true;
@@ -2997,7 +3144,7 @@
     // (étape 6 : Claude lit les offres floues, ou la clé qui lui manque)
     const ia = objet(x.ia), iaA = objet(ia.annonce);
     if (typeof ia.en_cours === 'string' && ia.en_cours) {
-      h += `<div class="jm-attente petite" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(ia.en_cours)}</span></div>`;
+      h += `<div class="jm-attente petite" role="status">${roue()}<span>${esc(ia.en_cours)}</span></div>`;
     } else {
       if (texteSur(iaA.texte)) {
         const g = ['ok', 'attention', 'erreur'].includes(iaA.genre) ? iaA.genre : 'ok';
@@ -3093,7 +3240,7 @@
     if (cvOk) h += `<div class="jm-m-ch"><span>${esc(t('cv'))}</span><span class="jm-pj">${icone('cv')}<span>${esc(cv.nom)}</span>${texteSur(cv.taille) ? `<small>${esc(cv.taille)}</small>` : ''}</span></div>`;
     h += `<div class="jm-m-txt" data-brut>${esc(texteSur(e.lettre) || t('pas_lettre'))}</div>`;
     h += `<p class="jm-petit jm-m-garde">${texteSur(e.gardee) ? `<b>${esc(e.gardee)}.</b> ` : ''}${esc(t('modifier_lettre'))}</p>`;
-    if (e.en_cours === true) h += `<div class="jm-attente" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(t('en_cours'))}</span></div>`;
+    if (e.en_cours === true) h += `<div class="jm-attente" role="status">${roue()}<span>${esc(t('en_cours'))}</span></div>`;
     h += '</div></div>';
     const bloque = liste(e.a_verifier).length > 0 || e.occupe === true || e.boite !== true || !!e.incertain || !(cv.present === true) || !texteSur(e.lettre) || attend;
     const nom = e.envoyee ? t('encore') : issue.genre === 'echec' ? t('reessayer') : t('envoyer');
@@ -3223,7 +3370,7 @@
     if (o.phase === 'incertain') {
       h += `<div class="jm-btns jm-po-inc">${bouton('po-moi', 'po:voir', t('voir'), 'ext', 'second')}${bouton('po-fait', 'po:fait', t('fait'), 'coche', 'principal')}${bouton('po-pas-parti', 'po:non', t('pas_parti'), 'croix', 'second')}</div>`;
     }
-    if (typeof o.attente === 'string' && o.attente) h += `<div class="jm-attente" role="status"><span class="jm-roue" aria-hidden="true"></span><span>${esc(o.attente)}</span></div>`;
+    if (typeof o.attente === 'string' && o.attente) h += `<div class="jm-attente" role="status">${roue()}<span>${esc(o.attente)}</span></div>`;
     const lignes = liste(o.lignes).filter((l) => Number.isInteger(l?.i));
     const manque = lignes.filter((l) => ['a_completer', 'accord', 'a_joindre'].includes(l.etat));
     if (manque.length && o.phase === 'pret') h += annonceEnHTML('attention', `${t('manque')} ${manque.map((l) => `« ${texteSur(l.libelle)} »`).join(', ')}`);
@@ -3458,7 +3605,7 @@
         const id = Number(d.i), souris = clicEl === el ? clicSouris : 0; clicSouris = 0; clicEl = null;
         if (!numSur(id)) return true;
         if (souris === 1 && el.classList.contains('jm-carte')) return true;
-        O.son?.ok?.(); ofVue = 'offre'; ofForm = null; ofConfirme = null; O.anime = !reduit();
+        O.son?.ok?.(); ofVue = 'offre'; ofForm = null; ofConfirme = null; attendreEntree();
         O.action('o-ouvrir', { id });
         return true;
       }
@@ -3466,7 +3613,7 @@
       // suivante », « Remettre » sur la carte d'une offre retirée : Rust garde la page et l'offre ouverte)
       case 'of-page': if (!el.disabled) { O.son?.ok?.(); O.action('o-page', { d: Number(d.d) < 0 ? -1 : 1 }); } return true;
       case 'of-retour': O.son?.retour?.(); O.action('o-retour'); return true;
-      case 'of-voisine': if (!el.disabled) { O.son?.ok?.(); O.anime = !reduit(); O.action('o-voisine', { d: Number(d.d) < 0 ? -1 : 1 }); } return true;
+      case 'of-voisine': if (!el.disabled) { O.son?.ok?.(); attendreEntree(); O.action('o-voisine', { d: Number(d.d) < 0 ? -1 : 1 }); } return true;
       case 'of-remettre-l': { const id = Number(d.i); if (numSur(id)) { O.son?.ok?.(); O.action('o-remettre', { id }); } return true; }
       // (0.2.1 : le contrat ou le télétravail, un seul choix à la fois)
       case 'of-choix': {
@@ -3602,16 +3749,18 @@
   }
 
   // ---------------------------------------------------------------- avec le kit
-  window.kitAccueil = Object.freeze({
+  const gestes = {
     // L'accueil dessiné (à chaque nouvel état et à chaque retour sur l'accueil), sur l'onglet montré
     dessiner(h, perso, outils) {
       const garde = hote === h ? document.activeElement?.closest?.('#jm [data-k]')?.dataset.k : null;
+      if (hote !== h) vu = null;
       hote = h; P = perso || {}; O = { ...outils };
       ecouter(h);
       // (des notes que Rust a gardées : plus besoin de les retenir ici)
       const f = fiche();
       if (f && Object.hasOwn(notes, f.id) && notes[f.id] === texteSur(f.notes) && document.activeElement?.dataset?.perso !== 'notes') delete notes[f.id];
-      dessinerTout(outils.focus || garde);
+      // (un dessin « doux » : seules les zones qui ont changé sont réécrites, voir `vu`)
+      dessinerTout(outils.focus || garde, true);
     },
     // Un onglet, une ligne, un bouton (clic, A ou Entrée)
     valider(el) {
@@ -3667,7 +3816,7 @@
       // de texte a la main ; elle la rend, et le kit dessine aussitôt le bandeau et « Fermer »)
       if (o.petite === true) {
         const a = document.activeElement;
-        if (a && a.tagName === 'INPUT' && hote.contains(a)) a.blur();
+        if (a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && hote.contains(a)) a.blur();
         return;
       }
       // (les villes proposées pour ce qui est tapé dans une case de ville)
@@ -3713,7 +3862,7 @@
       if (o.statut === 'menu' || o.statut === 'entretien') {
         if (onglet !== 'candidatures') montrer('candidatures');
         const f = fiche(); if (!f || vueC !== 'dossier') return;
-        if (o.statut === 'menu') { menu = true; rdv = null; dessinerTout(`m:${f.statut}`); } else { rdv = { ...(f.entretien || {}) }; menu = false; dessinerTout('e:date'); }
+        if (o.statut === 'menu') { if (!menu) menuTenu = false; menu = true; rdv = null; dessinerTout(`m:${f.statut}`); } else { rdv = { ...(f.entretien || {}) }; menu = false; dessinerTout('e:date'); }
         return;
       }
       if (o.modifier === true) {
@@ -3738,7 +3887,8 @@
       }
       // (pour les captures) une zone de texte prise puis quittée par Échap : la « zone libre »
       if (typeof o.libre === 'string' && /^[a-z]{1,4}:[a-z0-9-]{1,12}$/.test(o.libre)) {
-        const z = hote.querySelector(`#jm textarea[data-k="${o.libre}"]`);
+        // (« p:notes » reste accepté pour la zone des notes, dont le data-k est devenu « p:z-notes »)
+        const z = hote.querySelector(`#jm textarea[data-k="${o.libre}"]`) || (o.libre === 'p:notes' ? hote.querySelector('#jm textarea[data-k="p:z-notes"]') : null);
         if (z) { z.focus({ preventScroll: true }); libre(z, true); }
         return;
       }
@@ -3756,5 +3906,9 @@
       }
       if (idSur(o.onglet)) montrer(o.onglet);
     },
-  });
+  };
+  // (un geste, Retour ou un ordre a pu toucher la page à la main, avant comme après son propre dessin : le prochain
+  // dessin venu de Rust refait tout, voir `vu` et `sale`)
+  const touche = (f) => (...a) => { sale = true; try { return f(...a); } finally { sale = true; } };
+  window.kitAccueil = Object.freeze({ dessiner: gestes.dessiner, valider: touche(gestes.valider), retour: touche(gestes.retour), ordre: touche(gestes.ordre) });
 })();

@@ -176,19 +176,9 @@ impl Demande {
     }
 }
 
-/// Un texte écrit pour une adresse : lettres et chiffres ASCII, « - », « _ », « . », « ~ » gardés, le reste en
-/// `%XX` (les octets UTF-8 ; une espace : `%20`).
-pub fn encoder(t: &str) -> String {
-    let mut s = String::with_capacity(t.len() * 3);
-    for b in t.bytes() {
-        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
-            s.push(b as char);
-        } else {
-            s.push_str(&format!("%{b:02X}"));
-        }
-    }
-    s
-}
+// (un texte écrit pour une adresse : une seule fonction pour tout le crate, celle des sites, toujours joignable ici
+// sous le nom `annuaire::encoder`)
+pub use crate::sites::encoder;
 
 /// L'adresse d'une recherche web du site d'une entreprise (DuckDuckGo) : « Transports Exemple Metz ».
 pub fn adresse_recherche_web(nom: &str, commune: &str) -> String {
