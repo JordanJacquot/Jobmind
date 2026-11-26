@@ -411,7 +411,7 @@ fn page_illisible_puis_lecture_cassee() {
     assert!(f.journal.unwrap().contains("LECTURE CASSÉE"));
     let p = c.postuler.clone().unwrap();
     assert_eq!(p.phase, Phase::Bloque);
-    assert!(p.annonce.unwrap().0.contains("n'arrive pas à lire"));
+    assert!(p.annonce.unwrap().0.contains("n'arrive pas à analyser"));
     // « Le faire moi-même sur la page » : la petite fenêtre, sans recharger
     let f = c.po_geste(&ctx, VOIR, &json!({}), m(10, 1));
     assert_eq!(f.coulisse, vec![Ordre::Montrer]);

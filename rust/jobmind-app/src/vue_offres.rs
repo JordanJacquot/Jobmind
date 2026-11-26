@@ -342,9 +342,9 @@ fn fiche(x: &OffreComplete, aujourdhui: Jour, claude: bool, annuaire: Option<&cr
         },
         // (une source retirée, Adzuna ou Jooble : seulement le début ; une page lue : le texte entier)
         "note": match x.description_de.as_str() {
-            "site" => "Le texte entier de l'annonce, lu sur la page du site.".to_string(),
+            "site" => "Le texte entier de l'annonce, trouvé sur la page du site.".to_string(),
             "linkedin" | "indeed" | "wttj" | "francetravail" => {
-                format!("Le texte entier de l'annonce, lu sur la page de {texte_de}.")
+                format!("Le texte entier de l'annonce, trouvé sur la page de {texte_de}.")
             }
             "adzuna" => format!("{texte_de} ne donne que le début de l'annonce : le texte entier est sur le site."),
             _ => "La source ne donne que le début de l'annonce : le texte entier est sur le site.".to_string(),

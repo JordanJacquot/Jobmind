@@ -132,6 +132,19 @@ const JEU: &[(&str, &str, &str)] = &[
     ("Savoir-être professionnels\nAutonomie\nRigueur\nCompétences\nPréparer les commandes", "non_dit", "non_dit"),
     ("Type de contrat\nCDD - 6 Mois\nExpérience\nDébutant accepté", "non_dit", "debutant"),
     ("Langues\nAnglais Souhaité\nPermis\nC - Poids lourd Exigé", "non_dit", "non_dit"),
+    // Un âge n'est pas une durée d'expérience
+    ("Expérience auprès d'enfants de 3 à 6 ans souhaitée.", "non_dit", "souhaitee"),
+    ("Vous encadrez des enfants de 0 à 3 ans en crèche.", "non_dit", "non_dit"),
+    ("Animation auprès d'enfants (3-6 ans), expérience exigée.", "non_dit", "demandee"),
+    ("Vous devez avoir 18 ans minimum, une expérience en restauration est exigée.", "non_dit", "demandee"),
+    ("18 ans minimum, expérience en salle appréciée.", "non_dit", "souhaitee"),
+    ("Contrat ouvert aux jeunes âgés de 16 à 25 ans, expérience en vente appréciée.", "non_dit", "souhaitee"),
+    ("Être âgé de 18 ans révolus, expérience souhaitée.", "non_dit", "souhaitee"),
+    ("Accueil de jeunes de moins de 26 ans, une expérience de 2 ans est demandée.", "non_dit", "duree:24"),
+    ("Expérience de 3 à 5 ans auprès d'enfants de 6 à 12 ans.", "non_dit", "duree:36"),
+    ("Minimum 3 ans d'expérience auprès de personnes âgées de 60 ans et plus.", "non_dit", "duree:36"),
+    ("20 ans d'expérience dans le bâtiment.", "non_dit", "duree:240"),
+    ("Niveau 3 et 2 ans d'expérience en atelier.", "non_dit", "duree:24"),
 ];
 
 #[test]
@@ -325,4 +338,52 @@ fn textes_extremes_sans_planter() {
     for t in ["", ".", "bac", "cap", "2 ans", "permis", "caces", "•••", &"é".repeat(5000), "Bac+", "niveau 9"] {
         let _ = lire(t, t);
     }
+}
+
+/// Les lettres d'un permis : une lettre isolée (jamais « c'est », « d'un », « à », « ce poste »), et toutes celles
+/// d'une liste.
+#[test]
+fn les_lettres_des_permis() {
+    let permis = |t: &str| lire("", t).autres;
+    let rien: [&str; 0] = [];
+    // Une lettre isolée, pas le début d'un mot
+    assert_eq!(permis("Le permis, c'est un plus."), rien);
+    assert_eq!(permis("Le permis c’est un plus."), rien);
+    assert_eq!(permis("Le permis c est un plus."), rien);
+    assert_eq!(permis("Un permis d'exploitation est demandé."), rien);
+    assert_eq!(permis("Permis de chasse apprécié."), rien);
+    assert_eq!(permis("Le permis à points n'est pas demandé."), rien);
+    assert_eq!(permis("Permis B, c'est indispensable."), ["Permis B"]);
+    assert_eq!(permis("Permis B à jour."), ["Permis B"]);
+    assert_eq!(permis("Permis B a jour"), ["Permis B"]);
+    assert_eq!(permis("Permis B, ce poste demande des déplacements."), ["Permis B"]);
+    assert_eq!(permis("Permis B de plus de 3 ans."), ["Permis B"]);
+    assert_eq!(permis("PERMIS B, CE POSTE EST A POURVOIR"), ["Permis B"]);
+    // Une lettre seule
+    assert_eq!(permis("Le permis C est exigé."), ["Permis C"]);
+    assert_eq!(permis("permis b exigé"), ["Permis B"]);
+    assert_eq!(permis("Permis CE exigé, FIMO à jour."), ["Permis CE"]);
+    assert_eq!(permis("Titulaire du permis A"), ["Permis A"]);
+    assert_eq!(permis("Permis de conduire B obligatoire."), ["Permis B"]);
+    assert_eq!(permis("Permis de conduire exigé."), ["Permis de conduire"]);
+    for l in ["B", "C", "CE", "D", "BE", "C1", "C1E", "D1", "A", "A1", "A2", "AM"] {
+        assert_eq!(permis(&format!("Permis {l}")), [format!("Permis {l}")]);
+        assert_eq!(permis(&format!("Titulaire du permis {l}, vous êtes disponible.")), [format!("Permis {l}")]);
+    }
+    // Une liste
+    assert_eq!(permis("Permis B, C et CE exigés."), ["Permis B", "Permis C", "Permis CE"]);
+    assert_eq!(permis("Permis B, C et CE"), ["Permis B", "Permis C", "Permis CE"]);
+    assert_eq!(permis("permis B/C"), ["Permis B", "Permis C"]);
+    assert_eq!(permis("permis B + C"), ["Permis B", "Permis C"]);
+    assert_eq!(permis("Permis B ou C1E souhaité"), ["Permis B", "Permis C1E"]);
+    assert_eq!(permis("Permis de conduire B et BE."), ["Permis B", "Permis BE"]);
+    assert_eq!(permis("Permis C, CE, D1 et AM"), ["Permis C", "Permis CE", "Permis D1", "Permis AM"]);
+    assert_eq!(permis("Le permis A2 ou A est demandé."), ["Permis A2", "Permis A"]);
+    assert_eq!(permis("PERMIS B, C, CE - VEHICULE PERSONNEL"), ["Permis B", "Permis C", "Permis CE"]);
+    assert_eq!(permis("permis b, c et ce, véhicule personnel"), ["Permis B", "Permis C", "Permis CE"]);
+    assert_eq!(permis("Permis B, C, B et C"), ["Permis B", "Permis C"]);
+    // La liste s'arrête au premier mot qui n'est pas une lettre de permis
+    assert_eq!(permis("Permis B et véhicule exigés, CACES 3 apprécié."), ["Permis B", "CACES 3"]);
+    assert_eq!(permis("Permis B et d'une voiture."), ["Permis B"]);
+    assert_eq!(permis("Permis B. C'est un poste en CDI."), ["Permis B"]);
 }

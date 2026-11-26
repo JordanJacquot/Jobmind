@@ -599,14 +599,15 @@ Caisse à outils fournie, salaire selon profil, mutuelle.",
 /// durée), pas une invention ; la seule ligne fausse était « aide à domicile à l'association ». Après une seconde
 /// passe de corrections (les dates prises phrase par phrase, les saisons, « comme stagiaire vendeur », les lignes de
 /// missions à puce) : 5 CV sur 8, 210 sur 219, 7 couples sur 10. Ce qui reste raté est gardé ici tel quel, ce sont les
-/// limites connues : les compétences écrites dans une phrase ou entre parenthèses ne sont pas lues ; le CACES des
-/// nacelles (catégories A et B) sort sans ses catégories ; trois couples sont classés un cran plus bas que ce qui
-/// était attendu (un métier voisin quand l'offre demande de l'expérience ou un diplôme hors de portée).
+/// limites connues : le CACES des nacelles (catégories A et B) sort sans ses catégories ; trois couples sont classés un
+/// cran plus bas que ce qui était attendu (un métier voisin quand l'offre demande de l'expérience ou un diplôme hors
+/// de portée). Les savoir-faire écrits dans une phrase ou entre parenthèses sont lus depuis (un geste de métier et son
+/// objet) : 214 sur 219 ; restent « ménage », « courses » et « caisse », écrits seuls au milieu d'une phrase.
 #[test]
 fn troisieme_serie() {
     let (cv, ok, total, couples, rapport) = bilan(&[&A1, &A2, &A3, &A4, &A5, &A6, &A7, &A8], COUPLES);
     assert_eq!(total, 219);
-    assert!(cv >= 5 && ok >= 210 && couples >= 7, "{cv} CV sur 8, {ok} sur {total}, {couples} couples sur 10{rapport}");
+    assert!(cv >= 5 && ok >= 214 && couples >= 7, "{cv} CV sur 8, {ok} sur {total}, {couples} couples sur 10{rapport}");
     // (rien d'inventé : aucun métier, aucun permis, aucune qualité en trop dans les huit fiches)
     for ligne in rapport.lines().filter(|l| l.contains("RATE")) {
         let oubli = ligne.contains("RATE compétence «")

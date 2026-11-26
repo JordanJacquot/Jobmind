@@ -26,8 +26,11 @@
 //! - un permis, un CACES (la règle des offres, crate::lecture), une habilitation (électrique, SST, FIMO, HACCP...),
 //!   partout dans le CV ; jamais sur une ligne qui dit « en cours », « prévu » ou « pas de permis » ;
 //! - une compétence : chaque élément de la rubrique « Compétences », et les courtes lignes à puce des expériences qui
-//!   commencent par un nom d'action (« Conduite de chariot », « Mise en rayon ») ; les qualités personnelles
-//!   (« sérieux », « ponctuel ») n'en sont pas.
+//!   commencent par un nom d'action (« Conduite de chariot », « Mise en rayon ») ; puis les savoir-faire écrits dans
+//!   une phrase ou entre parenthèses (`savoir_faire` : un geste de métier d'une liste fermée, [`GESTES`], et son
+//!   objet, « la préparation de commandes », « (encaissement, mise en rayon) »), dans les expériences hors des noms
+//!   de poste, et en début de ligne dans les rubriques d'à côté. Les qualités personnelles (« sérieux »,
+//!   « ponctuel », « gestion du stress ») n'en sont pas, et rien n'est tiré d'un nom de poste.
 //!
 //! Comment une offre est comparée (la distance n'entre pas dans ce calcul, elle a son filtre et son étiquette) :
 //! - le poste : le titre de l'offre et chaque métier de la fiche, remis au propre (sans « H/F », au masculin
@@ -1702,6 +1705,7 @@ const RUBRIQUES: &[(&str, Rubrique)] = &[
     ("vie associatif", Rubrique::Autre),
     ("autre", Rubrique::Autre),
     ("autre information", Rubrique::Autre),
+    ("a cote", Rubrique::Autre),
 ];
 
 const PUCES: &[char] = &['•', '-', '*', '·', '▪', '●', '○', '>', '→', '✓', '■', '◦'];
@@ -1817,31 +1821,6 @@ fn droits(t: &str) -> Vec<Droit> {
                 .map(str::to_lowercase)
                 .collect();
             l.push(Droit::Caces(cats));
-        }
-    }
-    // (« Permis B, C et CE » : les lettres qui suivent la première)
-    for phrase in t.split(['.', ';', '\n', '!', '?']) {
-        let m = mots(phrase);
-        let Some(i) = m.iter().position(|x| x == "permis") else { continue };
-        let mut k = i + 1;
-        let mut vu = false;
-        while k < m.len() && k < i + 10 {
-            // (« le permis, c'est un plus » : pas le permis C)
-            let lettre = ["b", "c", "ce", "ec", "c1", "c1e", "be", "d1"].contains(&m[k].as_str())
-                && m.get(k + 1).is_none_or(|x| x != "est");
-            if lettre {
-                let d = Droit::Permis(m[k].clone());
-                if !l.contains(&d) {
-                    l.push(d);
-                }
-                vu = true;
-            } else if !(vu && ["et", "ou"].contains(&m[k].as_str()))
-                && !(k == i + 1 && m[k] == "de")
-                && m[k] != "conduire"
-            {
-                break;
-            }
-            k += 1;
         }
     }
     l.extend(habilitations(t).into_iter().map(Droit::Autre));
@@ -2403,6 +2382,432 @@ fn missions(t: &str, puce: bool) -> Vec<String> {
         .collect()
 }
 
+/// Les noms de gestes de métier (au singulier) reconnus au milieu d'une phrase ou entre parenthèses : une liste
+/// fermée, bien plus courte que ce que [`nom_d_action`] accepte en début de ligne de mission (« agence »,
+/// « environnement » ou « bâtiment » ne disent aucun savoir-faire).
+const GESTES: &[&str] = &[
+    "accueil",
+    "accompagnement",
+    "aide",
+    "animation",
+    "approvisionnement",
+    "arrosage",
+    "assemblage",
+    "cablage",
+    "chargement",
+    "classement",
+    "collecte",
+    "conditionnement",
+    "conduite",
+    "conseil",
+    "controle",
+    "cuisson",
+    "dechargement",
+    "decoupe",
+    "demontage",
+    "depannage",
+    "diagnostic",
+    "distribution",
+    "emballage",
+    "encadrement",
+    "encaissement",
+    "entretien",
+    "etiquetage",
+    "expedition",
+    "fabrication",
+    "facing",
+    "facturation",
+    "filmage",
+    "garde",
+    "gestion",
+    "installation",
+    "inventaire",
+    "lavage",
+    "livraison",
+    "maintenance",
+    "manutention",
+    "mise",
+    "montage",
+    "nettoyage",
+    "palettisation",
+    "peinture",
+    "picking",
+    "plonge",
+    "pose",
+    "preparation",
+    "prise",
+    "rangement",
+    "reassort",
+    "reception",
+    "redaction",
+    "reglage",
+    "remplacement",
+    "reparation",
+    "repassage",
+    "saisie",
+    "service",
+    "soudure",
+    "stockage",
+    "suivi",
+    "surveillance",
+    "tenue",
+    "tirage",
+    "tonte",
+    "tri",
+    "vente",
+];
+
+/// Ceux qui disent un savoir-faire à eux seuls, sans objet (« encaissement », « inventaire »). Les autres
+/// (« préparation », « conduite », « gestion ») ne comptent que suivis de leur objet.
+const GESTES_SEULS: &[&str] = &[
+    "conditionnement",
+    "emballage",
+    "encaissement",
+    "etiquetage",
+    "facing",
+    "facturation",
+    "filmage",
+    "inventaire",
+    "manutention",
+    "palettisation",
+    "picking",
+    "plonge",
+    "reassort",
+    "repassage",
+    "soudure",
+];
+
+/// Ceux qui se disent seuls quand ils sont un élément d'une liste, entre deux virgules ou deux parenthèses
+/// (« (vente, encaissement, mise en rayon) »), mais pas au milieu d'une phrase.
+const GESTES_EN_LISTE: &[&str] =
+    &["accueil", "cuisson", "depannage", "livraison", "maintenance", "montage", "nettoyage", "rangement", "vente"];
+
+/// Après « accueil » ou « réception », ces mots disent un endroit (« à l'accueil de la mairie »), pas un geste.
+const LIEUX_D_ACCUEIL: &[&str] = &[
+    "hotel",
+    "mairie",
+    "magasin",
+    "entreprise",
+    "agence",
+    "cabinet",
+    "clinique",
+    "camping",
+    "restaurant",
+    "societe",
+    "centre",
+    "etablissement",
+    "residence",
+    "hopital",
+    "ecole",
+    "college",
+    "lycee",
+    "site",
+    "usine",
+    "salle",
+    "service",
+    "piscine",
+    "musee",
+    "office",
+    "siege",
+    "batiment",
+    "gare",
+    "club",
+];
+
+/// Ce qui suit un geste sans petit mot et le précise (« accueil téléphonique », « maintenance préventive »).
+const PRECISIONS: &[&str] = &[
+    "client",
+    "clientele",
+    "telephonique",
+    "physique",
+    "industriel",
+    "preventif",
+    "curatif",
+    "correctif",
+    "tig",
+    "mig",
+];
+
+/// Les mots où l'objet d'un geste s'arrête : une autre partie de la phrase commence.
+const FINS_D_OBJET: &[&str] = &[
+    "pour",
+    "sur",
+    "avec",
+    "dans",
+    "chez",
+    "aupres",
+    "pendant",
+    "durant",
+    "selon",
+    "sous",
+    "par",
+    "afin",
+    "lors",
+    "depuis",
+    "jusqu",
+    "jusque",
+    "via",
+    "sans",
+    "vers",
+    "entre",
+    "et",
+    "ou",
+    "ainsi",
+    "puis",
+    "mais",
+    "car",
+    "donc",
+    "qui",
+    "que",
+    "qu",
+    "dont",
+    "chaque",
+    "tout",
+    "tous",
+    "toute",
+    "toutes",
+    "plusieurs",
+    "quelques",
+    "different",
+    "divers",
+    "nombreux",
+    "mon",
+    "ma",
+    "mes",
+    "notre",
+    "nos",
+    "votre",
+    "vos",
+    "leur",
+    "leurs",
+    "ce",
+    "cet",
+    "cette",
+    "ces",
+    "je",
+    "j",
+    "il",
+    "elle",
+    "on",
+    "nous",
+    "m",
+    "me",
+    "se",
+    "s",
+    "n",
+    "ne",
+    "y",
+    "est",
+    "sont",
+    "ont",
+    "fut",
+    "ete",
+    "etant",
+    "ayant",
+    "sera",
+    "seront",
+    "fait",
+    "font",
+    "comme",
+    "si",
+    "quand",
+    "lorsque",
+    "tres",
+    "plus",
+    "environ",
+    "ainsi",
+];
+
+/// Ce dont la « gestion » ou la « prise » ne dit pas un savoir-faire de métier mais une qualité (« gestion du
+/// stress », « prise d'initiative »), en plus des mots de [`QUALITES`].
+const OBJETS_DE_QUALITE: &[&str] = &["temps", "priorite", "conflit", "soi", "emotion", "pression", "imprevu", "parole"];
+
+/// Les objets de « mise en » et de « service » qui disent un geste de métier (« mise en rayon », « service en
+/// salle ») : sans eux, ces deux mots sont trop vagues (« mise à jour », « au service de »).
+const OBJETS_DE_MISE: &[&str] = &[
+    "rayon",
+    "place",
+    "service",
+    "route",
+    "oeuvre",
+    "forme",
+    "page",
+    "carton",
+    "palette",
+    "bouteille",
+    "sachet",
+    "peinture",
+    "conformite",
+    "securite",
+    "stock",
+    "ligne",
+    "barquette",
+    "boite",
+    "pli",
+    "culture",
+];
+const OBJETS_DE_SERVICE: &[&str] =
+    &["salle", "bar", "table", "comptoir", "repas", "client", "chambre", "plat", "boisson", "petit"];
+
+/// Où chercher les savoir-faire d'un bout de ligne.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ou {
+    /// Dans une phrase : au début d'un morceau (après une virgule, une parenthèse, deux-points), ou après un article
+    /// (« la préparation de commandes »)
+    Phrase,
+    /// Seulement au tout début
+    Debut,
+}
+
+/// Les savoir-faire concrets écrits entre les jetons `de` et `a` d'une ligne : un geste de métier ([`GESTES`]) suivi
+/// de son objet (« préparation de commandes », « conduite de chariots élévateurs », « mise en rayon », « réception
+/// des marchandises »), deux gestes qui partagent leur objet (« chargement et déchargement des camions »), ou un
+/// geste qui se dit seul ([`GESTES_SEULS`]). Le texte est pris tel qu'il est écrit, du geste à la fin de son objet :
+/// jamais une qualité, jamais un bout de phrase, et rien quand il y a un doute.
+fn savoir_faire(l: &str, j: &[Jeton], de: usize, a: usize, ou: Ou) -> Vec<String> {
+    const ARTICLES: &[&str] = &["la", "le", "l", "les", "des", "du", "au", "aux"];
+    const DE: &[&str] = &["de", "d", "des", "du"];
+    const SUITE_DE: &[&str] = &["la", "l", "le", "les", "un", "une"];
+    let a = a.min(j.len());
+    let geste = |k: usize| k < a && !j[k].pris && GESTES.contains(&racine(&j[k].mot).as_str());
+    // (un mot qui ne suit pas le précédent dans la même phrase : une coupure, une date, ou la fin)
+    let suit = |k: usize| k < a && !j[k].coupe && !j[k].phrase && !j[k].pris;
+    // (un verbe à l'imparfait finit l'objet : « la préparation de commandes était ma mission »)
+    const PAS_DES_VERBES: &[&str] = &["trait", "extrait", "retrait", "portrait", "forfait", "souhait", "attrait"];
+    let verbe = |m: &str| {
+        m.len() >= 5
+            && (m.ends_with("ait") || m.ends_with("aient"))
+            && !m.ends_with("fait")
+            && !PAS_DES_VERBES.contains(&m)
+    };
+    let mut v = Vec::new();
+    // (la place juste après le dernier savoir-faire gardé : « ..., inventaire et réception des livraisons »)
+    let mut apres: Option<usize> = None;
+    let mut s = de;
+    while s < a {
+        let debut = s == de
+            || j[s].coupe
+            || j[s].phrase
+            || j[s - 1].pris
+            || (ou == Ou::Phrase && ARTICLES.contains(&j[s - 1].mot.as_str()))
+            || (j[s - 1].mot == "et" && apres == Some(s - 1))
+            || (s >= de + 2
+                && j[s - 2].mot == "et"
+                && apres == Some(s - 2)
+                && ARTICLES.contains(&j[s - 1].mot.as_str()));
+        if !geste(s) || !debut || (ou == Ou::Debut && s != de) {
+            s += 1;
+            continue;
+        }
+        // Les mots qui comptent à partir du jeton `k`, après « la », « les », « une » (au plus `max`, jusqu'au
+        // premier petit mot ou à la fin du morceau) : (le dernier jeton, ces mots)
+        let groupe = |k: usize, max: usize| -> Option<(usize, Vec<String>)> {
+            let mut k = k;
+            while suit(k) && SUITE_DE.contains(&j[k].mot.as_str()) {
+                k += 1;
+            }
+            let mut contenu: Vec<String> = Vec::new();
+            while suit(k) && contenu.len() < max {
+                let m = j[k].mot.as_str();
+                let r = racine(m);
+                let stop = FINS_D_OBJET.contains(&m)
+                    || FINS_D_OBJET.contains(&r.as_str())
+                    || DE.contains(&m)
+                    || ["a", "au", "aux", "en"].contains(&m)
+                    || SUITE_DE.contains(&m)
+                    || verbe(m);
+                if stop {
+                    break;
+                }
+                contenu.push(r);
+                k += 1;
+            }
+            (!contenu.is_empty()).then(|| (k - 1, contenu))
+        };
+        // L'objet qui suit le geste `e` : (son dernier jeton, ses mots qui comptent)
+        let objet = |e: usize| -> Option<(usize, Vec<String>)> {
+            let g = racine(&j[e].mot);
+            let k = e + 1;
+            if !suit(k) {
+                return None;
+            }
+            let m = j[k].mot.as_str();
+            let petit = match g.as_str() {
+                "mise" => m == "en",
+                "service" => ["en", "au", "a", "des", "du"].contains(&m),
+                "aide" => ["a", "au", "aux"].contains(&m),
+                _ => DE.contains(&m),
+            };
+            if !petit {
+                // (« accueil téléphonique », « maintenance préventive et curative »)
+                if !PRECISIONS.contains(&racine(m).as_str()) {
+                    return None;
+                }
+                let mut fin = k;
+                if suit(k + 2) && j[k + 1].mot == "et" && PRECISIONS.contains(&racine(&j[k + 2].mot).as_str()) {
+                    fin = k + 2;
+                }
+                // (« maintenance préventive et curative des presses à injecter » : l'objet suit la précision)
+                let suite = (fin + 1..a).take_while(|&x| suit(x)).collect::<Vec<_>>();
+                if suite.len() >= 2 && DE.contains(&j[suite[0]].mot.as_str()) {
+                    let x = suite[1];
+                    let r = racine(&j[x].mot);
+                    if !FINS_D_OBJET.contains(&r.as_str()) && !SUITE_DE.contains(&r.as_str()) && !verbe(&j[x].mot) {
+                        return Some((x, vec![racine(m), r]));
+                    }
+                }
+                return Some((fin, vec![racine(m)]));
+            }
+            let (mut fin, mut contenu) = groupe(k + 1, 3)?;
+            // (le complément de l'objet : « contrôle des bons de livraison », « surveillance de l'état de santé »,
+            // « mise en service des installations » ; jamais une heure ni un mois, « de 6 h à 14 h », « de mars »)
+            if suit(fin + 1)
+                && DE.contains(&j[fin + 1].mot.as_str())
+                && let Some((f, c)) = groupe(fin + 2, 2)
+                && !c[0].starts_with(|x: char| x.is_ascii_digit())
+                && mois_nomme(&c[0]).is_none()
+            {
+                fin = f;
+                contenu.extend(c);
+            }
+            let ok = match g.as_str() {
+                "mise" => OBJETS_DE_MISE.contains(&contenu[0].as_str()),
+                "service" => OBJETS_DE_SERVICE.contains(&contenu[0].as_str()),
+                "aide" => contenu[0] != "domicile",
+                // (« à l'accueil de la mairie », « à la réception de l'hôtel » : un endroit, pas un geste)
+                "accueil" | "reception" => !LIEUX_D_ACCUEIL.contains(&contenu[0].as_str()),
+                _ => true,
+            };
+            ok.then_some((fin, contenu))
+        };
+        // (« chargement et déchargement des camions » : deux gestes, un objet)
+        let double =
+            (suit(s + 1) && j[s + 1].mot == "et" && suit(s + 2) && geste(s + 2)).then(|| objet(s + 2)).flatten();
+        let trouve = match double.or_else(|| objet(s)) {
+            Some((fin, contenu)) => {
+                let qualites = contenu.iter().all(|x| qualite(x) || OBJETS_DE_QUALITE.contains(&x.as_str()));
+                (!qualites).then_some(fin)
+            }
+            None => {
+                // (seul dans son morceau, entre deux virgules ou deux parenthèses : « (vente, encaissement) »)
+                let isole = (s == de || j[s].coupe || j[s].phrase) && !suit(s + 1);
+                let r = racine(&j[s].mot);
+                (GESTES_SEULS.contains(&r.as_str()) || (isole && GESTES_EN_LISTE.contains(&r.as_str()))).then_some(s)
+            }
+        };
+        let Some(fin) = trouve else {
+            s += 1;
+            continue;
+        };
+        if let Some(c) = competence(&l[j[s].debut..j[fin].fin]) {
+            v.push(c);
+            apres = Some(fin + 1);
+        }
+        s = fin + 1;
+    }
+    v
+}
+
 /// Lit un CV et en tire sa fiche. Un texte vide ou illisible : une fiche vide, jamais une erreur.
 pub fn lire(texte: &str) -> Parcours {
     let mut p = Parcours::default();
@@ -2537,6 +2942,47 @@ pub fn lire(texte: &str) -> Parcours {
     for l in lignes.iter().filter(|l| l.rubrique == Rubrique::Experience && !l.prise && !l.dates.vue) {
         for c in missions(l.texte, l.puce) {
             ajouter(Some(c), &mut p);
+        }
+    }
+    // Puis les savoir-faire écrits dans une phrase ou entre parenthèses : dans les expériences (sur la ligne d'un
+    // poste, après son nom ; sur les autres lignes, partout), à la suite d'un poste daté écrit hors de toute
+    // rubrique, et au début d'une ligne des rubriques d'à côté (« Divers », « Bénévolat »)
+    for l in &lignes {
+        let j = &l.jetons;
+        // (sur la ligne d'un poste : partout sauf dans les noms des postes, « agent d'entretien » n'est pas
+        // l'entretien)
+        let hors_postes = || {
+            let mut bornes: Vec<(usize, usize)> = Vec::new();
+            let mut debut = 0;
+            for x in &l.postes {
+                bornes.push((debut, x.debut));
+                debut = x.fin + 1;
+            }
+            bornes.push((debut, j.len()));
+            bornes
+                .into_iter()
+                .filter(|(de, a)| de < a)
+                .flat_map(|(de, a)| savoir_faire(l.texte, j, de, a, Ou::Phrase))
+                .collect::<Vec<_>>()
+        };
+        let vus = match l.rubrique {
+            Rubrique::Experience if l.prise || l.dates.vue => hors_postes(),
+            Rubrique::Experience => savoir_faire(l.texte, j, 0, j.len(), Ou::Phrase),
+            Rubrique::Aucune if l.prise => hors_postes(),
+            Rubrique::Autre => savoir_faire(l.texte, j, 0, j.len(), Ou::Debut),
+            _ => Vec::new(),
+        };
+        for c in vus {
+            // (déjà dit, en plus court ou en plus long : « Mise en rayon » et « Mise en rayon des produits frais »)
+            let mots_c = mots_competence(&c);
+            let deja = p
+                .competences
+                .iter()
+                .map(|x| mots_competence(x))
+                .any(|x| x.iter().all(|m| mots_c.contains(m)) || mots_c.iter().all(|m| x.contains(m)));
+            if !deja {
+                ajouter(Some(c), &mut p);
+            }
         }
     }
 

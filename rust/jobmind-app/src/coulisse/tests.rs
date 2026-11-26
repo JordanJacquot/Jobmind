@@ -212,9 +212,8 @@ fn liste_offre_et_ajout() {
     // carte qu'une fois analysée par Jobmind : aucune pour l'instant, une phrase le dit)
     let l = c.liste_de(Site::LinkedIn).unwrap();
     assert_eq!((l.resultats.len(), l.resultats[0].titre.as_str(), l.suivante), (6, "Cariste H/F", true));
-    assert!(l.fusion && l.tout && l.carte_page == 1, "{l:?}");
+    assert!(l.tout && l.carte_page == 1, "{l:?}");
     let v = c.vue(jour());
-    assert_eq!(v["liste"]["cartes"], true);
     assert!(v["liste"]["lignes"].as_array().unwrap().is_empty(), "{v}");
     assert_eq!(v["liste"]["sous"], "0 offre analysée");
     assert!(v["liste"]["vide_texte"].as_str().unwrap().starts_with("Jobmind analyse les offres"), "{v}");
@@ -310,7 +309,7 @@ fn liste_offre_et_ajout() {
     assert!(f.change && f.coulisse.is_empty(), "{f:?}");
     assert_eq!(c.vue(jour())["liste"]["lignes"][7]["sel"], true);
     let l = c.liste_de(Site::LinkedIn).unwrap();
-    assert_eq!((l.page, l.resultats.len(), l.gardees.len(), l.suivante), (2, 9, 0, false));
+    assert_eq!((l.page, l.resultats.len(), l.suivante), (2, 9, false));
     assert!(!l.tout && l.lecture.finie, "{l:?}");
     // « Voir dans mes offres »
     let f = c.geste(Some(&b), VOIR_OFFRE, &json!({ "id": id }), m(9, 7));
@@ -521,7 +520,7 @@ fn lecture_qui_casse() {
     );
     assert!(j.contains("li.scaffold-layout__list-item=0"), "{j}");
     let v = c.vue(jour());
-    assert_eq!(v["annonce"]["texte"], "Jobmind n'arrive pas à lire cette page de LinkedIn.");
+    assert_eq!(v["annonce"]["texte"], "Jobmind n'arrive pas à analyser cette page de LinkedIn.");
     assert_eq!(v["annonce"]["bouton"], "voir");
     // « Voir la page du site » : la petite fenêtre sur la page de résultats
     let f = c.geste(Some(&b), VOIR, &Value::Null, m(9, 2));
@@ -647,8 +646,12 @@ fn le_secret_ne_se_montre_pas_et_s_efface() {
 fn lecture_et_filtres_des_resultats() {
     let sans = lecture::lire("Agent de tri", "Poste sans diplôme. Débutants acceptés.");
     let bac = lecture::lire("Comptable", "BTS exigé, 3 ans d'expérience.");
-    assert_eq!(lu_court(&sans), "Aucun diplôme demandé · Débutant accepté");
-    assert_eq!(lu_court(&bac), "Bac+2 · 3 ans d'expérience");
+    // (ce que les règles y lisent, comme les étiquettes des cartes le montrent)
+    let noms = |l: &LectureOffre| {
+        (l.diplome.as_ref().map(|d| d.valeur.nom().to_string()), l.experience.as_ref().map(|e| e.valeur.nom()))
+    };
+    assert_eq!(noms(&sans), (Some("Aucun diplôme demandé".to_string()), Some("Débutant accepté".to_string())));
+    assert_eq!(noms(&bac), (Some("Bac+2".to_string()), Some("3 ans d'expérience".to_string())));
     assert!(passe(Some(&sans), (true, true)));
     assert!(!passe(Some(&bac), (true, false)));
     assert!(!passe(Some(&bac), (false, true)));

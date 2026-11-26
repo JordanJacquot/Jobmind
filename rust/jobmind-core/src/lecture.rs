@@ -19,8 +19,9 @@
 use crate::offre::normaliser;
 
 /// La version des règles : une offre lue par une version plus ancienne est relue (la base le note).
-/// (2 : la rubrique « Profil souhaité » des offres France Travail, 20/11/2026)
-pub const VERSION_REGLES: i64 = 2;
+/// (2 : la rubrique « Profil souhaité » des offres France Travail, 20/11/2026 ; 3 : un âge n'est plus une durée
+/// d'expérience, les lettres et les listes de permis, 26/11/2026)
+pub const VERSION_REGLES: i64 = 3;
 
 /// Le diplôme demandé.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1064,6 +1065,42 @@ const PAS_UNE_EXPERIENCE: [&str; 27] = [
     "garantie",
 ];
 
+/// Ceux dont on dit l'âge : « enfants de 3 à 6 ans », « jeunes de 16 à 25 ans », « âgé de 18 ans » ne sont pas des
+/// durées d'expérience.
+const AGE_DE: [&str; 28] = [
+    "enfant",
+    "enfants",
+    "bebe",
+    "bebes",
+    "nourrisson",
+    "nourrissons",
+    "petits",
+    "jeune",
+    "jeunes",
+    "adolescent",
+    "adolescents",
+    "ado",
+    "ados",
+    "eleves",
+    "mineur",
+    "mineurs",
+    "garcons",
+    "filles",
+    "adulte",
+    "adultes",
+    "personnes",
+    "public",
+    "publics",
+    "residents",
+    "age",
+    "agee",
+    "ages",
+    "agees",
+];
+/// Ceux dont l'âge se dit aussi sans « de » : « enfants (3-6 ans) », « âgés 16 à 25 ans ».
+const AGE_COLLE: [&str; 10] =
+    ["enfant", "enfants", "bebe", "bebes", "nourrisson", "nourrissons", "age", "agee", "ages", "agees"];
+
 fn nombre(m: &str) -> Option<u16> {
     if let Some(n) = chiffre(m) {
         return u16::try_from(n).ok();
@@ -1111,6 +1148,34 @@ fn duree(p: &Phrase) -> Option<(u16, usize, usize)> {
             continue;
         }
         let avant = |x: usize| if i >= x { p.mot(i - x) } else { "" };
+        // (un âge, pas une durée : « enfants de 3 à 6 ans », « enfants (0-3 ans) », « jeunes de moins de 26 ans »,
+        // « âgé de 16 à 25 ans », « 18 ans révolus », « 18 ans minimum » ; le second nombre d'une tranche, « 0 à
+        // 3 ans », se juge d'après ce qui précède le premier)
+        let tete = if ["a", "ou", "et"].contains(&avant(1)) && nombre(avant(2)).is_some() {
+            i - 2
+        } else if nombre(avant(1)).is_some() {
+            i - 1
+        } else {
+            i
+        };
+        let devant = |x: usize| if tete >= x { p.mot(tete - x) } else { "" };
+        let de_qui = |x: usize| AGE_DE.contains(&devant(x));
+        let age = AGE_COLLE.contains(&devant(1))
+            || (["de", "d", "des", "entre"].contains(&devant(1)) && de_qui(2))
+            || (devant(1) == "de" && ["moins", "plus"].contains(&devant(2)) && devant(3) == "de" && de_qui(4))
+            || ["revolu", "revolus"].contains(&p.mot(k + 1))
+            || (n1 >= 16 && mois >= 192);
+        // (sauf quand le mot « expérience » est collé à la durée : « 20 ans d'expérience », « expérience de 20 ans »)
+        let suite = |x: usize| {
+            let colle = |c: char| c.is_alphanumeric() || matches!(c, ' ' | '\'' | '\u{2019}');
+            MOTS_EXPERIENCE.contains(&p.mot(x)) && p.brut[p.places[k].1..p.places[x].0].chars().all(colle)
+        };
+        let collee = suite(k + 1)
+            || (["d", "de"].contains(&p.mot(k + 1)) && suite(k + 2))
+            || p.entre(tete as isize - 2, tete as isize - 1, &MOTS_EXPERIENCE);
+        if age && !collee {
+            continue;
+        }
         // (« il y a 20 ans », « avoir 18 ans », « CDD de 6 mois », « période d'essai de 2 mois »)
         if (avant(1) == "a" && avant(2) == "y")
             || (p.entre(i as isize - 4, i as isize - 1, &PAS_UNE_EXPERIENCE)
@@ -1219,6 +1284,7 @@ fn experience_voulue(p: &Phrase) -> Option<usize> {
                 "a",
                 "comme",
                 "en tant",
+                "aupres",
             ]
             .contains(&apres);
         // (« expérience avec les enfants obligatoire »)
@@ -1288,6 +1354,75 @@ fn experience(ps: &[Phrase]) -> Option<Trouve<Experience>> {
 // Le permis et le CACES
 // ---------------------------------------------------------------------------------------------------------------
 
+/// Les catégories de permis reconnues après le mot « permis ».
+const LETTRES_PERMIS: [&str; 16] =
+    ["b", "c", "ce", "c1", "c1e", "d", "de", "d1", "d1e", "be", "a", "a1", "a2", "am", "ec", "eb"];
+/// Celles qui sont aussi un mot courant (« à », « ce », « de ») : elles ne comptent que suivies d'un signe ou de la
+/// fin de la phrase (« permis B et CE, exigés »), ou écrites en majuscules dans un texte qui n'est pas tout en
+/// majuscules (« Permis CE exigé »).
+const LETTRES_AMBIGUES: [&str; 3] = ["a", "ce", "de"];
+
+/// Le mot `k` est la lettre d'un permis : une lettre isolée, telle qu'écrite dans le texte (pas « c'est », « d'un »,
+/// ni « à »), après le mot « permis » de place `i`.
+fn lettre_permis(p: &Phrase, i: usize, k: usize) -> bool {
+    let m = p.mot(k);
+    if !LETTRES_PERMIS.contains(&m) {
+        return false;
+    }
+    let brut = |x: usize| p.places.get(x).map_or("", |(d, f)| &p.brut[*d..*f]);
+    let ecrit = brut(k);
+    // (« à » : pas une lettre ; « c'est », « d'un » : le début d'un autre mot)
+    let apostrophe = p.places.get(k).is_some_and(|(_, f)| p.brut[*f..].starts_with(['\'', '\u{2019}', '\u{02bc}']));
+    if !ecrit.is_ascii()
+        || apostrophe
+        || (ecrit == "c" && p.mot(k + 1) == "est")
+        || (m == "a" && p.mot(k + 1) == "jour")
+    {
+        return false;
+    }
+    if LETTRES_AMBIGUES.contains(&m) {
+        // (« permis de chasse », « Permis de\nconduire » : jamais le permis DE)
+        if m == "de" && k == i + 1 {
+            return false;
+        }
+        let majuscules = |x: &str| x.chars().any(char::is_alphabetic) && !x.chars().any(char::is_lowercase);
+        let suite = p.places.get(k).map_or("", |(_, f)| p.brut[*f..].trim_start());
+        let signe = !suite.starts_with(char::is_alphanumeric);
+        return signe || (majuscules(ecrit) && !majuscules(brut(i)));
+    }
+    true
+}
+
+/// Les lettres du permis qui commencent au mot `k`, après le mot « permis » de place `i` : « B », ou une liste
+/// (« B, C et CE », « B/C », « B + C », « B ou C1 »). Entre deux lettres, seulement une virgule, une barre, un plus,
+/// un tiret, une esperluette, « et » ou « ou ».
+fn lettres_permis<'a>(p: &'a Phrase, i: usize, k: usize) -> Vec<&'a str> {
+    let mut l = Vec::new();
+    if !lettre_permis(p, i, k) {
+        return l;
+    }
+    l.push(p.mot(k));
+    let colles = |x: usize| {
+        let (Some(a), Some(b)) = (p.places.get(x), p.places.get(x + 1)) else { return false };
+        p.brut[a.1..b.0].chars().all(|c| c.is_whitespace() || matches!(c, ',' | '/' | '+' | '-' | '&'))
+    };
+    let mut j = k;
+    while l.len() < 6 && colles(j) {
+        let mut n = j + 1;
+        if ["et", "ou"].contains(&p.mot(n)) && colles(n) {
+            n += 1;
+        }
+        if !lettre_permis(p, i, n) {
+            break;
+        }
+        if !l.contains(&p.mot(n)) {
+            l.push(p.mot(n));
+        }
+        j = n;
+    }
+    l
+}
+
 fn autres(ps: &[Phrase]) -> Vec<String> {
     let mut l: Vec<String> = Vec::new();
     let mut ajouter = |x: String| {
@@ -1304,10 +1439,11 @@ fn autres(ps: &[Phrase]) -> Vec<String> {
                         k += 2;
                     }
                     let lettre = p.mot(k);
-                    if ["b", "c", "ce", "c1", "c1e", "d", "de", "be", "a", "a2", "am", "ec"].contains(&lettre)
-                        && !(lettre == "de" && k == i + 1)
-                    {
-                        ajouter(format!("Permis {}", lettre.to_uppercase()));
+                    let lettres = lettres_permis(p, i, k);
+                    if !lettres.is_empty() {
+                        for x in lettres {
+                            ajouter(format!("Permis {}", x.to_uppercase()));
+                        }
                     } else if lettre == "poids" && p.mot(k + 1) == "lourd" || lettre == "pl" || lettre == "spl" {
                         ajouter("Permis poids lourd".into());
                     } else if k == i + 3 {

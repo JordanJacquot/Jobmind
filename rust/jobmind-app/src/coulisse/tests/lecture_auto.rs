@@ -95,8 +95,6 @@ pub(super) fn liste_a_la_main(n: usize) -> Coulisse {
         sautees: Vec::new(),
         precedente: None,
         total: None,
-        gardees: Vec::new(),
-        fusion: true,
         tout: false,
         carte_page: 1,
         // (0.2.0 : le départ des distances, comme une vraie recherche autour de Metz ; son centre n'est pas connu)
@@ -726,7 +724,7 @@ fn page_suivante_sans_rien_derriere() {
     let l = c.liste_de(Site::FranceTravail).unwrap();
     assert_eq!((l.page, l.resultats.len(), l.suivante, l.tout), (1, 6, false, false));
     assert_eq!(rangs(&c), [0, 1, 2, 3, 4, 5]);
-    assert_eq!(c.vue(jour())["annonce"]["texte"], "Jobmind n'arrive pas à lire cette page de France Travail.");
+    assert_eq!(c.vue(jour())["annonce"]["texte"], "Jobmind n'arrive pas à analyser cette page de France Travail.");
     for s in 1..=30 {
         assert!(c.lecture_auto(x + SECONDE * s, true).coulisse.is_empty(), "la page illisible n'est pas réessayée");
     }
@@ -754,7 +752,7 @@ fn page_suivante_sans_rien_derriere() {
     let (x, f) = jusqu_a_la_page_2(&mut c, &b, &mut n, x + SECONDE);
     lire_tout(&mut c, &b, &mut n, &f);
     let l = c.liste_de(Site::FranceTravail).unwrap();
-    assert_eq!((l.page, l.resultats.len(), l.precedente.is_none(), l.gardees.len()), (2, 9, true, 0));
+    assert_eq!((l.page, l.resultats.len(), l.precedente.is_none()), (2, 9, true));
     assert_eq!(l.resultats[..6].iter().map(|r| r.url.clone()).collect::<Vec<_>>(), avant);
     assert!(l.resultats[6..].iter().all(|r| !avant.contains(&r.url)));
     assert!(!l.lecture.finie && l.tout);
@@ -835,8 +833,6 @@ fn chiffre_de_l_onglet_offres() {
         assert_eq!(chiffre_onglet(&c.vue(jour())), json!(k));
     }
     // (une offre retirée, même montrée en gris, ne compte pas)
-    let lignes = json!({ "liste": { "lignes": [{ "retiree": false }, { "retiree": true }] } });
-    assert_eq!(chiffre_onglet(&lignes), json!(1));
     c.geste(Some(&b), RETIRER, &json!({ "i": 0 }), m(9, 1));
     assert_eq!(chiffre_onglet(&c.vue(jour())), json!(1));
     c.geste(Some(&b), VOIR_RETIREES, &json!({}), m(9, 2));
@@ -881,11 +877,9 @@ fn lire_toutes_les_offres() {
     let (b, rid) = base();
     let (mut c, mut n, t0) = liste_ft(&b, rid);
     let l = c.liste_de(Site::FranceTravail).unwrap();
-    assert!(l.tout && l.fusion && l.suivante && l.carte_page == 1, "{l:?}");
+    assert!(l.tout && l.suivante && l.carte_page == 1, "{l:?}");
     let v = c.vue(jour());
     assert_eq!(v["liste"]["tout"], true);
-    assert_eq!(v["liste"]["fusion"], true);
-    assert_eq!(v["liste"]["cartes"], true);
     assert_eq!(v["liste"]["tout_possible"], false, "déjà en cours : « Arrêter », pas « Lire toutes les offres »");
     assert_eq!(v["liste"]["suivante"], false, "plus de page à tourner à la main");
     assert_eq!(v["liste"]["lecture"]["texte"], "Jobmind analyse toutes les offres : 0 sur 9");
@@ -908,7 +902,7 @@ fn lire_toutes_les_offres() {
     }
     assert_eq!((pages, lues), (1, 9));
     let l = c.liste_de(Site::FranceTravail).unwrap();
-    assert!(!l.tout && l.fusion && l.lecture.finie && l.resultats.len() == 9, "{l:?}");
+    assert!(!l.tout && l.lecture.finie && l.resultats.len() == 9, "{l:?}");
     let v = c.vue(jour());
     assert_eq!(v["liste"]["sous"], "9 offres analysées");
     assert_eq!(v["liste"]["lignes"].as_array().unwrap().len(), 9);
@@ -978,7 +972,7 @@ fn arreter_puis_reprendre_la_lecture_de_toutes_les_offres() {
     let l = c.liste_de(Site::FranceTravail).unwrap();
     assert_eq!(l.resultats.len(), 9);
     assert_eq!(l.resultats[0].url, premiere, "la page 1 d'abord");
-    assert!(l.gardees.is_empty() && l.page == 2 && !l.suivante && l.fusion && !l.tout && l.lecture.finie, "{l:?}");
+    assert!(l.page == 2 && !l.suivante && !l.tout && l.lecture.finie, "{l:?}");
     let v = c.vue(jour());
     assert_eq!(v["liste"]["sous"], "9 offres analysées");
     assert_eq!(v["liste"]["lecture"]["texte"], "Les 9 offres de la liste sont analysées");
@@ -993,7 +987,6 @@ fn une_offre_n_a_sa_carte_qu_une_fois_lue() {
     let (b, rid) = base();
     let (mut c, mut n, t0) = liste_ft(&b, rid);
     let v = c.vue(jour());
-    assert_eq!(v["liste"]["cartes"], true);
     assert!(v["liste"]["lignes"].as_array().unwrap().is_empty(), "{v}");
     assert_eq!(v["liste"]["sous"], "0 offre analysée");
     assert_eq!(v["liste"]["page_texte"], "");
@@ -1205,7 +1198,6 @@ fn pages_de_cartes() {
         let v = c.vue(jour());
         let l = &v["liste"];
         let r = rangs(c);
-        assert_eq!(l["cartes"], true);
         assert!(r.len() <= CARTES_PAR_PAGE && r.windows(2).all(|x| x[0] < x[1]), "{r:?}");
         (
             l["page_texte"].as_str().unwrap().to_string(),

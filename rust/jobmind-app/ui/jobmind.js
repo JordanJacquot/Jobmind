@@ -598,15 +598,16 @@
     const { esc } = O, t = tC();
     const finie = lec.finie === true, arret = !finie && (lec.arret === true || !!texteSur(lec.arret));
     const pc = finie ? 100 : (ok ? Math.round(pcSur(lues / total * 100)) : 0);
-    const texte = texteSur(lec.texte) || (finie ? (t('lecture_finie') || 'Toutes les offres de la page sont analysées')
-      : (ok ? (t('lecture_n') || 'Jobmind analyse les offres : {lues} sur {total}').replace('{lues}', String(lues)).replace('{total}', String(total)) : ''));
+    // (la phrase vient toujours de Rust ; sans elle, le compte seul)
+    const texte = texteSur(lec.texte) || (ok ? `Jobmind analyse les offres : ${lues} sur ${total}` : '');
     const cle = `${s.id}|${texteSur(l.titre)}|${ok ? total : ''}`;
     if (cle !== lecVu.cle) lecVu = { cle, pc: 0 };
     const de = reduit() || arret ? pc : Math.min(lecVu.pc, pc);
     lecVu.pc = pc;
-    // (0.1.13 : « Analyser toutes les offres » : Jobmind tourne les pages toute seule ; « Arrêter » pendant qu'elle le fait)
+    // (Jobmind tourne les pages du site toute seule : « Arrêter » pendant qu'elle le fait, « Reprendre l'analyse des
+    // offres » après un arrêt s'il reste des pages)
     const btTout = l.tout === true ? bouton('cs-tout-arret', 'cs:tout-arret', t('tout_arret') || 'Arrêter', 'croix', 'second')
-      : l.tout_possible === true ? bouton('cs-tout', 'cs:tout', l.fusion === true ? (t('tout_suite') || "Reprendre l'analyse des offres") : (t('tout') || 'Analyser toutes les offres'), 'droite', 'second') : '';
+      : l.tout_possible === true ? bouton('cs-tout', 'cs:tout', t('tout_suite') || "Reprendre l'analyse des offres", 'droite', 'second') : '';
     return `<div class="jm-lec${finie ? ' finie' : ''}${arret ? ' arret' : ''}" data-cle="${esc(cle)}" role="status">
       <div class="jm-lec-l"><span>${esc(texte)}</span>${ok && !arret ? `<b>${pc} %</b>` : ''}</div>
       <div class="jm-lec-j" aria-hidden="true"><i style="width:${de}%" data-vers="${pc}"></i></div>${btTout ? `<div class="jm-btns jm-lec-b">${btTout}</div>` : ''}</div>`;

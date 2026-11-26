@@ -686,7 +686,7 @@ impl Coulisse {
             return Ok(message("Une autre candidature est en cours sur un site : termine-la ou ferme-la d'abord."));
         }
         if self.occupe() || self.attend_personne() {
-            return Ok(message("Jobmind lit déjà une page : attends un instant."));
+            return Ok(message("Jobmind analyse déjà une page : attends un instant."));
         }
         // (0.1.4 : la lecture automatique d'une offre en coulisse cède la place à la candidature)
         self.ceder_lecture();
@@ -779,7 +779,7 @@ impl Coulisse {
     fn po_remplir(&mut self, base: &Base, v: &Value) -> Fait {
         let Some(p) = self.postuler.as_mut() else { return Fait::default() };
         if p.phase != Phase::Pret {
-            return message("Attends que Jobmind ait fini de lire la page.");
+            return message("Attends que Jobmind ait fini d'analyser la page.");
         }
         let mut gardees = Vec::new();
         if let Some(m) = v.get("saisies").and_then(Value::as_object) {
@@ -1223,7 +1223,7 @@ impl Coulisse {
         let site = p.site;
         let adresse = self.attente.as_ref().map(|a| a.adresse.clone()).unwrap_or_default();
         self.po_bloquer(
-            &format!("Jobmind n'arrive pas à lire le formulaire de candidature {}. Regarde la page du site : tu peux y postuler toi-même.", de_site(site)),
+            &format!("Jobmind n'arrive pas à analyser le formulaire de candidature {}. Regarde la page du site : tu peux y postuler toi-même.", de_site(site)),
             &format!(
                 "Sites : LECTURE CASSÉE ({}, formulaire, {quoi}) adresse {} ; {trace}",
                 site.code(),
@@ -1707,7 +1707,7 @@ impl Coulisse {
         } else if p.phase == Phase::Incertain {
             "Dit par toi après avoir regardé la page du site"
         } else {
-            "Envoyée par toi sur la page du site. Voici ce que Jobmind y a relu en dernier."
+            "Envoyée par toi sur la page du site. Voici ce que Jobmind y a trouvé en dernier."
         };
         Ok(self.po_parti(Some(base), &p, preuve, true, maintenant, "dit par Jordan"))
     }
@@ -1808,7 +1808,7 @@ impl Coulisse {
             "note": if site == Site::LinkedIn {
                 "La page de LinkedIn s'ouvre dans Jobmind : tu postules toi-même, avec tes textes à côté."
             } else {
-                "Jobmind lit le formulaire du site. Tu relis tout ; rien n'est mis sur le site avant ton clic sur Envoyer."
+                "Jobmind analyse le formulaire du site. Tu relis tout ; rien n'est mis sur le site avant ton clic sur Envoyer."
             },
             "occupe": self.po_occupe() && p.is_none(),
             "envoyee": envoyee.map(|(k, q)| json!({ "candidature": k, "texte": format!("Envoyée sur le site {}", quand(q, aujourdhui)) })),
@@ -1880,7 +1880,7 @@ fn recap_vue(p: &Postuler, occupe: bool, _aujourdhui: jobmind_core::Jour) -> Val
     let attente = match p.phase {
         Phase::Ouverture => Some(format!("Jobmind ouvre la page de candidature sur {nom}...")),
         Phase::Bouton => Some(format!("Jobmind ouvre le formulaire sur {nom}...")),
-        Phase::Remplissage => Some("Jobmind remplit le formulaire, puis le relit...".to_string()),
+        Phase::Remplissage => Some("Jobmind remplit le formulaire, puis le vérifie...".to_string()),
         Phase::Envoi { suivant: true } => Some(format!("Jobmind passe à l'étape suivante sur {nom}...")),
         Phase::Envoi { suivant: false } => Some(format!("Jobmind envoie ta candidature sur {nom}...")),
         Phase::Captcha => Some(format!(
@@ -1957,7 +1957,7 @@ fn recap_vue(p: &Postuler, occupe: bool, _aujourdhui: jobmind_core::Jour) -> Val
         o.insert("champs_t".into(), json!("Ce que Jobmind mettra sur le site"));
         o.insert(
             "champs_s".into(),
-            json!("Rien n'est encore sur la page du site. Jobmind la remplit au moment où tu cliques, puis la relit avant d'avancer."),
+            json!("Rien n'est encore sur la page du site. Jobmind la remplit au moment où tu cliques, puis la vérifie avant d'avancer."),
         );
     }
     json!({
@@ -2006,7 +2006,7 @@ fn textes(site: &str) -> Value {
         ("fait", "C'est envoyé".into()),
         ("pas_parti", "Ce n'est pas parti".into()),
         ("champs_t", "Ce que Jobmind met sur le site".into()),
-        ("champs_s", "Relu sur la page du site, champ par champ.".into()),
+        ("champs_s", "Vérifié sur la page du site, champ par champ.".into()),
         ("faites_t", "Déjà rempli aux étapes d'avant".into()),
         ("a_completer", "À compléter".into()),
         ("accord", "Je suis d'accord".into()),
@@ -2046,7 +2046,7 @@ pub fn cote_vue(p: &Postuler) -> Value {
         "texte": if p.linkedin {
             "Clique toi-même « Postuler » ou « Candidature simplifiée » sur la page. Copie ici ta lettre et tes réponses, puis envoie sur LinkedIn. Ensuite, dis-le à Jobmind."
         } else {
-            "Complète ou envoie toi-même sur la page. « Fermer » : Jobmind relit la page et revient au récapitulatif."
+            "Complète ou envoie toi-même sur la page. « Fermer » : Jobmind analyse de nouveau la page et revient au récapitulatif."
         },
         "lettre": p.donnees.lettre,
         "questions": p.donnees.questions.iter().map(|(q, r)| json!({ "question": q, "reponse": r })).collect::<Vec<_>>(),

@@ -5,6 +5,7 @@
 use super::*;
 use crate::lecture::lire as lire_offre;
 
+mod quatrieme;
 mod seconde;
 mod troisieme;
 
@@ -177,7 +178,11 @@ fn cv_d_un_aide_soignant() {
             ("Agent de service hospitalier", D::Mois(31))
         ]
     );
-    assert_eq!(p.competences, ["Aide à la toilette et aux repas", "Transmissions écrites et orales"]);
+    // (la troisième puce, trop longue pour une ligne de missions, donne son geste et son objet)
+    assert_eq!(
+        p.competences,
+        ["Aide à la toilette et aux repas", "Transmissions écrites et orales", "Surveillance de l'état de santé"]
+    );
     assert_eq!(p.diplomes, ["Diplôme d'État d'aide-soignant", "BEP Carrières sanitaires et sociales"]);
     assert_eq!(p.permis, ["Permis B", "AFGSU"]);
     assert_eq!(p.diplome_le_plus_haut(), Some(Diplome::CapBep));
@@ -660,4 +665,53 @@ fn corrections_retraits_et_ajouts() {
     assert_eq!(Liste::depuis_code("autre"), None);
     assert_ne!(empreinte(CARISTE), empreinte(VENDEUSE));
     assert_eq!(empreinte(CARISTE), empreinte(CARISTE));
+}
+
+/// Le CV d'exemple de la construction d'essai (jobmind-app, src\essai.rs, `CV_EXEMPLE`, recopié ici) : il n'a pas de
+/// rubrique « Compétences », et ses deux lignes d'expérience ne disent que des noms de poste. Rien n'est inventé à
+/// partir d'un nom de poste (« préparateur de commandes » ne donne pas « préparation de commandes ») ; le seul
+/// savoir-faire écrit est sous « À côté ».
+#[test]
+fn cv_d_exemple_de_l_essai() {
+    let cv = "Jordan Exemple\nMetz (57), permis B\n\nExpérience\n2023 à 2025 : préparateur de commandes et cariste en \
+              intérim, entrepôt de Woippy\n2021 à 2022 : vendeur dans un magasin de sport, Metz\n\nFormation\nCAP \
+              Opérateur logistique, 2018\nCACES 1, 3 et 5\n\nÀ côté\nDépannage et montage d'ordinateurs pour les proches";
+    let p = lire(cv);
+    assert_eq!(p.competences, ["Dépannage et montage d'ordinateurs"]);
+    assert_eq!(p.diplomes, ["CAP Opérateur logistique"]);
+    assert_eq!(p.permis, ["Permis B", "CACES 1, 3, 5"]);
+}
+
+/// Les savoir-faire écrits dans une phrase ou entre parenthèses : un geste de métier et son objet, jamais une
+/// qualité, jamais un nom de poste, jamais un bout de phrase.
+#[test]
+fn savoir_faire_dans_les_phrases() {
+    let c = |ligne: &str| lire(&format!("Expérience\n2020 - 2023 : Cariste, Logi-Faux\n{ligne}")).competences;
+    let rien: [&str; 0] = [];
+    assert_eq!(
+        c("J'ai assuré la préparation de commandes et la conduite de chariots élévateurs."),
+        ["Préparation de commandes", "Conduite de chariots élévateurs"]
+    );
+    assert_eq!(c("Je m'occupais de la réception des marchandises chaque matin."), ["Réception des marchandises"]);
+    assert_eq!(c("En charge du contrôle des bons de livraison."), ["Contrôle des bons de livraison"]);
+    assert_eq!(c("Je faisais l'encaissement et la mise en rayon."), ["Encaissement", "Mise en rayon"]);
+    assert_eq!(c("Je participais à l'inventaire."), ["Inventaire"]);
+    // Entre parenthèses, sur la ligne du poste
+    assert_eq!(
+        lire("Expérience\n2020 - 2023 : Vendeuse, Boutique Fausse (vente, encaissement, mise en rayon)").competences,
+        ["Vente", "Encaissement", "Mise en rayon"]
+    );
+    // Un nom de poste n'est pas un savoir-faire
+    assert_eq!(lire("Expérience\n2020 - 2023 : Agent d'entretien des locaux, Mairie de Faux").competences, rien);
+    assert_eq!(lire("Expérience\n2020 - 2023 : Préparateur de commandes en intérim").competences, rien);
+    // Ni une qualité, ni un endroit, ni un geste sans son objet, ni l'activité de l'entreprise
+    assert_eq!(c("J'ai une bonne gestion du stress et le sens de l'accueil."), rien);
+    assert_eq!(c("J'étais à l'accueil de la mairie."), rien);
+    assert_eq!(c("J'ai participé à la préparation et à la conduite."), rien);
+    assert_eq!(c("Une société de nettoyage industriel de la région."), rien);
+    assert_eq!(c("J'étais au service de la clientèle."), rien);
+    // L'objet s'arrête avant la suite de la phrase
+    assert_eq!(c("J'assurais la livraison de colis pour les clients du quartier."), ["Livraison de colis"]);
+    assert_eq!(c("La réception des marchandises de 6 h à 14 h."), ["Réception des marchandises"]);
+    assert_eq!(c("La préparation de commandes était ma mission."), ["Préparation de commandes"]);
 }

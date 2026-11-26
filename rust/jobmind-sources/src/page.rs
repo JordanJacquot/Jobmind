@@ -250,7 +250,7 @@ impl PageRefusee {
     pub fn message(&self) -> String {
         match self {
             PageRefusee::Adresse | PageRefusee::Vide => {
-                "Cette page ne peut pas être lue. Attends qu'elle soit chargée, puis réessaie.".into()
+                "Cette page ne peut pas être analysée. Attends qu'elle soit chargée, puis réessaie.".into()
             }
             PageRefusee::Liste(_) => "Cette page montre plusieurs offres. Ouvre celle qui t'intéresse, puis clique de \
                                       nouveau sur « Ajouter à Jobmind »."
