@@ -560,6 +560,8 @@ button.jm-cal-d.oui:hover, button.jm-cal-d.oui:focus { background: color-mix(in 
 .jm-srcs-l.f:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--jm) 55%, transparent); }
 .jm-srcs-l.ici { color: var(--jm); }
 .jm-srcs-l.ici > svg { color: var(--jm); }
+/* 0.2.1 : une liste déjà ouverte, redessinée (l'écran se redessine à chaque offre analysée) : pas de nouvelle entrée */
+.jm-srcs-m.tenu { animation: none; }
 @media (prefers-reduced-motion: reduce) { .jm-srcs-m { animation: none; } .jm-srcs-b > svg:last-child { transition: none; } }
 /* Toutes les autres listes déroulantes, au style d'« Où chercher » (habillerMenus dans jobmind.js) : le bouton
    .jm-der-b à la place du <select> caché, et la liste ouverte .jm-der-m posée par-dessus l'écran (sous le bouton, ou

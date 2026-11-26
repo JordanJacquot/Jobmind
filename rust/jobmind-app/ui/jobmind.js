@@ -627,6 +627,7 @@
   // gardées » (sans recherche). Au lancement, Rust la met sur France Travail. Les flèches choisissent dans la liste, Entrée (A) prend le choix, Échap (B) la referme sans rien changer.
   // (le data-k de chaque choix garde le rang de Rust : « cs:s0 » mes offres gardées, « cs:s1 » LinkedIn, etc.)
   let srcMenu = false;
+  let srcTenu = false;                // 0.2.1 : la liste était déjà ouverte au dessin d'avant (elle ne rejoue pas son entrée)
   const ORDRE_SITES = ['francetravail', 'linkedin', 'indeed', 'hellowork', 'meteojob', 'wttj'];
   function sourcesListe() {
     const t = tC(), sites = liste(cs().sites).filter((s) => codeSurP(s?.id));
@@ -641,8 +642,10 @@
     if (!l.length) return '';
     const ici = l.find((s) => s.id === src) || l[l.length - 1];
     const point = (s) => `<i class="jm-point${s.connecte ? ' ok' : ''}" aria-hidden="true"></i>`;
+    const tenu = srcTenu && srcMenu;
+    srcTenu = srcMenu;
     const menuH = srcMenu
-      ? `<div class="jm-srcs-m" role="listbox" aria-label="${esc(t('ou_t'))}">${l.map((s) => {
+      ? `<div class="jm-srcs-m${tenu ? ' tenu' : ''}" role="listbox" aria-label="${esc(t('ou_t'))}">${l.map((s) => {
         const oui = s === ici;
         const droite = s.connecte ? `<span class="jm-srcs-cx">${point(s)}${esc(t('connecte'))}</span>` : '';
         const note = s.note ? `<small>${esc(s.note)}</small>` : '';
@@ -655,6 +658,7 @@
   // Ouvre ou ferme « Où chercher » ; ouverte, la main va au choix en cours
   function basculerSources(ouvrir) {
     srcMenu = ouvrir;
+    srcTenu = false;
     O.son?.tic?.();
     const ici = sourcesListe().find((s) => s.id === (cs().source || '')) || sourcesListe().at(-1);
     dessinerTout(ouvrir && ici ? ici.k : 'cs:ou');
@@ -726,7 +730,8 @@
     const s = w?.querySelector('select'), b = w?.querySelector('.jm-der-b'), k = w?.dataset.menu;
     if (!s || !b || b.disabled) return;
     const m = document.createElement('div');
-    m.className = 'jm-srcs-m jm-der-m';
+    // (0.2.1 : rouverte par un redessin, elle ne rejoue pas son entrée : sinon elle clignote pendant l'analyse)
+    m.className = main ? 'jm-srcs-m jm-der-m' : 'jm-srcs-m jm-der-m tenu';
     m.setAttribute('role', 'listbox');
     const nom = b.getAttribute('aria-label') || texteChoix(w.closest('label, .jm-champ')?.querySelector('span'));
     if (nom) m.setAttribute('aria-label', nom);
