@@ -989,7 +989,7 @@ pub fn dossier(mails: &[MailGarde], c: &Candidature, aujourdhui: Jour) -> (Value
             "titre": titre,
             "texte": format!("D'après le mail reçu {} : {}.", quand(m.recu_le, aujourdhui), p.nom().to_lowercase()),
             "citation": format!("« {} »", une_ligne(citation)),
-            "par": if *par == LuPar::Ia { "lu par Claude" } else { "lu par Jobmind" },
+            "par": if *par == LuPar::Ia { "lu par Claude" } else { "" },
             "statut": p.statut().map(Statut::code),
             "oui": oui,
             "non": non,

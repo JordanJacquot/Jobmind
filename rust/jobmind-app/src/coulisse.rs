@@ -3313,14 +3313,14 @@ fn fiche_vue(f: &FicheSite, aujourdhui: jobmind_core::Jour, annuaire: Option<&cr
 
 /// Ce que demande une offre d'un site, comme pour une offre gardée.
 fn lecture_vue(l: &LectureOffre) -> Vec<Value> {
-    let par = |c: Confiance| if c == Confiance::Moyenne { "déduit par Jobmind" } else { "lu par Jobmind" };
+    let par = |c: Confiance| if c == Confiance::Moyenne { "déduit par Jobmind" } else { "" };
     let mut v = vec![
         match &l.diplome {
             Some(d) => {
                 json!({ "nom": "Diplôme", "valeur": d.valeur.nom(), "preuve": d.preuve, "par": par(d.confiance), "dit": true })
             }
             None => {
-                json!({ "nom": "Diplôme", "valeur": "Non dit dans l'offre", "preuve": "", "par": "lu par Jobmind", "dit": false })
+                json!({ "nom": "Diplôme", "valeur": "Non dit dans l'offre", "preuve": "", "par": "", "dit": false })
             }
         },
         match &l.experience {
@@ -3328,12 +3328,14 @@ fn lecture_vue(l: &LectureOffre) -> Vec<Value> {
                 json!({ "nom": "Expérience", "valeur": e.valeur.nom(), "preuve": e.preuve, "par": par(e.confiance), "dit": true })
             }
             None => {
-                json!({ "nom": "Expérience", "valeur": "Non dit dans l'offre", "preuve": "", "par": "lu par Jobmind", "dit": false })
+                json!({ "nom": "Expérience", "valeur": "Non dit dans l'offre", "preuve": "", "par": "", "dit": false })
             }
         },
     ];
     if !l.autres.is_empty() {
-        v.push(json!({ "nom": "Permis et CACES", "valeur": l.autres.join(", "), "preuve": "", "par": "lu par Jobmind", "dit": true }));
+        v.push(
+            json!({ "nom": "Permis et CACES", "valeur": l.autres.join(", "), "preuve": "", "par": "", "dit": true }),
+        );
     }
     v
 }

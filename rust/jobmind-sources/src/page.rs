@@ -419,6 +419,10 @@ fn lieu_jsonld(v: Option<&Value>) -> (String, Vec<String>) {
     if !ville.is_empty() {
         zones.push(ville.clone());
     }
+    // (0.2.0 : le code postal entier, la zone la plus fine : il désigne la commune sans doute possible)
+    if departement_postal(&cp).is_some() {
+        zones.push(cp.trim().to_string());
+    }
     let lieu = match (ville.is_empty(), departement_postal(&cp)) {
         (false, Some(d)) => format!("{ville} ({d})"),
         (false, None) if !region.is_empty() && region != ville => format!("{ville}, {region}"),
@@ -782,6 +786,10 @@ fn champs_microdonnees(d: &Document) -> Option<Champs> {
         (false, _) => ville,
         (true, _) => dans("[itemprop=\"jobLocation\"]").map(|i| valeur(d, i)).unwrap_or_default(),
     };
+    // (0.2.0 : le code postal entier, pour reconnaître la commune sans doute possible)
+    if departement_postal(&cp).is_some() {
+        c.zones.push(cp.trim().to_string());
+    }
     c.contrat = dans("[itemprop=\"employmentType\"]").map(|i| valeur(d, i)).unwrap_or_default();
     c.salaire = dans("[itemprop=\"baseSalary\"]").map(|i| valeur(d, i)).unwrap_or_default();
     c.publiee_le = dans("[itemprop=\"datePosted\"]").map(|i| jour_iso(&valeur(d, i))).unwrap_or_default();

@@ -49,7 +49,7 @@ fn linkedin_public_avec_donnees() {
     assert_eq!(p.offre.titre, "Préparateur de commandes (H/F)");
     assert_eq!(p.offre.entreprise, "Logistique des Trois Frontières");
     assert_eq!(p.offre.lieu, "Thionville (57)");
-    assert_eq!(p.offre.zones, vec!["Grand Est".to_string(), "Thionville".into()]);
+    assert_eq!(p.offre.zones, vec!["Grand Est".to_string(), "Thionville".into(), "57100".into()]);
     assert_eq!(p.offre.publiee_le, "2026-11-16");
     assert_eq!(p.offre.id_source, "4019876543");
     assert_eq!(p.offre.url, "https://www.linkedin.com/jobs/view/4019876543/");

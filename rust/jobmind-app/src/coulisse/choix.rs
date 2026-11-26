@@ -132,13 +132,25 @@ pub struct LieuOffre {
 
 /// La commune d'un lieu écrit par un site (« 57 - Metz », « Metz (57) », « 57000 Metz », « Metz, Grand Est, France ») :
 /// le lieu entier, sinon ce qui vient avant la première virgule. Rien au moindre doute (plusieurs communes de ce nom).
-fn commune_de(lieu: &str) -> Option<communes::Commune> {
-    communes::trouver(lieu).or_else(|| communes::trouver(lieu.split(',').next().unwrap_or_default()))
+///
+/// 0.2.0 : le code postal donné par le site (gardé parmi les zones par jobmind_sources::page) passe d'abord : avec
+/// le nom de la ville, puis tout seul quand il ne désigne qu'une commune.
+fn commune_de(lieu: &str, zones: &[String]) -> Option<communes::Commune> {
+    let debut = lieu.split(',').next().unwrap_or_default();
+    let par_code = code_postal(zones).and_then(|cp| {
+        communes::trouver(&format!("{cp} {}", communes::nom_seul(debut))).or_else(|| communes::trouver(cp))
+    });
+    par_code.or_else(|| communes::trouver(lieu)).or_else(|| communes::trouver(debut))
+}
+
+/// Le code postal entier d'une offre, s'il est parmi ses zones (cinq chiffres).
+fn code_postal(zones: &[String]) -> Option<&str> {
+    zones.iter().map(|z| z.trim()).find(|z| z.len() == 5 && z.bytes().all(|b| b.is_ascii_digit()))
 }
 
 impl LieuOffre {
     pub fn de(lieu: &str, zones: &[String], point: Option<(f64, f64)>) -> LieuOffre {
-        let commune = commune_de(lieu);
+        let commune = commune_de(lieu, zones);
         LieuOffre {
             ville: cle_ville(lieu),
             insee: commune.map(|c| c.insee),
@@ -213,8 +225,22 @@ impl Depart {
         if self.meme_ville(l) {
             return Some(Distance::SurPlace);
         }
-        match (self.centre, l.point) {
+        match (self.centre, l.point.or_else(|| self.dans_le_departement(l))) {
             (Some(c), Some(p)) => Some(Distance::Km(distance_km(c, p))),
+            _ => None,
+        }
+    }
+
+    /// 0.2.0 : un lieu ambigu (plusieurs communes de ce nom, sans code postal ni département dans l'offre) : la
+    /// commune de ce nom dans le département de la ville cherchée, s'il n'y en a qu'une. Rend sa position.
+    fn dans_le_departement(&self, l: &LieuOffre) -> Option<(f64, f64)> {
+        let dep = self.departement?;
+        if l.insee.is_some() || l.departement.is_some() || l.ville.is_empty() {
+            return None;
+        }
+        let mut ici = communes::homonymes(&l.ville).into_iter().filter(|c| c.departement() == dep);
+        match (ici.next(), ici.next()) {
+            (Some(c), None) => communes::centre(c.insee),
             _ => None,
         }
     }
@@ -553,11 +579,41 @@ mod tests {
         let d = metz(None).distance(&lieu("57 - Woippy", Some(woippy))).unwrap();
         assert!(matches!(d, Distance::Km(x) if (x - 4.03).abs() < 0.05), "{d:?}");
         // Un lieu qui n'est pas une commune reconnue sans doute possible (une région, un département, rien, du
-        // télétravail, deux communes du même nom sans leur département) : pas de distance
-        for t in ["Grand Est", "France", "", "Moselle", "Télétravail", "Saint-Denis", "Ennery"] {
+        // télétravail, des communes du même nom dont aucune, ou plusieurs, dans le département cherché) : pas de
+        // distance
+        for t in ["Grand Est", "France", "", "Moselle", "Télétravail", "Saint-Denis", "Saint-Julien"] {
             assert_eq!(metz(None).distance(&lieu(t, None)), None, "{t}");
             assert_eq!(metz(Some(centre)).distance(&lieu(t, None)), None, "{t}");
         }
+        // 0.2.0 : un lieu ambigu (« Ennery » : en Moselle et dans le Val-d'Oise) sans département dans l'offre :
+        // c'est la commune du département cherché (à 12 km de la mairie de Metz), sans changer le lieu lui-même
+        assert_eq!((lieu("Ennery", None).insee, lieu("Ennery", None).point), (None, None));
+        let d = metz(None).distance(&lieu("Ennery", None)).unwrap();
+        assert!(matches!(d, Distance::Km(x) if (x - 12.3).abs() < 0.3), "{d:?}");
+        assert_eq!(d.texte(), "à 12 km");
+        // (le département dit par l'offre passe avant celui de la recherche : Ennery du Val-d'Oise, à 300 km)
+        let d = metz(None).distance(&lieu("Ennery (95)", None)).unwrap();
+        assert!(matches!(d, Distance::Km(x) if (280.0..320.0).contains(&x)), "{d:?}");
+        // 0.2.0 : le code postal donné par le site (parmi les zones) désigne la commune sans doute possible, avec
+        // le nom de la ville, ou tout seul quand il n'a qu'une commune
+        let avec = |t: &str, cp: &str| LieuOffre::de(t, &["Grand Est".to_string(), cp.to_string()], None);
+        assert_eq!(avec("Ennery", "57365").insee, Some("57193"));
+        assert_eq!(avec("Ennery", "95300").insee, Some("95211"));
+        assert_eq!(avec("Ennery (57)", "57365").insee, Some("57193"));
+        assert_eq!(avec("Ennery", "57365").point, communes::centre("57193"));
+        assert_eq!(
+            (avec("Ennery", "95300").departement, avec("Ennery", "57365").departement),
+            (Some("95"), Some("57"))
+        );
+        assert_eq!(avec("Zone industrielle", "57000").insee, Some("57463"));
+        // (un code postal partagé par trois communes, avec un nom qui n'en est pas une : pas de commune ; un code
+        // postal qui contredit le nom : la commune du nom, comme avant)
+        assert_eq!(avec("Zone industrielle", "57365").insee, None);
+        assert_eq!(avec("Sarrebourg", "99999").insee, Some("57630"));
+        assert_eq!(avec("Sarrebourg", "pas un code").insee, Some("57630"));
+        // (une ville cherchée pas reconnue n'a pas de département : le lieu ambigu reste sans distance)
+        let inconnu = Depart::de(&LieuSite::Ville { nom: "Saint-Denis".into(), rayon_km: 10 }, None).unwrap();
+        assert_eq!(inconnu.distance(&lieu("Ennery", None)), None);
         // Une position mais pas de centre connu (la ville cherchée n'est pas reconnue) : pas de distance
         let sans_centre = Depart::de(&LieuSite::Ville { nom: "Saint-Denis".into(), rayon_km: 10 }, None).unwrap();
         assert_eq!((sans_centre.insee, sans_centre.centre), (None, None));

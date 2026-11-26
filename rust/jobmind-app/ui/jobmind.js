@@ -24,8 +24,9 @@
 //   diplôme, débutant, salaire : 'recherche-enregistrer'), Mon style (ajouter, lire, supprimer un texte), Mes clés
 //   (donner, remplacer, effacer : une clé tapée n'est gardée ici que le temps de l'envoyer) ; Réglages montre le délai
 //   avant relance ('reglage-relance') ;
-// - Offres (étape 4) : la barre des filtres ('o-filtres'), la recherche choisie, la liste des offres gardées
-//   ('o-ouvrir'), l'offre ouverte (favori, plus tard, « Pas pour moi », « Voir sur le site », « J'ai postulé »), Mes
+// - Offres (étape 4) : les filtres dans la colonne de gauche ('o-filtres'), la recherche choisie, les offres gardées
+//   en cartes par pages ('o-page'), l'offre ouverte en grand ('o-ouvrir', 'o-retour', 'o-voisine' : favori, plus tard,
+//   « Retirer de ma liste », « Voir sur le site », « J'ai postulé »), Mes
 //   recherches ('o-recherche', 'o-recherche-supprimer', 'o-depuis-profil') ; Adzuna retiré le 20/11/2026 : plus de
 //   « Chercher maintenant » ici, les offres déjà gardées restent ;
 // - les sites en coulisse (étape 5 bis) : en haut de la liste des offres, la liste déroulante « Où chercher »
@@ -553,6 +554,7 @@
   let lecVu = { cle: '', pc: 0 };   // la jauge « Jobmind analyse les offres » : sa liste, et ce qu'elle montrait
   let ouvI = null;                  // la ligne cliquée (pour le titre de l'offre qui s'ouvre)
   let clicSouris = 0;               // 0.2.0 : le rang du dernier clic de souris (1 simple, 2 double ; 0 : clavier, manette)
+  let clicEl = null;                // 0.2.1 : l'élément de ce clic (Entrée et la manette valident sans clic : un vieux clic ne compte pas)
   let ouvEnCours = false;           // une offre s'ouvre (avec sa barre)
   let ouvAff = 0;                   // ce que montre la grosse barre (en %)
   let ouvCible = 0;                 // l'étape envoyée par Rust (progression.pc)
@@ -1072,20 +1074,31 @@
   }
 
   // 0.2.0 : au-dessus de l'offre ouverte en grand : « Retour à la liste », « Offre précédente », « Offre suivante »
-  function navFicheHTML(c) {
-    const t = tC();
-    return `<div class="jm-fiche-nav">${bouton('cs-retour', 'cs:retour', t('retour_liste') || 'Retour à la liste', 'gauche', 'second')}<span class="jm-fiche-nav-d">${bouton('cs-voisine', 'cs:avant', t('offre_avant') || 'Offre précédente', 'gauche', 'discret', ` data-d="-1"${c.fiche_avant === true ? '' : ' disabled'}`)}${bouton('cs-voisine', 'cs:apres', t('offre_apres') || 'Offre suivante', 'droite', 'discret', ` data-d="1"${c.fiche_apres === true ? '' : ' disabled'}`)}</span></div>`;
+  function navFicheHTML(c, g = gestesSite()) {
+    const t = g.t;
+    return `<div class="jm-fiche-nav">${bouton(g.retour[0], g.retour[1], t('retour_liste') || 'Retour à la liste', 'gauche', 'second')}<span class="jm-fiche-nav-d">${bouton(g.voisine[0], g.voisine[1], t('offre_avant') || 'Offre précédente', 'gauche', 'discret', ` data-d="-1"${c.fiche_avant === true ? '' : ' disabled'}`)}${bouton(g.voisine[0], g.voisine[2], t('offre_apres') || 'Offre suivante', 'droite', 'discret', ` data-d="1"${c.fiche_apres === true ? '' : ' disabled'}`)}</span></div>`;
   }
   // 0.2.0 : les trois niveaux de « proche de ton parcours » (le bandeau d'une carte, la ligne de l'offre ouverte)
   const PROCHES = ['tres', 'proche', 'peu'];
+  // (0.2.1 : le bandeau d'une carte a un quatrième niveau, « Hors sujet », pour la note d'une offre gardée)
+  const BANDEAUX = [...PROCHES, 'hors'];
+  // 0.2.1 : les cartes et l'offre ouverte en grand servent aux offres d'un site et à « Mes offres gardées ». Seuls
+  // changent les mots (`t`), le nom des gestes (data-perso) et les data-k : ceux d'un site ici, ceux des offres
+  // gardées dans gestesGardees(). `tri` : les attributs de la liste déroulante du tri ; `avant` et `apres` : « Page
+  // précédente » et « Page suivante » (le geste, le data-k, les attributs en plus) ; `retour` : « Retour à la liste » ;
+  // `voisine` : le geste et les deux data-k de « Offre précédente » et « Offre suivante ».
+  const gestesSite = () => ({ t: tC(), ouvrir: 'cs-ouvrir', kl: 'csl', retirer: 'cs-retirer', remettre: 'cs-remettre', kx: 'csx',
+    tri: 'data-perso="cs-tri" data-k="cs:tri"', avant: ['cs-precedente', 'cs:precedente', ''], apres: ['cs-suivante', 'cs:suivante', ''],
+    retour: ['cs-retour', 'cs:retour'], voisine: ['cs-voisine', 'cs:avant', 'cs:apres'] });
   // 0.2.0 : les offres d'un site en cartes, sur toute la largeur, par pages (un double clic ouvre l'offre en grand)
-  function cartesHTML(l, s) {
-    const { esc } = O, t = tC();
+  // (0.2.1 : et celles de « Mes offres gardées », que Rust envoie dans la même forme : `g`, leurs gestes)
+  function cartesHTML(l, g = gestesSite()) {
+    const { esc } = O, t = g.t;
     const lignes = liste(l.lignes);
     // (0.2.0 : le tri des cartes, au-dessus d'elles, à droite : une liste déroulante habillée par habillerMenus())
     const tri = objet(objet(l.filtres).tri), tris = liste(tri.choix).filter((x) => codeSurP(x?.v) && texteSur(x.nom));
     const triH = lignes.length && tris.length > 1
-      ? `<span class="jm-b-sel jm-tri jm-cartes-tri"><select class="f" data-perso="cs-tri" data-k="cs:tri" aria-label="${esc(texteSur(tri.nom) || 'Trier les offres')}">${tris.map((x) => `<option value="${x.v}"${x.v === tri.ici ? ' selected' : ''}>${esc(texteSur(x.nom))}</option>`).join('')}</select></span>`
+      ? `<span class="jm-b-sel jm-tri jm-cartes-tri"><select class="f" ${g.tri} aria-label="${esc(texteSur(tri.nom) || 'Trier les offres')}">${tris.map((x) => `<option value="${x.v}"${x.v === tri.ici ? ' selected' : ''}>${esc(texteSur(x.nom))}</option>`).join('')}</select></span>`
       : '';
     let h = `<div class="jm-cartes-zone${anime()}"><div class="jm-cartes-tete"><h1>${esc(texteSur(l.titre))}</h1><span class="jm-cartes-sous">${esc(texteSur(l.sous))}</span>${triH}</div>`;
     if (texteSur(l.attente_texte)) h += `<p class="jm-cartes-attente pale" role="status">${esc(texteSur(l.attente_texte))}</p>`;
@@ -1104,23 +1117,27 @@
       const vue = r.vue === true && !retiree;
       // (0.2.0 : le contrat, la distance connue et « 2 annonces identiques » sont des étiquettes aussi ; celle des
       // doublons a sa couleur)
-      const tags = liste(r.etiquettes).map((e) => (texteSur(e?.nom) ? `<span class="jm-tag${e.bon === true ? ' bon' : ''}${e.genre === 'double' ? ' double' : ''}">${esc(texteSur(e.nom))}</span>` : '')).join('');
+      // (0.2.1 : sur une offre gardée, « Postulé », « Favori » et « Plus tard » sont des étiquettes aussi, les
+      // premières ; la note n'en est jamais une : elle est dans le bandeau du haut)
+      const tags = liste(r.etiquettes).map((e) => (texteSur(e?.nom) ? `<span class="jm-tag${e.bon === true ? ' bon' : ''}${e.genre === 'double' ? ' double' : ''}${e.genre === 'marque' ? ' marque' : ''}">${esc(texteSur(e.nom))}</span>` : '')).join('');
       // (0.2.0 : le bandeau « proche de ton parcours », tout en haut de la carte, sur toute sa largeur : en mots
       // seulement, vert, jaune ou gris ; « Déjà vue » s'y range à droite. Sans bandeau, « Déjà vue » reste la pastille
       // du coin en haut à droite)
-      const pc = objet(r.proche), niveau = !retiree && PROCHES.includes(pc.niveau) && texteSur(pc.nom) ? pc.niveau : '';
+      const pc = objet(r.proche), niveau = !retiree && BANDEAUX.includes(pc.niveau) && texteSur(pc.nom) ? pc.niveau : '';
       const bandeau = niveau ? `<span class="jm-carte-bandeau ${niveau}"><span>${esc(texteSur(pc.nom))}</span>${vue ? `<span class="jm-carte-bandeau-vue">${esc(tVue)}</span>` : ''}</span>` : '';
       const cote = retiree
-        ? `<button type="button" class="jm-off-remettre f" data-perso="cs-remettre" data-i="${r.i}" data-k="csx:${r.i}" title="${esc(tRemettre)}" aria-label="${esc(`${tRemettre} : ${titre}`)}">${esc(tRemettre)}</button>`
-        : `<button type="button" class="jm-off-x f" data-perso="cs-retirer" data-i="${r.i}" data-k="csx:${r.i}" title="${esc(tRetirer)}" aria-label="${esc(`${tRetirer} : ${titre}`)}">${icone('croix')}</button>`;
-      h += `<div class="jm-carte-l${retiree ? ' retiree' : ''}${vue ? ' vue' : ''}${niveau ? ' bandee' : ''}"><button type="button" class="jm-carte f${sel ? ' sel' : ''}" data-perso="cs-ouvrir" data-i="${r.i}" data-k="csl:${r.i}" aria-current="${sel}">
+        ? `<button type="button" class="jm-off-remettre f" data-perso="${g.remettre}" data-i="${r.i}" data-k="${g.kx}:${r.i}" title="${esc(tRemettre)}" aria-label="${esc(`${tRemettre} : ${titre}`)}">${esc(tRemettre)}</button>`
+        : `<button type="button" class="jm-off-x f" data-perso="${g.retirer}" data-i="${r.i}" data-k="${g.kx}:${r.i}" title="${esc(tRetirer)}" aria-label="${esc(`${tRetirer} : ${titre}`)}">${icone('croix')}</button>`;
+      // (0.2.1 : une offre gardée a sa raison en une ligne, « Aucun diplôme demandé, à 12 km » : sous le lieu)
+      const raison = !retiree && texteSur(r.raison) ? `<span class="jm-carte-n pale">${esc(texteSur(r.raison))}</span>` : '';
+      h += `<div class="jm-carte-l${retiree ? ' retiree' : ''}${vue ? ' vue' : ''}${niveau ? ' bandee' : ''}"><button type="button" class="jm-carte f${sel ? ' sel' : ''}" data-perso="${g.ouvrir}" data-i="${r.i}" data-k="${g.kl}:${r.i}" aria-current="${sel}">
         ${bandeau}<b class="jm-carte-t">${vue && !niveau ? `<span class="jm-carte-vue">${esc(tVue)}</span>` : ''}${esc(titre)}</b><span class="jm-carte-e">${esc(texteSur(r.sous))}</span><span class="jm-carte-d pale">${esc([texteSur(r.lieu), texteSur(r.l3)].filter(Boolean).join(' · '))}</span>
-        ${r.etat === 'sautee' ? `<span class="jm-carte-n pale">${esc(t('l_sautee') || "Pas analysée, clique pour l'ouvrir")}</span>` : ''}<span class="jm-carte-tags">${tags}</span></button>${cote}</div>`;
+        ${r.etat === 'sautee' ? `<span class="jm-carte-n pale">${esc(t('l_sautee') || "Pas analysée, clique pour l'ouvrir")}</span>` : ''}${raison}<span class="jm-carte-tags">${tags}</span></button>${cote}</div>`;
     }
     h += '</div>';
     const avant = l.precedente === true, apres = l.suivante === true;
     if (avant || apres) {
-      h += `<div class="jm-btns centre jm-cs-suite jm-cs-pages">${bouton('cs-precedente', 'cs:precedente', t('precedente') || 'Page précédente', 'gauche', 'second', avant ? '' : ' disabled')}<span class="jm-cs-page pale" role="status">${esc(texteSur(l.page_texte))}</span>${bouton('cs-suivante', 'cs:suivante', t('suivante') || 'Page suivante', 'droite', 'second', apres ? '' : ' disabled')}</div>`;
+      h += `<div class="jm-btns centre jm-cs-suite jm-cs-pages">${bouton(g.avant[0], g.avant[1], t('precedente') || 'Page précédente', 'gauche', 'second', `${g.avant[2]}${avant ? '' : ' disabled'}`)}<span class="jm-cs-page pale" role="status">${esc(texteSur(l.page_texte))}</span>${bouton(g.apres[0], g.apres[1], t('suivante') || 'Page suivante', 'droite', 'second', `${g.apres[2]}${apres ? '' : ' disabled'}`)}</div>`;
     }
     return `${h}<p class="jm-cartes-aide pale">${esc(t('double_clic') || "Double clic sur une offre pour l'ouvrir en grand.")}</p></div>`;
   }
@@ -1156,7 +1173,7 @@
     // (0.2.0 : les offres en cartes ; avant la première recherche, ce que fait ce site dans Jobmind, sans « Me
     // connecter » : les offres se lisent sans compte)
     const l = c.liste && typeof c.liste === 'object' && c.liste.site === s.id ? c.liste : null;
-    if (l) return cartesHTML(l, s);
+    if (l) return cartesHTML(l);
     return `<div class="jm-vide${anime()}"><div class="jm-v-ic plasma-bord">${icone('globe')}</div><h1>${esc(t('vide_t', s.nom))}</h1>
       <p>${esc(t('vide', s.nom))}</p></div>`;
   }
@@ -1309,7 +1326,7 @@
       case 'cs-tout-arret': O.son?.ok?.(); O.action('cs-tout-arret'); return true;
       case 'cs-retour': O.son?.retour?.(); O.action('cs-retour'); return true;
       case 'cs-voisine': { if (el.disabled) return true; const pas = Number(d.d) < 0 ? -1 : 1; O.son?.ok?.(); O.action('cs-voisine', { d: pas }); return true; }
-      case 'cs-ouvrir': { const i = Number(d.i); const souris = clicSouris; clicSouris = 0;
+      case 'cs-ouvrir': { const i = Number(d.i); const souris = clicEl === el ? clicSouris : 0; clicSouris = 0; clicEl = null;
         // (0.2.0 : une carte : le premier clic de souris la choisit seulement, le second l'ouvre ; au clavier et à la
         // manette, Entrée l'ouvre tout de suite)
         if (souris === 1 && el.classList.contains('jm-carte')) return true;
@@ -1415,7 +1432,7 @@
     // (0.1.4 : où en sont les jauges avant ce dessin ; plus d'offre qui s'ouvre : la prochaine barre repartira de zéro)
     lireJauges();
     if (cs().attente_offre !== true) { ouvEnCours = false; ouvCible = 0; }
-    let gauche, droite, barre = '', recap = '', plein = false;
+    let gauche, droite, recap = '', plein = false, secours = null;
     const s = o.id === 'candidatures' ? suiviDe() : null;
     const x = o.id === 'offres' ? offresDe() : null;
     if (s) {
@@ -1451,17 +1468,21 @@
         gauche = listeSitesHTML(x, site);
         droite = droiteSitesHTML(site);
       } else {
-        barre = barreOffresHTML(x);
+        // (0.2.1 : « Mes offres gardées » a la disposition d'un site : les filtres à gauche, les cartes à droite, et
+        // l'offre ouverte en grand sur toute la largeur ; la main suit l'offre qui s'ouvre ou qui se referme)
+        plein = ofVue === 'offre' && !!ficheGardee(x);
         gauche = listeOffresHTML(o, x);
         droite = droiteOffres(x);
+        secours = ofMain;
       }
+      ofMain = null;
     } else {
       const r = rubriqueDe(o);
       gauche = listeHTML(o, r);
       droite = droiteRubrique(r, o);
     }
     hote.innerHTML = `<div class="jm${O.anime ? ' entree' : ''}" id="jm" data-onglet="${o.id}">
-        <nav class="jm-onglets" role="tablist" aria-label="Jobmind">${ongletsHTML(o)}</nav>${recap ? `<div class="jm-envoi-zone">${recap}</div>` : `${barre}
+        <nav class="jm-onglets" role="tablist" aria-label="Jobmind">${ongletsHTML(o)}</nav>${recap ? `<div class="jm-envoi-zone">${recap}</div>` : `
         <div class="jm-corps${x ? ' offres' : ''}${plein ? ' plein' : ''}">
           <aside class="jm-liste${s || x ? ' suivi' : ''}" aria-label="${O.esc(texteSur(o.liste))}">${gauche}</aside>
           <section class="jm-dossier" aria-live="polite">${droite}</section>
@@ -1485,7 +1506,13 @@
     }
     if (menuOuvert) placerMenu();
     const k = focusK || kActif;
-    const cible = k && hote.querySelector(`[data-k="${CSS.escape(k)}"]`);
+    let cible = k && hote.querySelector(`[data-k="${CSS.escape(k)}"]`);
+    // (0.2.1 : une offre gardée vient de s'ouvrir en grand, ou de se refermer : l'élément qui avait la main n'est
+    // plus là, elle va à « Retour à la liste », ou à la carte de l'offre quittée, montrée au milieu de l'écran)
+    if (!cible && secours) {
+      cible = hote.querySelector(`[data-k="${CSS.escape(secours)}"]`);
+      if (cible?.classList.contains('jm-carte')) cible.scrollIntoView({ block: 'center' });
+    }
     (cible || hote.querySelector('.jm-onglet.actif'))?.focus({ preventScroll: true });
     if (cible && curseur && /^(INPUT|TEXTAREA)$/.test(cible.tagName) && k === kActif) { try { cible.setSelectionRange(curseur[0], curseur[1]); } catch (_) { /* (rien) */ } }
   }
@@ -1828,7 +1855,7 @@
     if (ecoute === h) return;
     ecoute = h;
     // (0.2.0 : avant le kit : un clic de souris, simple ou double, ou un clic venu du clavier)
-    h.addEventListener('click', (e) => { clicSouris = e.detail > 0 ? e.detail : 0; }, true);
+    h.addEventListener('click', (e) => { clicSouris = e.detail > 0 ? e.detail : 0; clicEl = e.target?.closest?.('.f') || null; }, true);
     h.addEventListener('click', surClic);
     h.addEventListener('input', surSaisie);
     h.addEventListener('keydown', surTouche);
@@ -2456,10 +2483,14 @@
   }
 
   // ---------------------------------------------------------------- Offres (étape 4)
-  // La barre des filtres (texte cherché dans toutes les offres gardées, lieu, contrat, télétravail, toutes / favoris /
-  // plus tard / cachées), à gauche la recherche choisie, « Chercher maintenant » et la liste, à droite l'offre ouverte
-  // ou « Mes recherches ». Les filtres tapés restent ici et partent à Rust ('o-filtres', un peu après la frappe) ; Rust
-  // vérifie, filtre et renvoie la liste. Aucune adresse d'offre n'est ici : « Voir sur le site » la demande à Rust.
+  // 0.2.1 : « Mes offres gardées » a la disposition des offres d'un site. À gauche, la recherche choisie et les filtres
+  // (texte cherché dans toutes les offres gardées, « Aucun diplôme requis », « Débutant accepté », toutes / favoris /
+  // plus tard / hors sujet / retirées, lieu, contrat, télétravail) ; à droite, les offres en cartes sur toute la
+  // largeur, par pages (cartesHTML, la fonction des cartes d'un site), ou « Mes recherches ». Un clic de souris choisit
+  // une carte ; un double clic, Entrée ou la manette ouvre l'offre en grand sur tout l'écran ('o-ouvrir'), avec
+  // « Retour à la liste » ('o-retour'), « Offre précédente » et « Offre suivante » ('o-voisine'). Les filtres tapés
+  // restent ici et partent à Rust ('o-filtres', un peu après la frappe) ; Rust vérifie, filtre et renvoie la page de
+  // cartes ('o-page' pour en changer). Aucune adresse d'offre n'est ici : « Voir sur le site » la demande à Rust.
   const offresDe = () => { const o = onglets().find((x) => x.id === 'offres'); return o?.offres && typeof o.offres === 'object' ? o.offres : null; };
   const tO = (x) => { const t = objet(x?.textes); return (k) => texteSur(t[k]); };
   const rchDossier = () => objet(rubriquesDe(ongletDe('profil')).find((r) => r.id === 'recherche')?.dossier);
@@ -2472,8 +2503,20 @@
   let ofVue = 'offre';     // à droite : 'offre' ou 'recherches' (Mes recherches)
   let ofForm = null;       // la recherche en cours d'écriture : { id (rien : nouvelle), v: { nom, mots, lieu, ville, rayon, departement, region } }
   let ofConfirme = null;   // la recherche dont la suppression est demandée
-  let ofChoisie = null;    // l'offre choisie à l'instant (avant que Rust ne renvoie son dossier)
   let ofVue1 = null;       // l'offre dessinée en dernier
+  let ofMain = null;       // 0.2.1 : où va la main au prochain dessin si son élément a disparu (un data-k)
+  // 0.2.1 : l'offre gardée ouverte en grand (rien : les cartes sont montrées)
+  const ficheGardee = (x) => (x?.fiche && typeof x.fiche === 'object' && numSur(x.fiche.id) ? x.fiche : null);
+  // 0.2.1 : les gestes et les mots des cartes et de l'offre en grand pour « Mes offres gardées » (voir gestesSite)
+  const gestesGardees = (x) => ({ t: tO(x), ouvrir: 'of-ouvrir', kl: 'ol', retirer: 'of-retirer-l', remettre: 'of-remettre-l', kx: 'olx',
+    tri: 'data-perso="of-champ" data-champ="tri" data-k="of:tri"', avant: ['of-page', 'of:page-avant', ' data-d="-1"'], apres: ['of-page', 'of:page-apres', ' data-d="1"'],
+    retour: ['of-retour', 'ov:retour'], voisine: ['of-voisine', 'ov:avant', 'ov:apres'] });
+  // 0.2.1 : les offres gardées, pour cartesHTML() : Rust envoie déjà chaque carte dans la forme des cartes d'un site ;
+  // ici, le titre, le compte (« 12 offres gardées », « 3 sur 12 »), la page et le tri prennent les noms de la liste
+  // d'un site
+  const cartesGardees = (x) => ({ titre: texteSur(x.titre) || tC()('mes_offres'), sous: x.compte, lignes: x.lignes, page_texte: x.page_texte,
+    precedente: x.precedente, suivante: x.suivante,
+    filtres: { tri: { ici: ofFiltres?.tri || 'pertinence', nom: tO(x)('tri'), choix: liste(x.tris).map((y) => ({ v: y?.id, nom: y?.nom })) } } });
 
   function suivreOffres(x) {
     if (!ofFiltres) {
@@ -2484,9 +2527,10 @@
       if (!ofFiltres.liste) ofFiltres.liste = 'toutes';
     }
     const id = numSur(x.fiche?.id) ? x.fiche.id : null;
-    if (ofChoisie !== null && (id === ofChoisie || !liste(x.lignes).some((l) => l?.id === ofChoisie))) ofChoisie = null;
     // (étape 8 : une autre offre ouverte, ses pilules reviennent à « L'offre », sauf si on vient de son dossier)
     if (id !== ofVue1) {
+      // (0.2.1 : une offre s'ouvre en grand : la main va à « Retour à la liste » ; elle se referme : à sa carte)
+      ofMain = id !== null ? 'ov:retour' : `ol:${ofVue1}`;
       ofVue1 = id;
       if (prVoulu === null || prVoulu !== id) ofPil = 'offre';
       if (prVoulu === id) { ofPil = 'cand'; prVoulu = null; }
@@ -2856,7 +2900,7 @@
       case 'pr-dossier': {
         const id = Number(d.id);
         if (!numSur(id)) return true;
-        O.son?.ok?.(); prVoulu = offresDe()?.fiche?.id === id ? null : id; ofVue = 'offre'; ofForm = null; ofConfirme = null; ofChoisie = id; ofPil = 'cand';
+        O.son?.ok?.(); prVoulu = offresDe()?.fiche?.id === id ? null : id; ofVue = 'offre'; ofForm = null; ofConfirme = null; ofPil = 'cand';
         montrer('offres', 'op:cand'); O.action('o-ouvrir', { id });
         return true;
       }
@@ -2874,7 +2918,13 @@
   const optionsHTML = (l, val, sur) => liste(l).filter((x) => sur(x?.id)).map((x) => `<option value="${x.id}"${String(x.id) === String(val) ? ' selected' : ''}>${O.esc(texteSur(x.nom))}</option>`).join('');
   const choixSur = (t) => typeof t === 'string' && /^[a-z0-9_]{0,40}$/.test(t);
 
-  function barreOffresHTML(x) {
+  // 0.2.1 : les filtres de « Mes offres gardées », dans la colonne de gauche comme ceux d'un site (plus de barre en
+  // haut de l'écran) : le texte cherché, « Aucun diplôme requis » et « Débutant accepté », puis un groupe par filtre
+  // avec son petit titre : ce qui est montré (toutes, favoris, plus tard, hors sujet, retirées, avec leur nombre), le
+  // lieu (une liste déroulante, puis la ville et son rayon, le département ou la région), le contrat et le
+  // télétravail (un seul choix à la fois, en puces). Tout part à Rust par 'o-filtres', comme avant. Les data-k du
+  // contrat et du télétravail portent le rang du choix (« of:c-2 », « of:t-1 »).
+  function filtresOffresHTML(x) {
     const { esc } = O, t = tO(x), f = ofFiltres, d = rchDossier();
     let ou = '';
     if (f.genre === 'ville') {
@@ -2885,23 +2935,23 @@
     } else if (f.genre === 'region') {
       ou = `<select class="f" data-perso="of-champ" data-champ="region" data-k="of:reg" aria-label="${esc(t('region'))}"><option value="">${esc(t('choisir'))}</option>${optionsHTML(d.regions, f.region, codeSurP)}</select>`;
     }
+    const groupe = (titre, corps, role) => `<div class="jm-filtre" role="${role}" aria-label="${esc(titre)}"><span class="jm-filtre-t">${esc(titre)}</span>${corps}</div>`;
     const listes = liste(x.listes).filter((l) => codeSurP(l?.id)).map((l) => {
       const oui = f.liste === l.id, n = Number.isInteger(l.nombre) && l.nombre > 0 ? ` <i>${l.nombre}</i>` : '';
       return `<button type="button" role="radio" aria-checked="${oui}" class="jm-puce petite f${oui ? ' oui' : ''}" data-perso="of-liste" data-id="${l.id}" data-k="of:l-${l.id.replace('_', '-')}">${esc(texteSur(l.nom))}${n}</button>`;
     }).join('');
-    return `<div class="jm-barre">
-      <div class="jm-b-rang">
-        <label class="jm-cherche">${icone('loupe')}<input class="f" data-perso="of-champ" data-champ="texte" data-k="of:texte" maxlength="100" autocomplete="off" spellcheck="false" placeholder="${esc(t('i_texte'))}" value="${esc(f.texte)}"></label>
-        <div class="jm-b-lieu${f.genre !== 'partout' ? ' on' : ''}">${icone('lieu')}<select class="f" data-perso="of-champ" data-champ="genre" data-k="of:genre" aria-label="${esc(t('lieu'))}">${optionsHTML(x.lieux, f.genre, codeSurP)}</select>${ou}</div>
-        ${basculesHTML(t)}
-      </div>
-      <div class="jm-b-rang">
-        <span class="jm-b-sel${f.contrat ? ' on' : ''}"><select class="f" data-perso="of-champ" data-champ="contrat" data-k="of:contrat" aria-label="${esc(t('contrat'))}">${optionsHTML(x.contrats, f.contrat, choixSur)}</select></span>
-        <span class="jm-b-sel${f.teletravail && f.teletravail !== 'peu_importe' ? ' on' : ''}"><select class="f" data-perso="of-champ" data-champ="teletravail" data-k="of:tele" aria-label="${esc(t('teletravail'))}">${optionsHTML(x.teles, f.teletravail || 'peu_importe', codeSurP)}</select></span>
-        <span class="jm-b-sep" aria-hidden="true"></span>
-        <div class="jm-puces" role="radiogroup">${listes}</div>
-        <span class="jm-compte">${esc(texteSur(x.compte))}</span>
-      </div></div>`;
+    // (un seul choix à la fois : le contrat, « Tous les contrats » d'abord ; le télétravail, « peu importe » d'abord)
+    const puces = (champ, lettre, choix, ici) => liste(choix).filter((c) => choixSur(c?.id) && texteSur(c.nom)).map((c, i) => {
+      const oui = c.id === ici;
+      return `<button type="button" role="radio" aria-checked="${oui}" class="jm-puce petite f${oui ? ' oui' : ''}" data-perso="of-choix" data-champ="${champ}" data-v="${c.id}" data-k="of:${lettre}-${i}">${esc(texteSur(c.nom))}</button>`;
+    }).join('');
+    let h = groupe(t('listes_t') || 'Montrer', `<div class="jm-bascules">${listes}</div>`, 'radiogroup');
+    h += groupe(t('lieu_t') || 'Lieu', `<div class="jm-b-lieu${f.genre !== 'partout' ? ' on' : ''}">${icone('lieu')}<select class="f" data-perso="of-champ" data-champ="genre" data-k="of:genre" aria-label="${esc(t('lieu'))}">${optionsHTML(x.lieux, f.genre, codeSurP)}</select>${ou}</div>`, 'group');
+    h += groupe(t('contrat'), `<div class="jm-bascules">${puces('contrat', 'c', x.contrats, f.contrat || '')}</div>`, 'radiogroup');
+    h += groupe(t('teletravail'), `<div class="jm-bascules">${puces('teletravail', 't', x.teles, f.teletravail || 'peu_importe')}</div>`, 'radiogroup');
+    // (un filtre est posé : « Retirer les filtres », d'un clic)
+    const pose = x.actifs === true || (f.liste && f.liste !== 'toutes');
+    return `<div class="jm-filtres jm-filtres-of">${h}${pose ? `<div class="jm-btns serre">${bouton('of-retirer', 'of:retirer', t('retirer'), 'reglages', 'discret')}</div>` : ''}</div>`;
   }
 
   // Étape 6 : « Aucun diplôme requis » et « Débutant accepté », des interrupteurs (aussi pour les résultats des sites)
@@ -2953,27 +3003,12 @@
       }
     }
     if (texteSur(x.sans_note)) h += `<p class="jm-rch-sous jm-sans-note">${esc(x.sans_note)}</p>`;
-    h += '</div>';
-    const lignes = liste(x.lignes).filter((l) => numSur(l?.id));
-    const ouverte = ofChoisie ?? x.fiche?.id;
-    if (lignes.length) h += `<div class="jm-liste-tete"><span class="jm-b-sel jm-tri"><select class="f" data-perso="of-champ" data-champ="tri" data-k="of:tri" aria-label="${esc(t('tri'))}">${optionsHTML(x.tris, ofFiltres?.tri || 'pertinence', codeSurP)}</select></span></div>`;
-    const tRetirer = t('retirer_liste') || 'Retirer de ma liste';
-    for (const l of lignes) {
-      const sel = l.id === ouverte && ofVue === 'offre';
-      const marques = (l.postule === true ? `<span class="jm-o-m ok" title="${esc(t('postule'))}">${icone('coche')}</span>` : '')
-        + (l.favori === true ? `<span class="jm-o-m" title="${esc(t('favori'))}">${icone('etoile')}</span>` : '')
-        + (l.plus_tard === true ? `<span class="jm-o-m" title="${esc(t('plus_tard'))}">${icone('horloge')}</span>` : '')
-        + (l.nouvelle === true ? `<span class="jm-neuf" title="${esc(t('nouvelle_l'))}"></span>` : '');
-      // (0.1.4 : une petite croix « Retirer de ma liste » à droite de chaque offre qui n'est pas déjà retirée)
-      const cachee = l.cachee === true;
-      const croix = cachee ? '' : `<button type="button" class="jm-off-x f" data-perso="of-retirer-l" data-id="${l.id}" data-k="olx:${l.id}" title="${esc(tRetirer)}" aria-label="${esc(`${tRetirer} : ${texteSur(l.titre)}`)}">${icone('croix')}</button>`;
-      h += `<div class="jm-off-l"><button type="button" class="jm-cand jm-off f${croix ? ' avec-x' : ''}${sel ? ' sel' : ''}${cachee ? ' fini' : ''}" data-perso="of-ouvrir" data-id="${l.id}" data-k="ol:${l.id}" aria-current="${sel}">
-        <span class="jm-c1"><b>${esc(texteSur(l.titre))}</b>${marques}</span>
-        <span class="jm-c2">${esc(texteSur(l.sous))}</span><span class="jm-c3 pale">${esc(texteSur(l.l3))}</span>${pastilleNote(l.note) ? `<span class="jm-c4">${pastilleNote(l.note)}<span>${esc(texteSur(l.raison))}</span></span>` : ''}</button>${croix}</div>`;
-    }
-    if (!lignes.length && texteSur(x.vide_liste)) h += `<p class="jm-vide-l">${esc(texteSur(x.vide_liste))}</p>`;
-    if (x.plus) h += `<p class="jm-vide-l petit">${esc(texteSur(x.plus))}</p>`;
-    return h;
+    // (0.2.1 : les filtres sont ici, dans la colonne de gauche, comme pour un site : le texte cherché, les deux
+    // bascules, puis les groupes ; les offres sont en cartes à droite)
+    h += `<label class="jm-cherche">${icone('loupe')}<input class="f" data-perso="of-champ" data-champ="texte" data-k="of:texte" maxlength="100" autocomplete="off" spellcheck="false" placeholder="${esc(t('i_texte'))}" aria-label="${esc(t('i_texte_t') || 'Chercher dans mes offres')}" value="${esc(ofFiltres.texte)}"></label>`;
+    h += basculesHTML(t);
+    h += filtresOffresHTML(x);
+    return `${h}</div>`;
   }
 
   // ---------------------------------------------------------------- L'envoi par mail (étape 10)
@@ -3351,10 +3386,13 @@
     return `${h}</div>`;
   }
 
+  // La droite de « Mes offres gardées » : « Mes recherches », l'offre ouverte en grand (avec « Retour à la liste » et
+  // ses voisines), les offres en cartes (0.2.1 : les cartes des offres d'un site), ou ce qui manque pour en avoir
   function droiteOffres(x) {
     if (ofVue === 'recherches') return gestionHTML(x);
-    const f = x.fiche && typeof x.fiche === 'object' && numSur(x.fiche.id) ? x.fiche : null;
-    if (f) return ficheOffreHTML(x, f);
+    const f = ficheGardee(x);
+    if (f) return `${navFicheHTML(x, gestesGardees(x))}${ficheOffreHTML(x, f)}`;
+    if (liste(x.lignes).length) return cartesHTML(cartesGardees(x), gestesGardees(x));
     return videOffresHTML(x);
   }
 
@@ -3409,13 +3447,27 @@
       case 'of-retirer':
         ofFiltres = { texte: '', genre: 'partout', ville: '', rayon: 30, departement: '', region: '', contrat: '', teletravail: 'peu_importe', liste: 'toutes', sans_diplome: false, debutant: false, tri: ofFiltres?.tri || 'pertinence' };
         O.son?.ok?.(); envoyerFiltres(false); return true;
+      // (0.2.1 : la carte d'une offre gardée, comme celle d'un site : le premier clic de souris la choisit seulement,
+      // le second l'ouvre en grand ; au clavier et à la manette, Entrée l'ouvre tout de suite)
       case 'of-ouvrir': {
-        const id = Number(d.id);
+        const id = Number(d.i), souris = clicEl === el ? clicSouris : 0; clicSouris = 0; clicEl = null;
         if (!numSur(id)) return true;
-        O.son?.ok?.(); ofVue = 'offre'; ofForm = null; ofConfirme = null;
-        if (f?.id !== id) { ofChoisie = id; O.anime = !reduit(); }
+        if (souris === 1 && el.classList.contains('jm-carte')) return true;
+        O.son?.ok?.(); ofVue = 'offre'; ofForm = null; ofConfirme = null; O.anime = !reduit();
         O.action('o-ouvrir', { id });
-        dessinerTout(`ol:${id}`);
+        return true;
+      }
+      // (0.2.1 : « Page précédente » et « Page suivante », « Retour à la liste », « Offre précédente » et « Offre
+      // suivante », « Remettre » sur la carte d'une offre retirée : Rust garde la page et l'offre ouverte)
+      case 'of-page': if (!el.disabled) { O.son?.ok?.(); O.action('o-page', { d: Number(d.d) < 0 ? -1 : 1 }); } return true;
+      case 'of-retour': O.son?.retour?.(); O.action('o-retour'); return true;
+      case 'of-voisine': if (!el.disabled) { O.son?.ok?.(); O.anime = !reduit(); O.action('o-voisine', { d: Number(d.d) < 0 ? -1 : 1 }); } return true;
+      case 'of-remettre-l': { const id = Number(d.i); if (numSur(id)) { O.son?.ok?.(); O.action('o-remettre', { id }); } return true; }
+      // (0.2.1 : le contrat ou le télétravail, un seul choix à la fois)
+      case 'of-choix': {
+        const v = typeof d.v === 'string' ? d.v : '';
+        if (!ofFiltres || !['contrat', 'teletravail'].includes(d.champ) || !choixSur(v) || el.getAttribute('aria-checked') === 'true') return true;
+        ofFiltres[d.champ] = v; O.son?.bascule?.(); envoyerFiltres(false); dessinerTout(el.dataset.k);
         return true;
       }
       case 'of-recherche': return true;
@@ -3443,9 +3495,9 @@
       case 'of-cacher': if (f && numSur(f.id)) { O.son?.ok?.(); O.action('o-cacher', { id: f.id }); } return true;
       // (0.1.4 : la croix d'une offre gardée ; si elle disparaît de la liste, la main passe à la croix voisine)
       case 'of-retirer-l': {
-        const id = Number(d.id);
+        const id = Number(d.i);
         if (!numSur(id)) return true;
-        mainVoisine(el, '.jm-off-l .jm-off-x');
+        mainVoisine(el, '.jm-carte-l .jm-off-x, .jm-carte-l .jm-off-remettre');
         O.son?.ok?.(); O.action('o-retirer', { id });
         return true;
       }
@@ -3493,6 +3545,8 @@
     if (prEdition) { prEdition = null; dessinerTout('pr:modifier'); return true; }
     if (prBrute) { prBrute = false; dessinerTout('pr:brute'); return true; }
     if (ofPil === 'cand') { ofPil = 'offre'; dessinerTout('op:offre'); return true; }
+    // (0.2.1 : l'offre gardée ouverte en grand se referme : retour aux cartes, comme pour l'offre d'un site)
+    if (!sourceSite() && ficheGardee(offresDe())) { O.son?.retour?.(); O.action('o-retour'); return true; }
     // (0.1.4 : un autre onglet de l'offre que le premier est montré : on revient au premier)
     const t1 = hote.querySelector('.jm-fo-ong [role="tab"]');
     if (t1 && t1.getAttribute('aria-selected') !== 'true') { foOng = t1.dataset.id; foAnime = !reduit(); O.son?.retour?.(); dessinerTout(`fo:${t1.dataset.id}`); return true; }
@@ -3524,7 +3578,7 @@
     // (pour les captures) une offre ouverte, Mes recherches
     if (numSur(o.offre)) {
       if (onglet !== 'offres') montrer('offres');
-      ofVue = 'offre'; ofChoisie = o.offre; O.action('o-ouvrir', { id: o.offre }); dessinerTout(`ol:${o.offre}`);
+      ofVue = 'offre'; O.action('o-ouvrir', { id: o.offre }); dessinerTout();
       return true;
     }
     if (o.offres === 'recherches' || o.offres === 'nouvelle') {

@@ -226,7 +226,7 @@ fn les_doublons_ne_comptent_pas_dans_les_pages() {
 
 /// Huit offres autour de Metz : deux dans la ville même (dont une qui donne sa position), deux positions données par
 /// le site à 4 et 48 km, deux communes reconnues sans position (leur mairie : à 10 et 27 km), deux lieux sans distance
-/// connue (une région ; « Ennery » sans son département, il y en a deux en France) ; quatre contrats, un contrat pas
+/// connue (une région ; « Saint-Julien » sans son département : six en France, aucune en Moselle) ; quatre contrats, un contrat pas
 /// reconnu ; des dates de 0 à 9 jours, une date absente.
 fn huit_offres() -> Coulisse {
     let texte = |i: usize| -> &'static str {
@@ -248,8 +248,8 @@ fn huit_offres() -> Coulisse {
         (("Préparateur", "Logipôle", "57 - Maizières-lès-Metz", "Intérim", "2026-11-14", texte(2)), None),
         (("Préparateur", "Logipôle", "57 - Thionville", "CDI", "2026-11-10", texte(3)), None),
         (("Préparateur en alternance", "Logipôle", "54 - Nancy", "", "2026-11-19", texte(4)), Some((48.69, 6.18))),
-        // (deux communes de ce nom, en Moselle et dans le Val-d'Oise : sans le département, pas de distance)
-        (("Préparateur", "Logipôle", "Ennery", "Temps plein", "", texte(5)), None),
+        // (six communes de ce nom, aucune dans le département cherché : sans le département, pas de distance)
+        (("Préparateur", "Logipôle", "Saint-Julien", "Temps plein", "", texte(5)), None),
         // (dans la ville cherchée, avec sa position : « sur place » quand même)
         (
             ("Préparateur", "Logipôle", "57 - Metz", "Contrat à durée indéterminée", "2026-11-13", texte(6)),
@@ -334,7 +334,7 @@ fn les_filtres_de_la_colonne_de_gauche_et_leurs_nombres() {
         (etiquettes(&carte(&c, 4), "contrat"), etiquettes(&carte(&c, 4), "distance")),
         (vec!["Alternance".to_string()], vec!["à 48 km".to_string()])
     );
-    // (« Ennery » sans son département : pas une commune reconnue sans doute possible, pas de distance)
+    // (« Saint-Julien » sans son département : pas une commune reconnue sans doute possible, pas de distance)
     assert!(etiquettes(&carte(&c, 5), "contrat").is_empty() && etiquettes(&carte(&c, 5), "distance").is_empty());
     // (dans la ville cherchée : « sur place », même avec sa position à 400 m du centre)
     assert_eq!(

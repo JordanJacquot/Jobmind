@@ -10,6 +10,12 @@
 //!
 //! Le journal ne reçoit jamais une clé ni une adresse entière : seulement ce qui a été fait, et l'hôte d'un lien.
 //!
+//! 0.2.1 : « Mes offres gardées » a la disposition des offres d'un site. Les offres qui passent les filtres sont en
+//! cartes, par pages de [`CARTES_PAR_PAGE`] ([`PAGE`]) ; aucune n'est ouverte d'office ; [`OUVRIR`] ouvre une offre en
+//! grand (elle devient « Déjà vue »), [`RETOUR`] revient aux cartes, à la page de cette offre, et [`VOISINE`] ouvre
+//! l'offre d'avant ou d'après parmi celles qui passent les filtres. Une offre retirée se remet depuis sa carte
+//! ([`REMETTRE`]).
+//!
 //! Étape 6 : avant de montrer la liste, chaque offre pas encore lue est lue par les règles, et chaque note faite avec
 //! un autre « Ce que je cherche » ou un autre CV est refaite (jobmind-storage, `lecture`) ; les filtres « Aucun
 //! diplôme requis » et « Débutant accepté », le tri (les plus pertinentes ou les plus récentes), la rubrique « Hors
@@ -59,7 +65,18 @@ pub const VOIR: &str = "o-voir";
 /// Étape 6 : « Pas hors sujet » (et son contraire), « Lire avec Claude »
 pub const PAS_HORS_SUJET: &str = "o-pas-hors-sujet";
 pub const LIRE_IA: &str = "o-lire-ia";
-const GESTES: [&str; 14] = [
+/// 0.2.1 : « Mes offres gardées » en cartes, comme les offres d'un site. « Page précédente » et « Page suivante »
+/// (`d` : -1 ou 1), « Retour à la liste » (l'offre ouverte en grand se referme), « Offre précédente » et « Offre
+/// suivante » (`d` : -1 ou 1), « Remettre » sur la carte d'une offre retirée (sans basculer)
+pub const PAGE: &str = "o-page";
+pub const RETOUR: &str = "o-retour";
+pub const VOISINE: &str = "o-voisine";
+pub const REMETTRE: &str = "o-remettre";
+const GESTES: [&str; 18] = [
+    PAGE,
+    RETOUR,
+    VOISINE,
+    REMETTRE,
     RETIRER,
     PAS_HORS_SUJET,
     LIRE_IA,
@@ -81,8 +98,9 @@ pub fn est_geste(id: &str) -> bool {
     GESTES.contains(&id)
 }
 
-/// La liste montre au plus ce nombre d'offres (les filtres resserrent).
-pub const LISTE_MAX: usize = 150;
+/// 0.2.1 : les offres gardées sont en cartes, par pages du même nombre de cartes que les offres d'un site (plus de
+/// liste coupée à 150 : toutes les offres qui passent les filtres ont leur page).
+pub const CARTES_PAR_PAGE: usize = crate::coulisse::CARTES_PAR_PAGE;
 /// Étape 6 : Claude lit au plus ce nombre d'offres floues à la fois...
 pub const LOT_IA: usize = 8;
 /// ... et au plus ce nombre par jour.
@@ -192,10 +210,18 @@ pub struct Annonce {
 /// Ce que l'écran montre de l'onglet Offres, lu dans la base.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct VueOffres {
-    /// Les offres qui passent les filtres (au plus [`LISTE_MAX`])
+    /// Les offres de la page de cartes montrée (au plus [`CARTES_PAR_PAGE`]), parmi celles qui passent les filtres
     pub liste: Vec<Offre>,
-    /// Le nombre d'offres qui passent les filtres
+    /// Le nombre d'offres qui passent les filtres (toutes les pages)
     pub total: usize,
+    /// 0.2.1 : la page de cartes montrée (à partir de 1), le nombre de pages, le rang de sa première carte (à partir
+    /// de 0)
+    pub page: usize,
+    pub pages: usize,
+    pub debut: usize,
+    /// 0.2.1 : l'offre ouverte en grand a une offre avant elle, une après elle, parmi celles qui passent les filtres
+    pub avant: bool,
+    pub apres: bool,
     /// Le nombre d'offres gardées (une par groupe de doublons)
     pub gardees: usize,
     pub nouvelles: usize,
@@ -239,7 +265,14 @@ fn saisie_vide() -> SaisieFiltres {
 /// L'onglet Offres : l'offre ouverte, les filtres, la recherche choisie.
 #[derive(Debug, Clone)]
 pub struct Offres {
+    /// L'offre ouverte en grand (rien : les cartes sont montrées)
     pub ouverte: Option<i64>,
+    /// 0.2.1 : la page de cartes montrée (à partir de 1) et le nombre de pages compté au dernier dessin
+    pub page: usize,
+    pages: usize,
+    /// 0.2.1 : le rang de l'offre ouverte parmi celles qui passent les filtres, au dernier dessin (si elle en sort,
+    /// retirée de la liste par exemple, « Offre suivante » ouvre celle qui a pris sa place)
+    place: usize,
     pub filtres: Filtres,
     pub saisie: SaisieFiltres,
     pub recherche: Option<i64>,
@@ -253,6 +286,9 @@ impl Default for Offres {
     fn default() -> Offres {
         Offres {
             ouverte: None,
+            page: 1,
+            pages: 1,
+            place: 0,
             filtres: Filtres::tous(),
             saisie: saisie_vide(),
             recherche: None,
@@ -338,7 +374,48 @@ impl Offres {
             self.recherche = v.recherches.first().map(|r| r.id);
         }
         v.recherche = self.recherche;
-        // Les filtres
+        let liste = self.filtrees(c, toutes, &v.recherches)?;
+        v.total = liste.len();
+        // 0.2.1 : l'offre ouverte en grand (plus jamais la première d'office : sans offre ouverte, les cartes). Elle
+        // reste ouverte même si elle ne passe plus les filtres (retirée de la liste, sortie des favoris) : son bouton
+        // se défait du même clic ; une offre qui n'existe plus se referme
+        v.ouverte = match self.ouverte {
+            Some(id) => base_offres::lire(c, id)?,
+            None => None,
+        };
+        if v.ouverte.is_none() {
+            self.ouverte = None;
+        }
+        if let Some(id) = self.ouverte {
+            match liste.iter().position(|o| o.id == id) {
+                Some(k) => {
+                    self.place = k;
+                    (v.avant, v.apres) = (k > 0, k + 1 < liste.len());
+                    // (au retour à la liste : la page de cartes de l'offre qui était ouverte)
+                    self.page = k / CARTES_PAR_PAGE + 1;
+                }
+                None => {
+                    self.place = self.place.min(liste.len());
+                    (v.avant, v.apres) = (self.place > 0, self.place < liste.len());
+                }
+            }
+        }
+        // Les pages de cartes
+        self.pages = liste.len().div_ceil(CARTES_PAR_PAGE).max(1);
+        self.page = self.page.clamp(1, self.pages);
+        (v.page, v.pages) = (self.page, self.pages);
+        v.debut = (self.page - 1) * CARTES_PAR_PAGE;
+        v.liste = liste.into_iter().skip(v.debut).take(CARTES_PAR_PAGE).collect();
+        Ok(())
+    }
+
+    /// Les offres qui passent les filtres, dans l'ordre du tri choisi (toutes les pages).
+    fn filtrees(
+        &self,
+        c: &rusqlite::Connection,
+        toutes: Vec<Offre>,
+        recherches: &[RechercheGardee],
+    ) -> rusqlite::Result<Vec<Offre>> {
         let textes: Option<HashSet<i64>> = if self.filtres.texte.is_empty() {
             None
         } else {
@@ -347,7 +424,7 @@ impl Offres {
         let (centre, autour): (Option<(f64, f64)>, Vec<i64>) = match &self.filtres.lieu {
             FiltreLieu::Ville { cle, rayon, .. } => (
                 centre_ville(&toutes, cle),
-                v.recherches
+                recherches
                     .iter()
                     .filter(
                         |r| matches!(&r.lieu, Lieu::Ville { nom, rayon: x } if cle_ville(nom) == *cle && x <= rayon),
@@ -360,24 +437,56 @@ impl Offres {
         let appui = Appui { textes: textes.as_ref(), centre, recherches_ville: &autour };
         let mut liste: Vec<Offre> = toutes.into_iter().filter(|o| garder(o, &self.filtres, &appui)).collect();
         trier_selon(&mut liste, self.filtres.tri);
-        v.total = liste.len();
-        liste.truncate(LISTE_MAX);
-        // L'offre ouverte : celle choisie si elle est dans la liste, sinon la première
-        if !self.ouverte.is_some_and(|id| liste.iter().any(|o| o.id == id)) {
-            self.ouverte = liste.first().map(|o| o.id);
+        Ok(liste)
+    }
+
+    /// 0.2.1 : « Page précédente » ou « Page suivante » : la page de cartes d'avant ou d'après.
+    fn tourner(&mut self, v: &Value) -> Fait {
+        let d = v.get("d").and_then(Value::as_i64).unwrap_or(0).signum();
+        let p = (self.page as i64 + d).clamp(1, self.pages.max(1) as i64) as usize;
+        if p == self.page {
+            return Fait::default();
         }
-        v.ouverte = match self.ouverte {
-            Some(id) => base_offres::lire(c, id)?,
-            None => None,
+        self.page = p;
+        Fait { change: true, ..Fait::default() }
+    }
+
+    /// 0.2.1 : « Retour à la liste » : l'offre ouverte en grand se referme, ses cartes reviennent (à sa page).
+    fn retour_liste(&mut self) -> Fait {
+        if self.ouverte.take().is_none() {
+            return Fait::default();
+        }
+        Fait { change: true, ..Fait::default() }
+    }
+
+    /// 0.2.1 : « Offre précédente » ou « Offre suivante » : l'offre voisine parmi celles qui passent les filtres
+    /// s'ouvre en grand (et devient « Déjà vue »).
+    fn voisine(&mut self, base: &Base, v: &Value) -> rusqlite::Result<Fait> {
+        let d = v.get("d").and_then(Value::as_i64).unwrap_or(0).signum();
+        let Some(ici) = self.ouverte else { return Ok(Fait::default()) };
+        if d == 0 {
+            return Ok(Fait::default());
+        }
+        let c = base.connexion();
+        let liste = self.filtrees(c, base_offres::lister(c)?, &base_offres::lister_recherches(c)?)?;
+        // (l'offre ouverte n'est plus dans la liste : celle qui a pris sa place est la suivante)
+        let j = match liste.iter().position(|o| o.id == ici) {
+            Some(k) => k as i64 + d,
+            None => self.place.min(liste.len()) as i64 + d.min(0),
         };
-        v.liste = liste;
-        Ok(())
+        match usize::try_from(j).ok().and_then(|j| liste.get(j)) {
+            Some(o) => self.ouvrir(base, &json!({ "id": o.id })),
+            None => Ok(Fait::default()),
+        }
     }
 
     /// Un geste de la page : vérifié, puis écrit.
     pub fn geste(&mut self, ctx: &Contexte, id: &str, valeur: &Value, maintenant: Moment) -> Fait {
-        if id == FILTRES {
-            return self.filtrer(valeur);
+        match id {
+            FILTRES => return self.filtrer(valeur),
+            PAGE => return self.tourner(valeur),
+            RETOUR => return self.retour_liste(),
+            _ => {}
         }
         let Some(base) = ctx.base else {
             return Fait::refus(
@@ -391,6 +500,8 @@ impl Offres {
             PLUS_TARD => marquer(base, valeur, Marque::PlusTard),
             CACHER => marquer(base, valeur, Marque::PasPourMoi),
             RETIRER => retirer(base, valeur),
+            REMETTRE => remettre(base, valeur),
+            VOISINE => self.voisine(base, valeur),
             CHOISIR => {
                 self.recherche = numero(valeur);
                 Ok(Fait { change: true, ..Fait::default() })
@@ -440,6 +551,10 @@ impl Offres {
         };
         match verifier_filtres(&s) {
             Ok(f) => {
+                // (les cartes ne sont plus les mêmes : retour à leur première page)
+                if s != self.saisie {
+                    self.page = 1;
+                }
                 self.filtres = f;
                 self.saisie = s;
                 Fait { change: true, ..Fait::default() }
@@ -756,6 +871,21 @@ fn retirer(base: &Base, v: &Value) -> rusqlite::Result<Fait> {
     })
 }
 
+/// 0.2.1 : « Remettre », sur la carte d'une offre retirée (montrée en gris dans « Retirées ») : elle revient dans ma
+/// liste, sans basculer (une offre déjà remise le reste).
+fn remettre(base: &Base, v: &Value) -> rusqlite::Result<Fait> {
+    let Some(id) = numero(v) else { return Ok(Fait::default()) };
+    let Some(change) = base_offres::poser(base.connexion(), id, Marque::PasPourMoi, false)? else {
+        return Ok(Fait { change: true, ..Fait::default() });
+    };
+    Ok(Fait {
+        message: change.then(|| "L'offre est de nouveau dans ta liste.".into()),
+        journal: Some(format!("Offres : offre {id}, remise dans ma liste{}", if change { "" } else { " (déjà)" })),
+        change: true,
+        ..Fait::default()
+    })
+}
+
 /// 0.1.8 : « Ce que je cherche » suit le tableau des recherches (les postes de toutes, le lieu de la première) : le
 /// tri des offres et les candidatures s'en servent. Rend vrai si le profil a changé.
 pub fn suivre_profil(c: &rusqlite::Connection, maintenant: Moment) -> rusqlite::Result<bool> {
@@ -1008,7 +1138,12 @@ mod tests {
         o.geste(&ctx, FILTRES, &json!({ "genre": "partout", "texte": "chariot élévateur" }), m(9, 5));
         let (v, _) = o.vue(Some(&b), Some(&cles));
         assert_eq!(v.liste.iter().map(|x| x.titre.as_str()).collect::<Vec<_>>(), ["Cariste CACES 3"]);
-        assert_eq!(v.ouverte.as_ref().unwrap().offre.titre, "Cariste CACES 3");
+        // (0.2.1 : l'offre ouverte en grand le reste, même si elle ne passe plus les filtres ; « Retour à la liste »
+        // la referme, et plus aucune offre ne s'ouvre d'office)
+        assert_eq!(v.ouverte.as_ref().unwrap().offre.id, quai);
+        assert!(o.geste(&ctx, RETOUR, &Value::Null, m(9, 5)).change);
+        assert!(o.vue(Some(&b), Some(&cles)).0.ouverte.is_none());
+        assert_eq!(o.geste(&ctx, RETOUR, &Value::Null, m(9, 5)), Fait::default());
         o.geste(&ctx, FILTRES, &json!({ "genre": "departement", "departement": "54" }), m(9, 5));
         // (Nancy et Pont-à-Mousson ; étape 6 : les deux sont hors sujet pour « agent de quai, cariste »)
         assert_eq!(o.vue(Some(&b), Some(&cles)).0.total, 0);
@@ -1289,6 +1424,234 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    /// Soixante offres gardées inventées, sans « Ce que je cherche » (aucune note, aucune hors sujet) : les paires
+    /// sont sans diplôme, les impaires demandent un diplôme ; les dix dernières sont des postes de vendeur.
+    fn soixante(c: &rusqlite::Connection) {
+        let l: Vec<OffreTrouvee> = (0..60)
+            .map(|k| {
+                let metier = if k < 50 { "Cariste" } else { "Vendeur" };
+                let demande =
+                    if k % 2 == 0 { "Sans diplôme, débutant accepté." } else { "Diplôme d'État exigé." };
+                OffreTrouvee {
+                    id_source: format!("s{k}"),
+                    titre: format!("{metier} numéro {k}"),
+                    entreprise: format!("Exemple {k}"),
+                    lieu: "Metz (57)".into(),
+                    zones: Vec::new(),
+                    url: String::new(),
+                    description: format!("Poste de {} en magasin, équipe {k}. {demande}", metier.to_lowercase()),
+                    contrat: String::new(),
+                    salaire: String::new(),
+                    publiee_le: String::new(),
+                    latitude: None,
+                    longitude: None,
+                    brut: "{}".into(),
+                }
+            })
+            .collect();
+        base_offres::ajouter_trouvees(c, "francetravail", &l, None, m(9, 0)).unwrap();
+    }
+
+    /// Toutes les offres qui passent les filtres, dans l'ordre des cartes : chaque page lue l'une après l'autre.
+    fn toutes_les_pages(o: &mut Offres, ctx: &Contexte) -> Vec<i64> {
+        while o.geste(ctx, PAGE, &json!({ "d": -1 }), m(9, 1)).change {}
+        let mut ids = Vec::new();
+        loop {
+            let (v, _) = o.vue(ctx.base, None);
+            assert_eq!(v.debut, ids.len());
+            ids.extend(v.liste.iter().map(|x| x.id));
+            if !o.geste(ctx, PAGE, &json!({ "d": 1 }), m(9, 1)).change {
+                break;
+            }
+        }
+        while o.geste(ctx, PAGE, &json!({ "d": -1 }), m(9, 1)).change {}
+        ids
+    }
+
+    /// 0.2.1 : les offres gardées en cartes par pages de 24 : le numéro de la page et le total, « Page suivante » et
+    /// « Page précédente » qui s'arrêtent aux bords, et plus de liste coupée à 150.
+    #[test]
+    fn les_pages_de_24() {
+        let (b, _) = Base::en_memoire(m(9, 0)).unwrap();
+        soixante(b.connexion());
+        let ctx = Contexte { base: Some(&b), cles: None };
+        let mut o = Offres::default();
+        let (v, _) = o.vue(Some(&b), None);
+        assert_eq!((v.total, v.gardees, v.page, v.pages, v.debut, v.liste.len()), (60, 60, 1, 3, 0, 24));
+        // (aucune offre ouverte d'office : les cartes)
+        assert!(v.ouverte.is_none() && !v.avant && !v.apres);
+        // « Page précédente » sur la première page : rien ne bouge
+        assert_eq!(o.geste(&ctx, PAGE, &json!({ "d": -1 }), m(9, 1)), Fait::default());
+        assert!(o.geste(&ctx, PAGE, &json!({ "d": 1 }), m(9, 1)).change);
+        let (v2, _) = o.vue(Some(&b), None);
+        assert_eq!((v2.page, v2.pages, v2.debut, v2.liste.len()), (2, 3, 24, 24));
+        assert!(v2.liste.iter().all(|x| v.liste.iter().all(|y| y.id != x.id)), "les cartes de la page 2 sont d'autres");
+        assert!(o.geste(&ctx, PAGE, &json!({ "d": 1 }), m(9, 1)).change);
+        let (v3, _) = o.vue(Some(&b), None);
+        assert_eq!((v3.page, v3.pages, v3.debut, v3.liste.len(), v3.total), (3, 3, 48, 12, 60));
+        // « Page suivante » sur la dernière : rien ne bouge ; un pas trop grand ne saute pas de page
+        assert_eq!(o.geste(&ctx, PAGE, &json!({ "d": 1 }), m(9, 1)), Fait::default());
+        assert!(o.geste(&ctx, PAGE, &json!({ "d": -40 }), m(9, 1)).change);
+        assert_eq!(o.vue(Some(&b), None).0.page, 2);
+        // Les trois pages montrent les soixante offres, chacune une fois
+        let ids = toutes_les_pages(&mut o, &ctx);
+        let uniques: HashSet<i64> = ids.iter().copied().collect();
+        assert_eq!((ids.len(), uniques.len()), (60, 60));
+        // Ce que la page reçoit : « Page 2 sur 3 · offres 25 à 48 »
+        o.geste(&ctx, PAGE, &json!({ "d": 1 }), m(9, 1));
+        let (v, _) = o.vue(Some(&b), None);
+        let e = crate::vue_offres::onglet(&v, m(9, 1).jour());
+        assert_eq!(e["offres"]["page_texte"], "Page 2 sur 3 · offres 25 à 48");
+        assert_eq!(e["offres"]["lignes"].as_array().unwrap().len(), 24);
+        assert_eq!((&e["offres"]["precedente"], &e["offres"]["suivante"]), (&json!(true), &json!(true)));
+        // Des offres retirées : la dernière page se vide, la page montrée revient dans les bornes
+        o.geste(&ctx, PAGE, &json!({ "d": 1 }), m(9, 1));
+        for id in &ids[..13] {
+            o.geste(&ctx, RETIRER, &json!({ "id": id }), m(9, 2));
+        }
+        let (v, _) = o.vue(Some(&b), None);
+        assert_eq!((v.total, v.page, v.pages, v.liste.len()), (47, 2, 2, 23));
+    }
+
+    /// 0.2.1 : l'offre en grand et le retour, « Offre précédente » et « Offre suivante », « Déjà vue ».
+    #[test]
+    fn l_offre_en_grand_le_retour_et_les_voisines() {
+        let (b, _) = Base::en_memoire(m(9, 0)).unwrap();
+        soixante(b.connexion());
+        let ctx = Contexte { base: Some(&b), cles: None };
+        let mut o = Offres::default();
+        let ids = toutes_les_pages(&mut o, &ctx);
+        let (v, _) = o.vue(Some(&b), None);
+        assert_eq!((v.nouvelles, v.liste.iter().filter(|x| x.vue).count()), (60, 0));
+        // Sans offre ouverte : ni voisine ni retour
+        assert_eq!(o.geste(&ctx, VOISINE, &json!({ "d": 1 }), m(9, 2)), Fait::default());
+        assert_eq!(o.geste(&ctx, RETOUR, &Value::Null, m(9, 2)), Fait::default());
+        // La 31e offre ouverte en grand (depuis la page 1) : elle a une offre avant et une après
+        assert!(o.geste(&ctx, OUVRIR, &json!({ "id": ids[30] }), m(9, 2)).change);
+        let (v, _) = o.vue(Some(&b), None);
+        assert_eq!(v.ouverte.as_ref().map(|x| x.offre.id), Some(ids[30]));
+        assert_eq!((v.avant, v.apres), (true, true));
+        let e = crate::vue_offres::onglet(&v, m(9, 2).jour());
+        assert_eq!(e["offres"]["fiche"]["id"], ids[30]);
+        assert_eq!((&e["offres"]["fiche_avant"], &e["offres"]["fiche_apres"]), (&json!(true), &json!(true)));
+        // « Offre suivante », deux fois « Offre précédente » : les offres voisines, dans l'ordre des cartes
+        assert!(o.geste(&ctx, VOISINE, &json!({ "d": 1 }), m(9, 3)).change);
+        assert_eq!(o.ouverte, Some(ids[31]));
+        o.geste(&ctx, VOISINE, &json!({ "d": -1 }), m(9, 3));
+        o.geste(&ctx, VOISINE, &json!({ "d": -7 }), m(9, 3));
+        assert_eq!(o.ouverte, Some(ids[29]));
+        assert_eq!(o.geste(&ctx, VOISINE, &json!({ "d": 0 }), m(9, 3)), Fait::default());
+        // « Retour à la liste » : les cartes, à la page de l'offre quittée (la 30e est sur la page 2) ; les trois
+        // offres ouvertes sont « Déjà vue », pas les autres
+        assert!(o.geste(&ctx, RETOUR, &Value::Null, m(9, 4)).change);
+        let (v, _) = o.vue(Some(&b), None);
+        assert!(v.ouverte.is_none() && !v.avant && !v.apres);
+        assert_eq!((v.page, v.nouvelles), (2, 57));
+        let vues: Vec<i64> = v.liste.iter().filter(|x| x.vue).map(|x| x.id).collect();
+        assert_eq!(vues, [ids[29], ids[30], ids[31]]);
+        let e = crate::vue_offres::onglet(&v, m(9, 4).jour());
+        assert!(e["offres"]["fiche"].is_null());
+        let cartes = e["offres"]["lignes"].as_array().unwrap();
+        let deja: Vec<i64> = cartes.iter().filter(|c| c["vue"] == true).map(|c| c["i"].as_i64().unwrap()).collect();
+        assert_eq!(deja, [ids[29], ids[30], ids[31]]);
+        assert!(cartes.iter().all(|c| c["sel"] == false));
+        // Les bords : la première n'a pas d'offre avant, la dernière pas d'offre après
+        o.geste(&ctx, OUVRIR, &json!({ "id": ids[0] }), m(9, 5));
+        let (v, _) = o.vue(Some(&b), None);
+        assert_eq!((v.avant, v.apres, v.page), (false, true, 1));
+        assert_eq!(o.geste(&ctx, VOISINE, &json!({ "d": -1 }), m(9, 5)), Fait::default());
+        assert_eq!(o.ouverte, Some(ids[0]));
+        o.geste(&ctx, OUVRIR, &json!({ "id": ids[59] }), m(9, 5));
+        let (v, _) = o.vue(Some(&b), None);
+        assert_eq!((v.avant, v.apres, v.page), (true, false, 3));
+        assert_eq!(o.geste(&ctx, VOISINE, &json!({ "d": 1 }), m(9, 5)), Fait::default());
+        // L'offre ouverte retirée de ma liste : elle reste ouverte (son bouton la remet), « Offre suivante » ouvre
+        // celle qui a pris sa place, « Offre précédente » celle d'avant
+        o.geste(&ctx, OUVRIR, &json!({ "id": ids[10] }), m(9, 6));
+        o.vue(Some(&b), None);
+        o.geste(&ctx, CACHER, &json!({ "id": ids[10] }), m(9, 6));
+        let (v, _) = o.vue(Some(&b), None);
+        assert_eq!((v.total, v.avant, v.apres), (59, true, true));
+        assert!(v.ouverte.as_ref().is_some_and(|x| x.offre.id == ids[10] && x.offre.cachee));
+        let mut autre = o.clone();
+        autre.geste(&ctx, VOISINE, &json!({ "d": -1 }), m(9, 6));
+        assert_eq!(autre.ouverte, Some(ids[9]));
+        o.geste(&ctx, VOISINE, &json!({ "d": 1 }), m(9, 6));
+        assert_eq!(o.ouverte, Some(ids[11]));
+        // « Remettre » sur la carte d'une offre retirée (liste « Retirées ») : sans basculer
+        o.geste(&ctx, RETOUR, &Value::Null, m(9, 7));
+        o.geste(&ctx, FILTRES, &json!({ "genre": "partout", "liste": "cachees" }), m(9, 7));
+        let (v, _) = o.vue(Some(&b), None);
+        assert_eq!(v.liste.iter().map(|x| (x.id, x.cachee)).collect::<Vec<_>>(), [(ids[10], true)]);
+        let f = o.geste(&ctx, REMETTRE, &json!({ "id": ids[10] }), m(9, 7));
+        assert_eq!(f.message.as_deref(), Some("L'offre est de nouveau dans ta liste."));
+        let f = o.geste(&ctx, REMETTRE, &json!({ "id": ids[10] }), m(9, 7));
+        assert!(f.message.is_none() && f.journal.unwrap().ends_with("(déjà)"));
+        let (v, _) = o.vue(Some(&b), None);
+        assert_eq!((v.cachees, v.total), (0, 0));
+        // Une offre ouverte qui n'existe plus (une sauvegarde remise) : les cartes reviennent
+        o.ouverte = Some(9999);
+        assert!(o.vue(Some(&b), None).0.ouverte.is_none());
+        assert_eq!(o.ouverte, None);
+    }
+
+    /// 0.2.1 : avec les cartes, les filtres d'avant sont toujours actifs (le texte cherché, le lieu, le contrat,
+    /// toutes / favoris / plus tard / retirées, « Aucun diplôme requis », « Débutant accepté », le tri), et un filtre
+    /// changé ramène à la première page.
+    #[test]
+    fn les_filtres_avec_les_cartes() {
+        let (b, _) = Base::en_memoire(m(9, 0)).unwrap();
+        soixante(b.connexion());
+        let ctx = Contexte { base: Some(&b), cles: None };
+        let mut o = Offres::default();
+        let ids = toutes_les_pages(&mut o, &ctx);
+        // Sur la page 3, un filtre posé : retour à la page 1 des offres qui restent
+        o.geste(&ctx, PAGE, &json!({ "d": 1 }), m(9, 1));
+        o.geste(&ctx, PAGE, &json!({ "d": 1 }), m(9, 1));
+        assert_eq!(o.vue(Some(&b), None).0.page, 3);
+        o.geste(&ctx, FILTRES, &json!({ "genre": "partout", "sans_diplome": true }), m(9, 2));
+        let (v, _) = o.vue(Some(&b), None);
+        assert_eq!((v.total, v.page, v.pages, v.liste.len(), v.filtres_actifs), (30, 1, 2, 24, true));
+        assert!(v.liste.iter().all(|x| x.diplome == Some(jobmind_core::lecture::Diplome::Aucun)));
+        // (le même filtre renvoyé par la page, pendant qu'on est page 2 : la page reste)
+        o.geste(&ctx, PAGE, &json!({ "d": 1 }), m(9, 2));
+        o.geste(&ctx, FILTRES, &json!({ "genre": "partout", "sans_diplome": true }), m(9, 2));
+        let (v, _) = o.vue(Some(&b), None);
+        assert_eq!((v.page, v.liste.len()), (2, 6));
+        o.geste(&ctx, FILTRES, &json!({ "genre": "partout", "sans_diplome": true, "debutant": true }), m(9, 2));
+        assert_eq!(o.vue(Some(&b), None).0.total, 30);
+        // Le texte cherché, seul puis avec « Aucun diplôme requis »
+        o.geste(&ctx, FILTRES, &json!({ "genre": "partout", "texte": "vendeur" }), m(9, 3));
+        let (v, _) = o.vue(Some(&b), None);
+        assert_eq!((v.total, v.pages), (10, 1));
+        assert!(v.liste.iter().all(|x| x.titre.starts_with("Vendeur")));
+        o.geste(&ctx, FILTRES, &json!({ "genre": "partout", "texte": "vendeur", "sans_diplome": true }), m(9, 3));
+        assert_eq!(o.vue(Some(&b), None).0.total, 5);
+        // Le lieu et le contrat
+        o.geste(&ctx, FILTRES, &json!({ "genre": "departement", "departement": "57" }), m(9, 3));
+        assert_eq!(o.vue(Some(&b), None).0.total, 60);
+        o.geste(&ctx, FILTRES, &json!({ "genre": "departement", "departement": "54" }), m(9, 3));
+        assert_eq!(o.vue(Some(&b), None).0.total, 0);
+        o.geste(&ctx, FILTRES, &json!({ "genre": "partout", "contrat": "cdi" }), m(9, 3));
+        let (v, _) = o.vue(Some(&b), None);
+        assert_eq!((v.total, v.page, v.pages, v.liste.len()), (0, 1, 1, 0));
+        // Favoris, plus tard, retirées
+        o.geste(&ctx, FAVORI, &json!({ "id": ids[40] }), m(9, 4));
+        o.geste(&ctx, PLUS_TARD, &json!({ "id": ids[41] }), m(9, 4));
+        o.geste(&ctx, PLUS_TARD, &json!({ "id": ids[42] }), m(9, 4));
+        o.geste(&ctx, RETIRER, &json!({ "id": ids[43] }), m(9, 4));
+        for (liste, attendu) in [("favoris", 1), ("plus_tard", 2), ("cachees", 1), ("toutes", 59), ("hors_sujet", 0)] {
+            o.geste(&ctx, FILTRES, &json!({ "genre": "partout", "liste": liste }), m(9, 4));
+            assert_eq!(o.vue(Some(&b), None).0.total, attendu, "{liste}");
+        }
+        // Le tri : les mêmes offres, sur les mêmes pages de 24 ; un tri inconnu est refusé et ne change rien
+        o.geste(&ctx, FILTRES, &json!({ "genre": "partout", "tri": "recentes" }), m(9, 5));
+        let (v, _) = o.vue(Some(&b), None);
+        assert_eq!((v.total, v.pages, v.liste.len(), v.saisie.tri.as_str()), (59, 3, 24, "recentes"));
+        assert!(o.geste(&ctx, FILTRES, &json!({ "tri": "hasard" }), m(9, 5)).message.is_some());
+        assert_eq!(o.vue(Some(&b), None).0.total, 59);
+    }
+
     /// Contre-épreuve : des gestes mal formés ne changent rien et ne plantent pas.
     #[test]
     fn gestes_mal_formes() {
@@ -1301,6 +1664,14 @@ mod tests {
             (CACHER, json!(null)),
             (RETIRER, json!({ "id": 99 })),
             (RETIRER, json!("x")),
+            (REMETTRE, json!({ "id": 99 })),
+            (REMETTRE, json!(null)),
+            (PAGE, json!({ "d": "2" })),
+            (PAGE, json!({ "d": 40 })),
+            (PAGE, json!(null)),
+            (RETOUR, json!({ "id": 3 })),
+            (VOISINE, json!({ "d": 1 })),
+            (VOISINE, json!("x")),
             ("o-chercher", json!({ "id": 42 })),
             (RECHERCHE, json!({ "mots": "", "lieu": "ville" })),
             (RECHERCHE, json!({ "mots": "cariste", "lieu": "ville", "ville": "<script>", "rayon": 10 })),
@@ -1317,6 +1688,12 @@ mod tests {
         }
         assert_eq!(base_offres::nombre_recherches(b.connexion()).unwrap(), 0);
         assert!(est_geste(LIRE_IA) && !est_geste("o-chercher") && !est_geste("cle-essayer") && !est_geste("c-ouvrir"));
+        // (0.2.1 : les gestes des cartes ; rien n'a bougé : pas de page au-delà de la seule, aucune offre ouverte)
+        assert!([PAGE, RETOUR, VOISINE, REMETTRE].iter().all(|g| est_geste(g)) && !est_geste("cs-retour"));
+        let (v, _) = o.vue(Some(&b), None);
+        assert_eq!((v.page, v.pages, v.total, v.ouverte.is_none()), (1, 1, 0, true));
+        // (le format des data-k de la page ne dépend pas d'ici, mais chaque geste garde un nom court et simple)
+        assert!(GESTES.iter().all(|g| g.starts_with("o-") && g.len() <= 21), "{GESTES:?}");
         // Sans base
         let f = o.geste(&Contexte { base: None, cles: None }, OUVRIR, &json!({ "id": 1 }), m(9, 0));
         assert_eq!(f.message.as_deref(), Some(crate::suivi::SANS_BASE));

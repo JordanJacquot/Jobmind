@@ -663,7 +663,8 @@ fn lecture_et_filtres_des_resultats() {
     let v = lecture_vue(&sans);
     assert_eq!(v[0]["valeur"], "Aucun diplôme demandé");
     assert_eq!(v[0]["preuve"], "Poste sans diplôme");
-    assert_eq!(v[1]["par"], "lu par Jobmind");
+    // (0.2.0 : plus de mention « lu par Jobmind » ; « déduit par Jobmind » reste)
+    assert_eq!(v[1]["par"], "");
 }
 
 /// Vu en vrai le 19/11/2026 (France Travail) : la petite fenêtre ouverte sur un écran inconnu, Jordan se connecte ; la

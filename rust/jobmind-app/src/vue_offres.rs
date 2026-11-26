@@ -1,13 +1,18 @@
-//! Ce que l'onglet Offres montre (étape 4 du plan), dessiné par ui\jobmind.js : la barre des filtres (le texte cherché
-//! dans tout le texte des offres gardées, le lieu, le contrat, le télétravail, toutes / favoris / plus tard / cachées),
-//! à gauche la recherche gardée choisie et la liste des offres gardées, à droite l'offre ouverte (son texte gardé sur ce
-//! PC, ses sources et « Voir sur le site », favori, plus tard, « Pas pour moi », « J'ai postulé »), ou « Mes
-//! recherches ». Les offres gardées avant le retrait d'Adzuna (20/11/2026) restent, avec « Voir sur Adzuna ».
+//! Ce que l'onglet Offres montre de « Mes offres gardées » (étape 4 du plan), dessiné par ui\jobmind.js. Depuis la
+//! 0.2.1, la même disposition que les offres d'un site : à gauche la recherche gardée choisie et les filtres (le texte
+//! cherché dans tout le texte des offres gardées, le lieu, le contrat, le télétravail, toutes / favoris / plus tard /
+//! hors sujet / retirées, « Aucun diplôme requis », « Débutant accepté »), à droite les offres en cartes sur toute la
+//! largeur, par pages de `CARTES_PAR_PAGE` (« Page 2 sur 7 »), dans la même forme que les cartes d'un site
+//! (`coulisse::Coulisse::cartes`) : la page les dessine avec la même fonction. Un double clic ouvre l'offre en grand
+//! (son texte gardé sur ce PC, ses sources et « Voir sur le site », favori, plus tard, « Retirer de ma liste », « J'ai
+//! postulé »), avec « Retour à la liste », « Offre précédente » et « Offre suivante » ; ou « Mes recherches ». Les
+//! offres gardées avant le retrait d'Adzuna (20/11/2026) restent, avec « Voir sur Adzuna ».
 //!
-//! Étape 6 : chaque offre a sa pastille (« Très proche », « Proche », « Un peu », « Hors sujet ») et sa raison en une
-//! ligne ; l'offre ouverte dit le diplôme et l'expérience demandés avec leur preuve (le bout de phrase de l'offre) et
-//! qui les a lus (« lu par Jobmind » ou « lu par Claude ») ; la barre a « Aucun diplôme requis », « Débutant accepté »
-//! et le tri ; la liste, la rubrique « Hors sujet » et ce que Claude peut lire (ou la clé qui lui manque).
+//! Étape 6 : chaque carte a sa note (« Très proche », « Proche », « Un peu », « Hors sujet ») dans son bandeau du haut,
+//! jamais dans ses étiquettes, et sa raison en une ligne ; « Déjà vue » sur une offre déjà ouverte ; l'offre ouverte
+//! dit le diplôme et l'expérience demandés avec leur preuve (le bout de phrase de l'offre) et, seulement quand ce
+//! n'est pas une simple lecture de Jobmind, qui les a trouvés (« déduit par Jobmind » ou « lu par Claude ») ; le tri,
+//! la rubrique « Hors sujet » et ce que Claude peut lire (ou la clé qui lui manque).
 //!
 //! Tous les textes sont écrits ici, en français simple, sans tiret long ni demi-cadratin ; la page les échappe. Les
 //! listes des départements et des régions ne sont pas répétées : la page les prend dans Mon profil (« Ce que je
@@ -15,15 +20,16 @@
 
 use jobmind_core::Jour;
 use jobmind_core::fiche::{self as rangement, Fiche};
-use jobmind_core::lecture::{Confiance, LuPar};
+use jobmind_core::lecture::{Confiance, Diplome, Experience, LuPar};
 use jobmind_core::offre::{Offre, TeleOffre, noms_sources};
+use jobmind_core::pertinence::Niveau;
 use jobmind_core::recherche::{Contrat, GenreLieu, Lieu, RAYONS, Teletravail};
 use jobmind_core::recherches::NOMBRE_MAX;
 use jobmind_storage::offres::OffreComplete;
 use serde_json::{Value, json};
 
 use crate::ecran::{AUCUNE_OFFRE, OFFRES};
-use crate::offres::{LISTE_MAX, VueOffres, nom_source};
+use crate::offres::{CARTES_PAR_PAGE, VueOffres, nom_source};
 use jobmind_storage::lecture::TEXTE_MIN_IA;
 
 /// Les textes de l'onglet (la page les pose tels quels), en objet.
@@ -67,49 +73,81 @@ fn noms(o: &Offre) -> String {
     noms_sources(&o.sources.iter().map(|s| nom_source(s)).collect::<Vec<_>>())
 }
 
-/// La petite ligne d'une offre : « CDI, le 17 nov., sur France Travail et LinkedIn ».
-fn ligne3(o: &Offre, aujourdhui: Jour) -> String {
-    let mut l: Vec<String> = Vec::new();
+/// 0.2.1 : la carte d'une offre gardée, dans la même forme que la carte d'une offre d'un site (la page les dessine
+/// avec la même fonction) : `i` est son numéro ; la note va dans le bandeau du haut (`proche`), jamais dans les
+/// étiquettes ; `vue` : « Déjà vue », une offre déjà ouverte ; `retiree` : retirée de ma liste, montrée en gris dans
+/// « Retirées » avec « Remettre ».
+fn carte(o: &Offre, ouverte: Option<i64>, aujourdhui: Jour) -> Value {
+    let etiquette = |nom: &str, bon: bool, genre: &str| json!({ "nom": nom, "bon": bon, "genre": genre });
+    let mut etiquettes = Vec::new();
+    // (ce que Jordan a fait de l'offre, d'abord)
+    if o.candidature.is_some() {
+        etiquettes.push(etiquette("Postulé", true, "marque"));
+    }
+    if o.favori {
+        etiquettes.push(etiquette("Favori", false, "marque"));
+    }
+    if o.plus_tard {
+        etiquettes.push(etiquette("Plus tard", false, "marque"));
+    }
+    // (puis ce que demande l'offre, comme sur la carte d'un site)
+    if let Some(d) = o.diplome {
+        etiquettes.push(etiquette(d.nom(), d == Diplome::Aucun, "lecture"));
+    }
+    if let Some(e) = o.experience {
+        etiquettes.push(etiquette(&e.nom(), e == Experience::Debutant, "lecture"));
+    }
     if let Some(c) = o.contrat {
-        l.push(c.nom().to_string());
+        etiquettes.push(etiquette(c.nom(), false, "contrat"));
     }
-    match o.publiee_le {
-        Some(j) => l.push(format!("le {}", j.court(aujourdhui))),
-        None => l.push(format!("gardée le {}", o.ajoutee_le.court(aujourdhui))),
+    match o.teletravail {
+        Some(TeleOffre::Partiel) => etiquettes.push(etiquette("Télétravail possible", false, "tele")),
+        Some(TeleOffre::Complet) => etiquettes.push(etiquette("Télétravail complet", false, "tele")),
+        None => {}
     }
-    l.push(format!("sur {}", noms(o)));
-    l.join(", ")
-}
-
-fn ligne(o: &Offre, ouverte: Option<i64>, aujourdhui: Jour) -> Value {
-    json!({
-        "id": o.id,
+    let date = match o.publiee_le {
+        Some(j) => format!("le {}", j.court(aujourdhui)),
+        None => format!("gardée le {}", o.ajoutee_le.court(aujourdhui)),
+    };
+    let mut carte = json!({
+        "i": o.id,
         "titre": o.titre,
-        "sous": sous(o),
-        "l3": ligne3(o, aujourdhui),
-        "sel": Some(o.id) == ouverte,
-        "nouvelle": !o.vue && !o.cachee,
-        "favori": o.favori,
-        "plus_tard": o.plus_tard,
-        "cachee": o.cachee,
-        "postule": o.candidature.is_some(),
-        // (étape 6 : la pastille et la raison)
-        "note": o.niveau().map(|n| json!({ "code": n.code(), "nom": n.nom() })),
+        "sous": o.entreprise,
+        "lieu": o.lieu.split(',').next().unwrap_or_default().trim(),
+        "l3": format!("{date} · sur {}", noms(o)),
         "raison": o.raison,
-    })
+        "sel": Some(o.id) == ouverte,
+        "etiquettes": etiquettes,
+        "etat": "lue",
+        "retiree": o.cachee,
+        "vue": o.vue && !o.cachee,
+    });
+    // (le bandeau du haut : la note en mots ; le champ n'existe que sur une carte qui a sa note)
+    if let Some(n) = o.niveau().filter(|_| !o.cachee) {
+        let niveau = match n {
+            Niveau::TresProche => "tres",
+            Niveau::Proche => "proche",
+            Niveau::UnPeu => "peu",
+            Niveau::HorsSujet => "hors",
+        };
+        carte["proche"] = json!({ "niveau": niveau, "nom": n.nom() });
+    }
+    carte
 }
 
-/// Ce qui a été lu, pour l'offre ouverte : la valeur, la preuve et qui l'a lu.
-fn lu_vue(nom: &str, lu: Option<(String, &str, LuPar, Confiance)>, lue: bool, absent: &str) -> Value {
+/// Ce qui a été lu, pour l'offre ouverte : la valeur, la preuve et qui l'a trouvé (0.2.1 : plus de « lu par Jobmind »,
+/// Jordan n'en veut plus : rien quand c'est une simple lecture de Jobmind ; « déduit par Jobmind » et « lu par
+/// Claude » restent).
+fn lu_vue(nom: &str, lu: Option<(String, &str, LuPar, Confiance)>, absent: &str) -> Value {
     match lu {
         Some((valeur, preuve, par, confiance)) => json!({
             "nom": nom,
             "valeur": valeur,
             "preuve": preuve,
-            "par": if par == LuPar::Regles && confiance == Confiance::Moyenne {
-                "déduit par Jobmind".to_string()
-            } else {
-                par.nom().to_string()
+            "par": match (par, confiance) {
+                (LuPar::Regles, Confiance::Moyenne) => "déduit par Jobmind",
+                (LuPar::Regles, _) => "",
+                (LuPar::Ia, _) => "lu par Claude",
             },
             "dit": true,
         }),
@@ -117,7 +155,7 @@ fn lu_vue(nom: &str, lu: Option<(String, &str, LuPar, Confiance)>, lue: bool, ab
             "nom": nom,
             "valeur": absent,
             "preuve": "",
-            "par": if lue { "lu par Jobmind" } else { "" },
+            "par": "",
             "dit": false,
         }),
     }
@@ -242,20 +280,16 @@ fn fiche(x: &OffreComplete, aujourdhui: Jour, claude: bool, annuaire: Option<&cr
         lu_vue(
             "Diplôme",
             l.diplome.as_ref().map(|d| (d.valeur.nom().to_string(), d.preuve.as_str(), d.par, d.confiance)),
-            l.lue,
             absent,
         ),
         lu_vue(
             "Expérience",
             l.experience.as_ref().map(|e| (e.valeur.nom(), e.preuve.as_str(), e.par, e.confiance)),
-            l.lue,
             absent,
         ),
     ];
     if !l.autres.is_empty() {
-        lecture.push(
-            json!({ "nom": "Permis et CACES", "valeur": l.autres, "preuve": "", "par": "lu par Jobmind", "dit": true }),
-        );
+        lecture.push(json!({ "nom": "Permis et CACES", "valeur": l.autres, "preuve": "", "par": "", "dit": true }));
     }
     // (Claude peut lire cette offre : quelque chose n'est pas dit, jamais demandé, et assez de texte)
     let floue = l.lue
@@ -446,8 +480,12 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
             n => format!("{n} offres gardées"),
         }
     };
-    // (la liste vide : une phrase seulement si des offres gardées sont cachées par les filtres)
-    let vide_liste = if v.gardees + v.cachees > 0 { "Aucune offre avec ces filtres." } else { "" };
+    // (0.2.1 : « Page 2 sur 7 · offres 25 à 48 », comme pour un site ; rien sans carte)
+    let page_texte = if v.liste.is_empty() {
+        String::new()
+    } else {
+        format!("Page {} sur {} · offres {} à {}", v.page, v.pages.max(1), v.debut + 1, v.debut + v.liste.len())
+    };
     let lieux: Vec<Value> = GenreLieu::TOUS
         .iter()
         .map(|g| {
@@ -539,17 +577,22 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
             "teles": teles,
             "listes": listes,
             "compte": compte,
-            "vide_liste": vide_liste,
             "recherches": v.recherches.iter().map(|r| json!({ "id": r.id, "nom": r.nom })).collect::<Vec<_>>(),
             "recherche": choisie.map(|r| r.id),
             "recherche_sous": choisie.map(|r| recherche_texte(&r.mots, &r.lieu)),
-            "lignes": v.liste.iter().map(|o| ligne(o, ouverte, aujourdhui)).collect::<Vec<_>>(),
-            "plus": if v.total > LISTE_MAX {
-                format!("Seules les {LISTE_MAX} premières sont montrées : précise les filtres pour voir les autres.")
-            } else {
-                String::new()
-            },
+            // (0.2.1 : les cartes de la page montrée, dans la forme des cartes d'un site, et leurs pages)
+            "titre": "Mes offres gardées",
+            "lignes": v.liste.iter().map(|o| carte(o, ouverte, aujourdhui)).collect::<Vec<_>>(),
+            "par_page": CARTES_PAR_PAGE,
+            "page": v.page,
+            "pages": v.pages,
+            "page_texte": page_texte,
+            "precedente": v.page > 1,
+            "suivante": v.page < v.pages,
+            // (l'offre ouverte en grand, et ses voisines : « Offre précédente », « Offre suivante »)
             "fiche": v.ouverte.as_ref().map(|o| fiche(o, aujourdhui, v.claude, v.annuaire.as_ref())),
+            "fiche_avant": v.avant,
+            "fiche_apres": v.apres,
             "vide": vide(v),
             "gestion": gestion(v),
             "textes": textes(&[
@@ -616,6 +659,19 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
                 ("lire_floues", "Lire avec Claude"),
                 ("cle_ia_t", "Ajoute ta clé Claude pour que Jobmind lise aussi les offres floues."),
                 ("plein", "Tu as déjà 20 recherches : supprime-en une pour en ajouter une autre."),
+                // (0.2.1 : les cartes, leurs pages et l'offre ouverte en grand, avec les mots des offres d'un site)
+                ("i_texte_t", "Chercher dans mes offres"),
+                ("lieu_t", "Lieu"),
+                ("listes_t", "Montrer"),
+                ("l_retirer", "Retirer de ma liste"),
+                ("l_remettre", "Remettre"),
+                ("deja_vue", "Déjà vue"),
+                ("precedente", "Page précédente"),
+                ("suivante", "Page suivante"),
+                ("double_clic", "Double clic sur une offre pour l'ouvrir en grand."),
+                ("retour_liste", "Retour à la liste"),
+                ("offre_avant", "Offre précédente"),
+                ("offre_apres", "Offre suivante"),
             ]),
         },
     })
@@ -624,8 +680,6 @@ pub fn onglet(v: &VueOffres, aujourdhui: Jour) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jobmind_core::lecture::{Diplome, Experience};
-    use jobmind_core::pertinence::Niveau;
     use jobmind_storage::lecture::{LectureGardee, Lu};
     use jobmind_storage::offres::{Lien, RechercheGardee, VueCandidats};
 
@@ -665,6 +719,8 @@ mod tests {
         VueOffres {
             liste: vec![a.clone(), b],
             total: 2,
+            page: 1,
+            pages: 1,
             gardees: 2,
             nouvelles: 1,
             favoris: 1,
@@ -716,10 +772,14 @@ mod tests {
         assert_eq!(o["compte"], "2 offres gardées");
         assert_eq!(o["recherche_sous"], "agent de quai, autour de Metz (30 km)");
         let l = o["lignes"].as_array().unwrap();
-        assert_eq!(l[0]["l3"], "CDI, le 17 nov., sur Adzuna et LinkedIn");
+        // (0.2.1 : une carte, dans la forme des cartes d'un site : son numéro dans `i`, l'entreprise, le lieu, la date
+        // et les sites ; le contrat est une étiquette)
+        assert_eq!(l[0]["i"], 1);
+        assert_eq!((&l[0]["sous"], &l[0]["lieu"]), (&json!("Entrepôts du Val de Moselle"), &json!("Ennery")));
+        assert_eq!(l[0]["l3"], "le 17 nov. · sur Adzuna et LinkedIn");
         assert_eq!(l[0]["sel"], true);
-        assert_eq!(l[1]["sous"], "Forbach (57)");
-        assert_eq!(l[1]["nouvelle"], true);
+        assert_eq!((&l[1]["sous"], &l[1]["lieu"], &l[1]["sel"]), (&json!(""), &json!("Forbach (57)"), &json!(false)));
+        assert_eq!(o["titre"], "Mes offres gardées");
         let f = &o["fiche"];
         assert_eq!(f["sous"], "Entrepôts du Val de Moselle, Ennery");
         assert_eq!(f["sources"], "Trouvée sur Adzuna et LinkedIn");
@@ -778,14 +838,34 @@ mod tests {
         let mut v = exemple();
         let e = onglet(&v, j(18));
         let o = &e["offres"];
-        assert_eq!(o["lignes"][0]["note"]["nom"], "Très proche");
+        // (0.2.1 : la note est dans le bandeau du haut de la carte, jamais dans ses étiquettes du bas)
+        assert_eq!(o["lignes"][0]["proche"], json!({ "niveau": "tres", "nom": "Très proche" }));
+        assert!(o["lignes"][0].get("note").is_none());
         assert_eq!(o["lignes"][0]["raison"], "Aucun diplôme demandé, à 12 km, débutant accepté");
-        assert!(o["lignes"][1]["note"].is_null());
+        assert!(o["lignes"][1].get("proche").is_none());
+        let noms = |c: &Value| -> Vec<String> {
+            c["etiquettes"].as_array().unwrap().iter().map(|e| e["nom"].as_str().unwrap().to_string()).collect()
+        };
+        assert_eq!(
+            noms(&o["lignes"][0]),
+            ["Favori", "Aucun diplôme demandé", "Débutant accepté", "CDI", "Télétravail possible"]
+        );
+        assert_eq!(noms(&o["lignes"][1]), ["CDI"]);
+        for c in o["lignes"].as_array().unwrap() {
+            for n in noms(c) {
+                assert!(!["Très proche", "Proche", "Un peu", "Hors sujet"].contains(&n.as_str()), "{n}");
+            }
+        }
         let f = &o["fiche"];
         assert_eq!(f["note"]["code"], "tres_proche");
         assert_eq!(f["lecture"][0]["valeur"], "Aucun diplôme demandé");
         assert_eq!(f["lecture"][0]["preuve"], "Sans diplôme");
-        assert_eq!(f["lecture"][0]["par"], "lu par Jobmind");
+        // (0.2.1 : plus de « lu par Jobmind » : rien pour une simple lecture de Jobmind, ni pour ce qui n'est pas dit,
+        // ni pour les permis)
+        assert_eq!(f["lecture"][0]["par"], "");
+        assert_eq!(f["lecture"][1]["par"], "");
+        assert_eq!(f["lecture"][2]["par"], "");
+        assert!(!e.to_string().contains("lu par Jobmind"));
         // (le texte vient d'Adzuna : un résumé, ce qu'il ne dit pas est peut-être dans l'annonce complète)
         assert_eq!(f["lecture"][1]["valeur"], "Pas dans le résumé d'Adzuna");
         assert_eq!(f["lecture"][2]["valeur"], "Permis B");
@@ -818,6 +898,113 @@ mod tests {
         // Sans « Ce que je cherche » : la phrase qui le demande
         v.profil = false;
         assert!(onglet(&v, j(18))["offres"]["sans_note"].as_str().unwrap().contains("Ce que je cherche"));
+    }
+
+    /// 0.2.1 : « déduit par Jobmind » et « lu par Claude » restent sur ce que demande l'offre.
+    #[test]
+    fn qui_a_lu_sans_lu_par_jobmind() {
+        let mut v = exemple();
+        let x = v.ouverte.as_mut().unwrap();
+        x.lecture.diplome.as_mut().unwrap().confiance = Confiance::Moyenne;
+        x.lecture.experience = Some(Lu {
+            valeur: Experience::Debutant,
+            preuve: "Débutant accepté".into(),
+            confiance: Confiance::Forte,
+            par: LuPar::Ia,
+        });
+        let e = onglet(&v, j(18));
+        let l = &e["offres"]["fiche"]["lecture"];
+        assert_eq!(l[0]["par"], "déduit par Jobmind");
+        assert_eq!(l[1]["par"], "lu par Claude");
+        assert_eq!(l[2]["par"], "");
+        assert!(!e.to_string().contains("lu par Jobmind"));
+    }
+
+    /// 0.2.1 : les cartes des offres gardées : « Déjà vue » d'après le champ `vue`, le bandeau de la note (les quatre
+    /// niveaux), une offre retirée en gris sans bandeau ni « Déjà vue », les marques en étiquettes.
+    #[test]
+    fn les_cartes_deja_vue_et_bandeau() {
+        let mut v = exemple();
+        v.ouverte = None;
+        let e = onglet(&v, j(18));
+        let l = e["offres"]["lignes"].as_array().unwrap().clone();
+        // (l'offre 1 a été ouverte, l'offre 2 jamais ; aucune n'est ouverte en grand)
+        assert_eq!((&l[0]["vue"], &l[1]["vue"]), (&json!(true), &json!(false)));
+        assert_eq!((&l[0]["sel"], &l[0]["etat"], &l[0]["retiree"]), (&json!(false), &json!("lue"), &json!(false)));
+        assert!(e["offres"]["fiche"].is_null());
+        assert_eq!(e["offres"]["textes"]["deja_vue"], "Déjà vue");
+        // Les quatre niveaux de la note, en mots, dans le bandeau
+        for (note, hors, niveau) in [(92, false, "tres"), (65, false, "proche"), (40, false, "peu"), (0, true, "hors")]
+        {
+            v.liste[1].pertinence = Some(note);
+            v.liste[1].hors_sujet = hors;
+            let nom = v.liste[1].niveau().unwrap().nom();
+            let c = onglet(&v, j(18))["offres"]["lignes"][1].clone();
+            assert_eq!(c["proche"], json!({ "niveau": niveau, "nom": nom }), "{note}");
+        }
+        assert_eq!(v.liste[1].niveau(), Some(Niveau::HorsSujet));
+        // Une offre retirée de ma liste : en gris, ni bandeau ni « Déjà vue » ; postulée et gardée pour plus tard
+        v.liste[0].cachee = true;
+        v.liste[0].plus_tard = true;
+        v.liste[0].candidature = Some(3);
+        let c = onglet(&v, j(18))["offres"]["lignes"][0].clone();
+        assert_eq!((&c["retiree"], &c["vue"]), (&json!(true), &json!(false)));
+        assert!(c.get("proche").is_none());
+        let noms: Vec<&str> = c["etiquettes"].as_array().unwrap().iter().map(|e| e["nom"].as_str().unwrap()).collect();
+        assert_eq!(noms[..3], ["Postulé", "Favori", "Plus tard"]);
+        // Sans date de publication : le jour où elle a été gardée
+        v.liste[1].publiee_le = None;
+        assert_eq!(onglet(&v, j(18))["offres"]["lignes"][1]["l3"], "gardée le 18 nov. · sur Indeed");
+    }
+
+    /// 0.2.1 : les pages de cartes (« Page 2 sur 7 · offres 25 à 48 »), leurs deux boutons, et les voisines de
+    /// l'offre ouverte en grand.
+    #[test]
+    fn les_pages_de_cartes_et_les_voisines() {
+        let mut v = exemple();
+        let modele = v.liste[1].clone();
+        v.liste = (0..CARTES_PAR_PAGE as i64).map(|k| Offre { id: 100 + k, ..modele.clone() }).collect();
+        (v.total, v.gardees, v.page, v.pages, v.debut) = (150, 150, 2, 7, CARTES_PAR_PAGE);
+        v.ouverte = None;
+        let e = onglet(&v, j(18));
+        let o = &e["offres"];
+        assert_eq!(o["lignes"].as_array().unwrap().len(), 24);
+        assert_eq!(o["page_texte"], "Page 2 sur 7 · offres 25 à 48");
+        assert_eq!((&o["page"], &o["pages"], &o["par_page"]), (&json!(2), &json!(7), &json!(24)));
+        assert_eq!((&o["precedente"], &o["suivante"]), (&json!(true), &json!(true)));
+        assert_eq!(o["compte"], "150 offres gardées");
+        assert_eq!((&o["fiche_avant"], &o["fiche_apres"]), (&json!(false), &json!(false)));
+        // La dernière page, pas pleine
+        v.liste.truncate(6);
+        (v.page, v.debut) = (7, 6 * CARTES_PAR_PAGE);
+        let e = onglet(&v, j(18));
+        assert_eq!(e["offres"]["page_texte"], "Page 7 sur 7 · offres 145 à 150");
+        assert_eq!((&e["offres"]["precedente"], &e["offres"]["suivante"]), (&json!(true), &json!(false)));
+        // Une seule page : aucun bouton ; aucune carte : aucune phrase de page
+        (v.page, v.pages, v.debut, v.total) = (1, 1, 0, 6);
+        let e = onglet(&v, j(18));
+        assert_eq!(e["offres"]["page_texte"], "Page 1 sur 1 · offres 1 à 6");
+        assert_eq!((&e["offres"]["precedente"], &e["offres"]["suivante"]), (&json!(false), &json!(false)));
+        v.liste.clear();
+        assert_eq!(onglet(&v, j(18))["offres"]["page_texte"], "");
+        // L'offre ouverte en grand : ses voisines, et les mots de ses boutons
+        let mut v = exemple();
+        (v.avant, v.apres) = (false, true);
+        let e = onglet(&v, j(18));
+        let o = &e["offres"];
+        assert_eq!((&o["fiche_avant"], &o["fiche_apres"]), (&json!(false), &json!(true)));
+        assert_eq!(o["fiche"]["id"], 1);
+        let t = &o["textes"];
+        assert_eq!(
+            (&t["retour_liste"], &t["offre_avant"], &t["offre_apres"], &t["precedente"], &t["suivante"]),
+            (
+                &json!("Retour à la liste"),
+                &json!("Offre précédente"),
+                &json!("Offre suivante"),
+                &json!("Page précédente"),
+                &json!("Page suivante")
+            )
+        );
     }
 
     #[test]
